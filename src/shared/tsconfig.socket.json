@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "none",
+    "lib": ["ES2020", "DOM"],
+    "types": ["chrome"],
+    "rootDir": ".",
+    "outDir": "../../build/shared"
+  },
+  "include": ["scripts/socket.ts", "types/globals.d.ts"]
+}

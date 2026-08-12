@@ -1,0 +1,38 @@
+{
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAvZTkruLgh9tEsqIkBJ8eWzoWZTD/2F6pD4kNOAiCWTASkEIsdIQSDgxJhZl4dIqkJzcEXc9TNZI8qGxVqVEFWAb/xHGNW3oIW8OykdNf39z3OMsTY3cB/Dw2ft6ycPO0EMHLgaW9Zu5gY2z1F43klArnb1PYeQwMWjMLgYttXRExyEXSbAlmkE3UsR/z9Hb2EOxc8T8lem1obxXYD9dnOsx777RjaEKP5FK3Kh9PMPX/899A5D9avW+BTg+tOaV0vFqwjLxjn1p4oSLNK1VuvBu5SvjSq6PaKmdFeJ+L54RZOtFVRAkz",
+  "name": "Wisenet Camera/NVR Player Extension with IP Installer",
+  "description": "Wisenet Camera/NVR Player Extension with IP Installer",
+  "version": "0.4",
+  "manifest_version": 3,
+  "minimum_chrome_version": "116",
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Wisenet IP Installer",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "48": "icons/icon-128.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "permissions": [
+    "nativeMessaging",
+    "storage",
+    "clipboardRead",
+    "notifications",
+    "contextMenus"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "externally_connectable": {
+    "ids": ["*"],
+    "matches": ["http://my.localhost/*"],
+    "accepts_tls_channel_id": false
+  },
+  "icons": { "16": "icons/icon-16.png", "36": "icons/icon-128.png", "48": "icons/icon-128.png", "128": "icons/icon-128.png", "512": "icons/icon-512.png" },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  }
+}

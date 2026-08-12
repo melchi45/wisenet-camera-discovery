@@ -1,0 +1,41 @@
+{
+  "name": "wisenet-chrome-ip-installer",
+  "version": "1.0.0",
+  "description": "WiseNet/Hanwha Chrome IP Installer extension, plus a Node.js port of its UDP camera discovery protocol (see src/nodejs/, built on the shared SUNAPI wire-format implementation in src/sunapi/). TypeScript sources live under src/ and build to dist/chrome-extension/ + dist/nodejs/ — this package itself is private (the Chrome extension isn't published to npm); dist/nodejs/'s own package.json (name: wisenet-udp-discovery) is the one actually meant for `npm publish`, run from inside dist/nodejs/ after `npm run build`.",
+  "private": true,
+  "main": "dist/nodejs/udpDiscovery.js",
+  "files": [
+    "dist/nodejs"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/melchi45/WiseNetChromeIPInstaller.git"
+  },
+  "keywords": [
+    "wisenet",
+    "hanwha",
+    "sunapi",
+    "ip-camera",
+    "udp",
+    "discovery"
+  ],
+  "scripts": {
+    "build": "node scripts/build.js",
+    "build:extension": "tsc -p tsconfig.extension.json && tsc -p src/shared/tsconfig.socket.json && node scripts/substitute-player-extension-ids.js build/shared/scripts/socket.js && tsc -p src/shared/tsconfig.window.json && vite build --config src/shared/vite.config.ts",
+    "build:node": "tsc -p tsconfig.node.json",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true});require('fs').rmSync('build',{recursive:true,force:true})\"",
+    "start:server": "node scripts/build.js node && node dist/nodejs/examples/server.js"
+  },
+  "dependencies": {
+    "@melchi45/rtsp-over-websocket": "^1.0.14",
+    "moment": "^2.30.1",
+    "moment-timezone": "^0.5.48",
+    "vis": "^4.20.1-SNAPSHOT"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.280",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0",
+    "vite": "^6.4.3"
+  }
+}

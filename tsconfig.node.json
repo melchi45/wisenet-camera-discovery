@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "CommonJS",
+    "moduleDetection": "force",
+    "resolveJsonModule": true,
+    "lib": ["ES2020"],
+    "types": ["node"],
+    "rootDir": "src",
+    "outDir": "build/node"
+  },
+  "include": [
+    "src/sunapi/**/*.ts",
+    "src/nodejs/**/*.ts",
+    "src/chrome-extension/native-host/wisenet-udp-host.ts"
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "none",
+    "lib": ["ES2020", "DOM"],
+    "types": ["chrome"],
+    "rootDir": "src/chrome-extension",
+    "outDir": "dist/chrome-extension"
+  },
+  "include": [
+    "src/chrome-extension/background.ts",
+    "src/shared/types/globals.d.ts"
+  ]
+}

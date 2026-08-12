@@ -1,0 +1,9 @@
+{
+  "name": "com.wisenet.ipinstaller",
+  "description": "Wisenet IP Installer UDP discovery native host",
+  "path": "@HOST_PATH@",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://@EXTENSION_ID@/"
+  ]
+}

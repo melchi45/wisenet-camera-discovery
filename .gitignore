@@ -1,0 +1,20 @@
+node_modules/
+
+# Contains a GitHub Packages auth token for @melchi45 — never commit this.
+.npmrc
+
+# TypeScript build output — see scripts/build.js and the TS migration plan.
+/dist/
+/build/
+
+# Local port overrides for the nodejs example server — copy .env.example
+# to create one, see README.md's "Example server" section.
+.env
+
+# Per-session Claude Code tool-permission grants — local/ephemeral, not
+# meant to be shared. .claude/settings.json (project-level config) is not
+# ignored here.
+.claude/settings.local.json
+
+# Local dev TLS private key — not referenced by any script, never commit.
+key.pem

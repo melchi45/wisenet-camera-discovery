@@ -1,0 +1,665 @@
+:root {
+  font-family: "Spoqa Han Sans Neo", -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 62.5%;
+
+  /* Surfaces */
+  --bg: #f3f4f6;
+  --surface: #ffffff;
+  --surface-alt: #f8f9fb;
+  --surface-sunken: #eef0f3;
+
+  /* Text */
+  --font-color: #1f2328;
+  --text-muted: #6b7280;
+  --text-subtle: #9aa1ab;
+
+  /* Borders / dividers */
+  --border-color: #dfe3e8;
+  --border-color-strong: #c7cdd6;
+
+  /* Accent */
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-contrast: #ffffff;
+  --accent-soft: #e8effe;
+
+  /* Buttons */
+  --button-background-color: #ffffff;
+  --button-color: #1f2328;
+  --button-border-color: #d0d5dd;
+  --button-hover-background: #f5f6f8;
+  --button-disable-color: #e5e7eb;
+  --button-disable-font-color: #a7acb5;
+
+  /* Status */
+  --success: #16a34a;
+  --danger: #dc2626;
+
+  /* Shape / elevation */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06);
+  --shadow-md: 0 4px 14px rgba(16, 24, 40, 0.08);
+  --transition: 150ms ease;
+
+  /* Legacy alias kept for anything still reading it directly */
+  --main-color: var(--surface);
+  --main-backcolor: var(--bg);
+
+  /* DataTables */
+  --tabel-main-color: var(--surface);
+  --table-tr-selected: var(--accent-soft);
+  --tabel-tbody-color: var(--border-color);
+  --tabel-tbody-odd-color: var(--surface-alt);
+  --tabel-tbody-odd-selected-color: var(--accent-soft);
+  --tabel-tbody-tr-hover-color: var(--surface-sunken);
+  --tabel-tbody-tr-hover-selected-color: #d7e3fc;
+  --tabel-tbody-tr-sorting-color: var(--surface-alt);
+  --tabel-tbody-tr-selected-color: var(--accent-soft);
+}
+
+[data-theme="dark"] {
+  --bg: #14161a;
+  --surface: #1c1f26;
+  --surface-alt: #22252c;
+  --surface-sunken: #191b20;
+
+  --font-color: #e7e9ec;
+  --text-muted: #9aa1ab;
+  --text-subtle: #71777f;
+
+  --border-color: #2d323c;
+  --border-color-strong: #3a4049;
+
+  --accent: #3b82f6;
+  --accent-hover: #60a5fa;
+  --accent-contrast: #ffffff;
+  --accent-soft: #1c2c4a;
+
+  --button-background-color: #23262d;
+  --button-color: #e7e9ec;
+  --button-border-color: #3a4049;
+  --button-hover-background: #2a2e36;
+  --button-disable-color: #2a2d33;
+  --button-disable-font-color: #656b74;
+
+  --success: #22c55e;
+  --danger: #f87171;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  font-size: 1.3rem;
+  line-height: 1.45;
+  background-color: var(--bg);
+  color: var(--font-color);
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--accent-soft);
+}
+
+/* Scrollbars (WebKit) — subtle, matches the theme instead of the OS default */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-color-strong);
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-subtle);
+}
+
+/* ---------------------------------------------------------------------- */
+/* Layout                                                                  */
+/* ---------------------------------------------------------------------- */
+
+#container {
+  width: 100%;
+  height: 100%;
+  position: absolute;
+}
+
+#left_panel {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  height: 100%;
+  right: 70%;
+  margin-right: 10px;
+  padding: 10px;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+}
+
+#right_panel {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 70%;
+  resize: horizontal;
+  margin: 0;
+  padding: 10px 10px 10px 0;
+  overflow-x: auto;
+  overflow-y: auto;
+}
+
+/* The resize handle #drag straddles the panel boundary; window.ts drives
+   #left_panel's `right` / #right_panel's `width` directly on drag. */
+#drag {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  margin-left: -3px;
+  cursor: col-resize;
+  background: transparent;
+  border: none;
+  border-left: 1px solid var(--border-color);
+  transition: border-color var(--transition), background var(--transition);
+  z-index: 10;
+}
+
+#drag:hover {
+  border-left-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.video {
+  background: #000;
+  position: relative;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: var(--shadow-md);
+  width: 100%;
+  height: 100%;
+}
+
+/* .video's own width:100%/height:100% above stretches the player to
+   whatever height #left_panel happens to have; height: auto here lets it
+   size to its content's natural height instead. */
+.video.sameRow {
+  height: auto;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Toolbar (discovery controls + theme switch)                            */
+/* ---------------------------------------------------------------------- */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 10px 14px;
+  margin: 0 0 12px 0;
+}
+
+.toolbar-group {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.toolbar-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 1.2rem;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Panels / cards                                                         */
+/* ---------------------------------------------------------------------- */
+
+.panel-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 14px 16px;
+}
+
+.panel-title {
+  margin: 0 0 10px 0;
+  font-size: 1.2rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.panel-subgroup + .panel-subgroup {
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-color);
+}
+
+.subgroup-title {
+  margin: 0 0 8px 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-subtle);
+}
+
+/* A row of fields that wraps naturally instead of relying on float+fixed
+   widths — replaces the old .group/.control float layout. */
+.field-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+.field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.field label,
+.field-row > label {
+  color: var(--text-muted);
+  font-size: 1.2rem;
+}
+
+.field input[type="text"],
+.field input[type="number"],
+.field input[type="date"],
+.field input[type="time"] {
+  width: auto;
+}
+
+/* Legacy container/grouping classes kept (still referenced by window.html /
+   commented-out toggle-class calls in window.ts) but restyled to match. */
+.group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  width: auto;
+  min-width: 100%;
+}
+
+.control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0;
+}
+
+.flex {
+  display: flex;
+}
+
+.sameRow {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  height: 100%;
+  width: 100%;
+}
+
+.hide {
+  display: none;
+}
+
+.show {
+  display: block;
+}
+
+.discovery {
+  height: auto !important;
+  margin-bottom: 5px;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Buttons                                                                 */
+/* ---------------------------------------------------------------------- */
+
+button {
+  appearance: none;
+  font: inherit;
+  font-size: 1.2rem;
+  margin: 1px;
+  padding: 5px 12px;
+  height: auto;
+  min-height: 26px;
+  border: 1px solid var(--button-border-color);
+  border-radius: var(--radius-sm);
+  background: var(--button-background-color);
+  color: var(--button-color);
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition), transform var(--transition);
+}
+
+button:hover:not(:disabled) {
+  background: var(--button-hover-background);
+  border-color: var(--border-color-strong);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+button:disabled,
+button[disabled] {
+  border-color: var(--border-color);
+  background: var(--button-disable-color);
+  color: var(--button-disable-font-color);
+  cursor: not-allowed;
+}
+
+/* Primary actions — the discovery/connect entry points */
+#init,
+#play_button {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 600;
+}
+
+#init:hover:not(:disabled),
+#play_button:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+/* ---------------------------------------------------------------------- */
+/* Inputs / selects                                                        */
+/* ---------------------------------------------------------------------- */
+
+input,
+select,
+textarea {
+  font: inherit;
+  font-size: 1.2rem;
+  background: var(--button-background-color);
+  border: 1px solid var(--button-border-color);
+  border-radius: var(--radius-sm);
+  color: var(--font-color);
+  padding: 4px 8px;
+}
+
+input {
+  flex-grow: 2;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+select {
+  flex-grow: 2;
+  padding-right: 20px;
+}
+
+textarea {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 1.1rem;
+  resize: vertical;
+  background: var(--surface-sunken);
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  flex-grow: 0;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+label {
+  cursor: default;
+}
+
+form {
+  display: flex;
+  flex-direction: row;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Theme switch                                                            */
+/* ---------------------------------------------------------------------- */
+
+.theme-switch {
+  display: inline-block;
+  width: 40px;
+  height: 20px;
+  position: relative;
+}
+
+.slider {
+  background-color: var(--surface-sunken);
+  border: 1px solid var(--border-color-strong);
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  cursor: pointer;
+  transition: 0.2s;
+  border-radius: 34px;
+}
+
+.slider:before {
+  content: " ";
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  width: 14px;
+  height: 14px;
+  transition: 0.2s;
+  border-radius: 50%;
+  background-color: var(--accent);
+}
+
+.theme-switch input[type="checkbox"] {
+  display: none;
+}
+
+.theme-switch input:checked + .slider {
+  background-color: var(--accent-soft);
+}
+
+.theme-switch input:checked + .slider:before {
+  transform: translateX(20px);
+}
+
+.theme-icon {
+  display: flex;
+  justify-content: right;
+  align-items: center;
+}
+
+.theme-icon em,
+.theme-icon img {
+  margin-left: 0.5rem;
+  font-size: 1.1rem;
+  font-style: normal;
+  color: var(--text-muted);
+}
+
+.theme-icon img {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Discovery result table (vanilla replacement for DataTables — see       */
+/* table.css for the scroll/sticky-header/search/info wrapper styling)    */
+/* ---------------------------------------------------------------------- */
+
+table.dataTable {
+  background: var(--tabel-main-color);
+  color: var(--font-color);
+  border-collapse: collapse;
+}
+
+table.dataTable thead th {
+  background: var(--surface-alt);
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-color);
+}
+
+table.dataTable tbody tr {
+  background: var(--tabel-main-color);
+}
+
+table.dataTable tbody tr.odd {
+  background: var(--tabel-tbody-odd-color);
+}
+
+table.dataTable tbody tr:hover {
+  background: var(--tabel-tbody-tr-hover-color);
+}
+
+table.dataTable tbody tr.selected,
+table.dataTable tbody tr.selected td {
+  background: var(--table-tr-selected) !important;
+  color: var(--font-color) !important;
+}
+
+table.dataTable tbody td {
+  border-bottom: 1px solid var(--border-color);
+}
+
+/* ---------------------------------------------------------------------- */
+/* Log panels (debug / discovery / RTSP textareas)                        */
+/* ---------------------------------------------------------------------- */
+
+#debug,
+#result,
+#rtsp {
+  display: block;
+  width: 100%;
+  min-height: 90px;
+  height: 90px;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Video source / profile list (SUNAPI videosource + videoprofile(policy)) */
+/* ---------------------------------------------------------------------- */
+
+#video_source_summary {
+  color: var(--text-muted);
+  font-size: 1.15rem;
+}
+
+.profile-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.profile-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--surface-alt);
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition);
+}
+
+.profile-row:hover {
+  background: var(--surface-sunken);
+  border-color: var(--border-color-strong);
+}
+
+.profile-row.selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.profile-name {
+  font-weight: 600;
+  min-width: 90px;
+}
+
+.profile-meta {
+  color: var(--text-muted);
+  font-size: 1.1rem;
+  flex: 1;
+}
+
+.profile-badges {
+  display: flex;
+  gap: 4px;
+  min-width: 150px;
+  justify-content: flex-end;
+}
+
+.profile-badge {
+  font-size: 1rem;
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  white-space: nowrap;
+}
+
+.profile-badge.event {
+  background: var(--success);
+}
+
+.profile-badge.record {
+  background: var(--danger);
+}
