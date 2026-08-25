@@ -29,6 +29,36 @@ The discovery sends a fixed UDP broadcast packet, then parses binary responses f
 - No npm packages required
 - Port 7711 may require elevated privileges on some systems
 
+## Installing this package in another project
+
+This package is published as **`@melchi45/wisenet-udp-discovery`** to
+**GitHub Packages** (not the public npm registry) — see
+[`.github/workflows/publish-npm.yml`](../../.github/workflows/publish-npm.yml)
+for how/when it's published. To install it elsewhere:
+
+1. Create a [personal access token](https://github.com/settings/tokens) with
+   `read:packages` scope.
+2. In the consuming project, add a `.npmrc` (do **not** commit the token
+   itself — use an env var):
+   ```
+   @melchi45:registry=https://npm.pkg.github.com
+   //npm.pkg.github.com/:_authToken=${GH_PACKAGES_TOKEN}
+   ```
+3. Install it:
+   ```bash
+   npm install @melchi45/wisenet-udp-discovery
+   # or, to track pre-release builds published on every push to main:
+   npm install @melchi45/wisenet-udp-discovery@beta
+   ```
+4. Use it the same way as the [API](#api) below, just via the package name
+   instead of a relative `require()` — note this package's `main`
+   (`index.js`) is the CLI demo above and starts a discovery run as a
+   side effect of being `require()`d, so import the `udpDiscovery`
+   submodule directly rather than the package root:
+   ```javascript
+   const { UDPDiscovery } = require('@melchi45/wisenet-udp-discovery/udpDiscovery');
+   ```
+
 ## Quick Start
 
 ```bash

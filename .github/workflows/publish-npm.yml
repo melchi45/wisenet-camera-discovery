@@ -1,0 +1,79 @@
+name: Publish npm Package
+
+# Publishes dist/nodejs/ (the standalone @melchi45/wisenet-udp-discovery
+# package — see src/nodejs/README.md) to GitHub Packages so other projects
+# can add it as a dependency. Two ways to run this:
+#   - push to main -> publishes a prerelease build tagged
+#     "<package.json version>-beta.<short-sha>" under the npm dist-tag
+#     "beta" (`npm install @melchi45/wisenet-udp-discovery@beta`). Every
+#     push gets a unique version (the commit sha), so this never collides
+#     with a previously published version.
+#   - push a tag like "v1.2.0" -> publishes package.json's *own* version
+#     as-is under the default "latest" dist-tag. As with
+#     build-extension.yml, package.json stays the single source of
+#     truth for the version — bump it, commit, then tag to release;
+#     the tag name itself isn't parsed for the version number.
+#
+# Consumers need a .npmrc with:
+#   @melchi45:registry=https://npm.pkg.github.com
+#   //npm.pkg.github.com/:_authToken=<a PAT with read:packages>
+# (same pattern this repo itself uses below to install
+# @melchi45/rtsp-over-websocket from GitHub Packages.)
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # package.json depends on @melchi45/rtsp-over-websocket, published to
+      # GitHub Packages rather than the public npm registry — npm needs an
+      # authenticated .npmrc to resolve it, and the same @melchi45 scope
+      # covers the package this workflow publishes below. GH_PACKAGES_TOKEN
+      # needs both read:packages (existing use, installing
+      # rtsp-over-websocket) and write:packages (publishing this package) —
+      # update the PAT's scopes if it was created before this workflow
+      # existed.
+      - name: Configure npm auth for @melchi45 GitHub Packages
+        run: |
+          echo "@melchi45:registry=https://npm.pkg.github.com" >> .npmrc
+          echo "//npm.pkg.github.com/:_authToken=${{ secrets.GH_PACKAGES_TOKEN }}" >> .npmrc
+
+      - run: npm ci
+
+      - name: Determine package version
+        id: version
+        run: |
+          ROOT_VERSION="$(node -p "require('./package.json').version")"
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "version=$ROOT_VERSION" >> "$GITHUB_OUTPUT"
+            echo "npm_tag=latest" >> "$GITHUB_OUTPUT"
+          else
+            SHORT_SHA="$(git rev-parse --short "${{ github.sha }}")"
+            echo "version=$ROOT_VERSION-beta.$SHORT_SHA" >> "$GITHUB_OUTPUT"
+            echo "npm_tag=beta" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Stamp version onto src/nodejs/package.json
+        run: node scripts/set-nodejs-version.js "${{ steps.version.outputs.version }}"
+
+      - name: Assemble dist/nodejs/
+        run: node scripts/build.js node
+
+      - name: Publish to GitHub Packages
+        run: npm publish ./dist/nodejs --tag ${{ steps.version.outputs.npm_tag }}

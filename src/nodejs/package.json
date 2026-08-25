@@ -1,5 +1,5 @@
 {
-  "name": "wisenet-udp-discovery",
+  "name": "@melchi45/wisenet-udp-discovery",
   "version": "1.0.0",
   "description": "Node.js port of WiseNet Chrome UDP IP camera discovery",
   "main": "index.js",
@@ -8,8 +8,22 @@
     "example:server": "node examples/server.js",
     "test": "node test.js"
   },
-  "keywords": ["wisenet", "hanwha", "ip-camera", "udp", "discovery", "onvif"],
+  "keywords": [
+    "wisenet",
+    "hanwha",
+    "ip-camera",
+    "udp",
+    "discovery",
+    "onvif"
+  ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/melchi45/WiseNetChromeIPInstaller.git"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
   "dependencies": {},
   "devDependencies": {
     "ws": "^8.18.0"

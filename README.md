@@ -28,8 +28,11 @@ This code is very simple example for Hanwha IP Camera discover on Chrome Browser
 
 The source lives under `src/` (TypeScript) and compiles to two independent,
 self-contained outputs under `dist/` — `dist/chrome-extension/` (load this
-unpacked) and `dist/nodejs/` (the standalone `wisenet-udp-discovery`
-package). `dist/` is generated and gitignored; run the build after cloning
+unpacked) and `dist/nodejs/` (the standalone `@melchi45/wisenet-udp-discovery`
+package, published to GitHub Packages — see
+[.github/workflows/publish-npm.yml](.github/workflows/publish-npm.yml) and
+[src/nodejs/README.md](src/nodejs/README.md#installing-this-package-in-another-project)).
+`dist/` is generated and gitignored; run the build after cloning
 and again after pulling any change to `src/`:
 
 ```bash
