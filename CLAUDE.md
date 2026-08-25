@@ -45,6 +45,14 @@ see [`src/chrome-extension/native-host/README.md`](src/chrome-extension/native-h
 - **`src/shared/` changes affect both `dist/` outputs** — `npm run build` builds both; don't
   assume a fix verified only against the extension (or only against the example server) is done.
   See `docs/architecture.md`'s own closing note.
+- **`npm install` fails with `EALLOWREMOTE` on a fresh clone**: `@melchi45/rtsp-over-websocket`
+  is a private GitHub Packages dependency — resolving it needs a `.npmrc` with
+  `@melchi45:registry=https://npm.pkg.github.com` plus an authenticated token
+  (`read:packages` scope), which isn't checked into the repo (see `.gitignore`). Run
+  `node scripts/setup-github-packages-auth.js <PAT>` once per machine before `npm install`.
+  Without that `.npmrc`, npm 11+'s `allow-remote: none` default blocks the tarball fetch because
+  the resolved download host (`npm.pkg.github.com`) doesn't match the *unconfigured* default
+  registry (`registry.npmjs.org`) — the fix is the `.npmrc`, not disabling `allow-remote`.
 
 ## Conventions
 

@@ -36,6 +36,10 @@ package, published to GitHub Packages — see
 and again after pulling any change to `src/`:
 
 ```bash
+# one-time per machine — @melchi45/rtsp-over-websocket is a private
+# GitHub Packages dependency; see CLAUDE.md's "Environment gotchas"
+node scripts/setup-github-packages-auth.js <your GitHub PAT>
+
 npm install
 npm run build
 ```
