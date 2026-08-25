@@ -19,7 +19,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/melchi45/WiseNetChromeIPInstaller.git"
+    "url": "git+https://github.com/melchi45/wisenet-camera-discovery.git"
   },
   "publishConfig": {
     "registry": "https://npm.pkg.github.com"
