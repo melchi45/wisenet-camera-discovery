@@ -258,3 +258,26 @@ this build. Added to the list. **Lesson**: this hardcoded-list pattern needs re-
 bump of that package, not just assumed to still be complete — `ls` that directory and diff against
 the list in `scripts/build.js` when something like this comes up again.
 
+## `socket.ts`: unhandled promise rejection flooding the console on every discovered device
+
+`onDevice()` and `start()` both call `chrome.runtime.sendMessage(id, ...)` (no callback argument)
+for each id in `socket.playerExtensionIds` — those are optional companion "player" extensions, so
+not being installed is the *normal* case, not an error. Called with no callback, this API returns
+a Promise that *rejects asynchronously* when no listener exists ("Could not establish connection.
+Receiving end does not exist."). Both call sites wrapped this in a synchronous `try/catch`, which
+does nothing for an async rejection — only a synchronous throw. The result: one unhandled
+rejection per discovered device per configured player-extension id, logged as `Uncaught (in
+promise) Error: ...` — at real-device volume (dozens of devices, repeated broadcasts) this was the
+dominant source of console noise, at one point over 1,900 entries, which is itself what made
+several of this file's other entries hard to diagnose (the real signal was buried under this).
+`displayResult()`, two call sites away in the same file, already had the fix
+(`sendResult.catch(function () {})`) — `onDevice()`/`start()` just never got the same treatment.
+Fixed by applying the identical pattern to both.
+
+**Lesson**: `try/catch` around a call that returns a Promise only catches a *synchronous* throw
+from making that call, never the Promise's own eventual rejection — those need their own
+`.catch()` (or `await` inside another try/catch), full stop, regardless of how much surrounding
+error handling already exists. Worth checking any other `chrome.runtime.sendMessage(...)` /
+`chrome.runtime.sendMessage(id, ...)` call sites the same way if this class of noise shows up
+again — `grep -n "sendMessage(" src/shared/scripts/socket.ts src/shared/window.ts
+src/chrome-extension/background.ts` to re-audit all of them at once.

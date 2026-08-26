@@ -35,6 +35,31 @@
 // page has no `chrome` global at all.
 var IS_EXTENSION = typeof chrome !== 'undefined' && !!chrome.runtime && !!chrome.runtime.connectNative;
 
+// Verbose per-device discovery logging (onDevice()'s own console.log,
+// below) — off by default. At real-network scale this can flood the
+// console with the full raw object for every device found, including ones
+// from unrelated subnets (see wisenet-udp-host.ts's own note on nMode=6
+// drawing replies from a broader part of the network than just the local
+// one). Backed by chrome.storage.local rather than a UI checkbox because
+// background.js's automatic-mode discovery has no UI at all to put a
+// checkbox on — toggle with a console command instead; see README.md for
+// the exact command. Read once at startup and kept in sync via
+// chrome.storage.onChanged (mirrors background.ts's own
+// AUTO_DISCOVERY_SETTING_KEY pattern) rather than an async
+// chrome.storage.local.get() on every discovered device.
+var VERBOSE_DISCOVERY_LOGGING_KEY = 'verboseDiscoveryLogging';
+var verboseDiscoveryLoggingEnabled = false;
+if (IS_EXTENSION) {
+  chrome.storage.local.get({ [VERBOSE_DISCOVERY_LOGGING_KEY]: false }, function (data) {
+    verboseDiscoveryLoggingEnabled = !!data[VERBOSE_DISCOVERY_LOGGING_KEY];
+  });
+  chrome.storage.onChanged.addListener(function (changes, areaName) {
+    if (areaName === 'local' && VERBOSE_DISCOVERY_LOGGING_KEY in changes) {
+      verboseDiscoveryLoggingEnabled = !!changes[VERBOSE_DISCOVERY_LOGGING_KEY].newValue;
+    }
+  });
+}
+
 var socket = {
   // The IDs of the player extensions we forward discovery results to —
   // see scripts/player-extension-ids.json (this array is substituted in
@@ -115,7 +140,12 @@ var socket = {
     // https://stackoverflow.com/questions/24198322/how-to-launch-a-chrome-app-from-a-chrome-extension
     try {
       socket.playerExtensionIds.forEach(function (id) {
-        chrome.runtime.sendMessage(id, { launch: true });
+        // See onDevice()'s own identical fix below for why this needs a
+        // .catch(), not just the surrounding try/catch.
+        var sendResult = chrome.runtime.sendMessage(id, { launch: true });
+        if (sendResult && typeof sendResult.catch === 'function') {
+          sendResult.catch(function () {});
+        }
       });
     } catch (error) {
       // Player extensions are optional; ignore if not installed.
@@ -293,12 +323,29 @@ var socket = {
   onDevice: function(device) {
     try {
       socket.playerExtensionIds.forEach(function (id) {
-        chrome.runtime.sendMessage(id, device);
+        // chrome.runtime.sendMessage(id, ...) (no callback passed) returns
+        // a Promise that *rejects* — asynchronously — when that extension
+        // id isn't installed/listening, which is the common case (player
+        // extensions are optional). A synchronous try/catch around this
+        // forEach does nothing for that: it only catches a synchronous
+        // throw, never an async rejection, so this promise's rejection
+        // went completely unhandled — one "Uncaught (in promise) Error:
+        // Could not establish connection. Receiving end does not exist."
+        // per device per configured id, exactly the flood this was found
+        // from. Fixed the same way displayResult() already does two lines
+        // up (chrome.runtime.sendMessage({type: "wisenet-discover-result", ...})'s
+        // own .catch()) — this call just didn't have the same guard.
+        var sendResult = chrome.runtime.sendMessage(id, device);
+        if (sendResult && typeof sendResult.catch === 'function') {
+          sendResult.catch(function () {});
+        }
       });
     } catch (error) {
       // Player extensions are optional; ignore if not installed.
     }
     socket.displayResult(device); // no-op when there's no document (background.js)
-    console.log("device", device);
+    if (verboseDiscoveryLoggingEnabled) {
+      console.log("device", device);
+    }
   }
 };

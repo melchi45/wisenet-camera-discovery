@@ -73,7 +73,21 @@ Model, Protocol}`) → `window.dispatchEvent(new CustomEvent('discover', {detail
 pipeline — `window.ts`'s `addDiscoveredDeviceRow()` never needs to know which transport is
 running. `extensionId`/`extensionId2`/`extensionId3` cross-extension forwarding stays wrapped in
 its existing try/catch (throws harmlessly and is ignored when `chrome` doesn't exist at all,
-same as before this change — no `IS_EXTENSION` guard needed there).
+same as before this change — no `IS_EXTENSION` guard needed there); each forward is also its own
+`chrome.runtime.sendMessage(id, ...)` call, which must carry a `.catch(() => {})` of its own since
+a synchronous try/catch does nothing for that call's own async rejection when the target id isn't
+installed (the common case) — see `MEMORY.md`'s entry on the unhandled-rejection flood this was
+found from.
+
+`onDevice()`'s own `console.log("device", device)` is gated behind a `chrome.storage.local`
+flag (`verboseDiscoveryLoggingEnabled`, key `verboseDiscoveryLogging`), off by default — see
+[README.md § Debugging: verbose per-device discovery
+logging](../README.md#debugging-verbose-per-device-discovery-logging) for the exact enable/disable
+console commands. Backed by storage rather than a UI checkbox specifically because
+`background.js`'s automatic-mode discovery has no UI to put a checkbox on; `socket.ts` reads it
+once at load and keeps it live via `chrome.storage.onChanged`, mirroring `background.ts`'s own
+`autoDiscoveryEnabled` pattern, rather than an async `chrome.storage.local.get()` per discovered
+device.
 
 ## `window.ts`'s 4 direct `chrome.*` call sites
 

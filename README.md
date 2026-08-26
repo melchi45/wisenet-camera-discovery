@@ -128,6 +128,30 @@ it works.
 * `src/shared/window.html`: GUI — optional; only needed if you want to
   see discovery results or run discovery manually (see below).
 
+## Debugging: verbose per-device discovery logging
+
+By default, the extension does **not** print each discovered device's full raw object to the
+console — at real-network scale this can flood the console with dozens of entries, including
+devices from unrelated subnets (UDP discovery's broadcast can draw replies from a broader part of
+the network than just your own — see `src/chrome-extension/native-host/wisenet-udp-host.ts`'s own
+note on this). It's opt-in via a `chrome.storage.local` flag rather than a UI checkbox, since
+automatic-mode discovery runs in `background.js` (a service worker with no UI at all) as well as
+`window.html`.
+
+To turn it on, open DevTools on **either** `window.html` or the extension's service worker
+(`chrome://extensions` → this extension's card → **service worker** link) and run:
+
+```js
+chrome.storage.local.set({ verboseDiscoveryLogging: true })
+```
+
+The setting is shared extension-wide (`chrome.storage.local`), so it takes effect in both contexts
+regardless of which one you ran the command in, and persists across reloads until turned back off:
+
+```js
+chrome.storage.local.set({ verboseDiscoveryLogging: false })
+```
+
 ## Chrome extension: Manifest V3 architecture (UDP via native messaging)
 
 `chrome.sockets.udp` was a Chrome Apps API and is not available to
