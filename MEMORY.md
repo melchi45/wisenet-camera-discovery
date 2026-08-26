@@ -157,6 +157,35 @@ any other feature that adds a native-messaging or cross-process round trip to th
 — a promise with no timeout at all is a silent hang waiting to happen, and "no error, no popup, no
 console output" is nearly impossible to distinguish from "still working" without one.
 
+## `#usegmttime` cascading-failure bug, second occurrence: `updateTimeline()`
+
+A second, previously-unfound instance of the same failure class as this file's
+`#broadcast`/`#usegmttime` entry above: `updateTimeline()` (drives the recording timeline view)
+called `document.querySelector('select[id="usegmttime"]').value` five times, unguarded, inside
+its `if(!document.getElementById("use_gmt").checked)` branch. `#usegmttime` has never had a
+corresponding element in `window.html` — same dead reference `on_player_select()` already guards
+elsewhere — so this threw `TypeError: Cannot read properties of null (reading 'value')` on every
+call where "Use timezone" was left unchecked (the common/default case).
+
+**Why this one was harder to spot than the original**: the throw happens *after*
+`visTimeline.setItems(items)` (so the timeline still renders and looks fine) but *before*
+`visTimeline.on("click"/"select", ...)` are reached — so the visible symptom was "timeline draws
+correctly, but clicking an entry does nothing at all," not an obvious crash. The exception then
+propagated up through `updateTimeline()`'s caller (`search_oneday_timeline()`'s `.then()`
+callback) and surfaced as a *rejected* promise, logged by the existing `.catch()` as `"getTimeline
+error: {}"` — an empty object, because `fastJsonStringfy()` (a thin `JSON.stringify()` wrapper) is
+useless on real `Error`/`DOMException` instances: V8 defines `.message`/`.name`/`.stack` as
+non-enumerable, so `JSON.stringify(realError)` reliably yields `"{}"` regardless of what the error
+actually is. That made an unrelated-looking "SUNAPI request failed" message the only visible trace
+of what was actually a plain null-reference bug several layers away. Added `errorDetails()` (uses
+`JSON.stringify(error, Object.getOwnPropertyNames(error))`) alongside `fastJsonStringfy()` for
+future catch blocks that need to show what an Error-like value actually contains.
+
+**Lesson for this codebase specifically**: a `document.getElementById("usegmttime") !== null`-style
+guard at one call site does not mean every call site referencing that same dead id is safe — worth
+grepping for `usegmttime` (and `broadcast`) repo-wide after any future window.ts change, not just
+trusting that the original audit caught every occurrence.
+
 ## Native-host relay extended to the video streaming `wss://` connection
 
 The native-host HTTPS proxy above only covered SUNAPI REST calls — `<rtsp-over-websocket>` opens

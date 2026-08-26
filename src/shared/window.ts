@@ -409,6 +409,9 @@ document.addEventListener("DOMContentLoaded", function(){
     document.getElementById("password").addEventListener("change", changepassword);
     document.getElementById("hostname").addEventListener("change", changehostname);
     document.getElementById("port").addEventListener("change", changeport);
+    document.querySelectorAll('input[type="radio"][name="http_type"]').forEach(function (el) {
+      el.addEventListener('change', changehttptype);
+    });
     document.getElementById("channel").addEventListener("change", changechannel);
     document.getElementById("profile").addEventListener("change", changeprofile);
 
@@ -844,6 +847,27 @@ var onchangeevent = function (event) {
 
 var changeport = function () {
   try {
+    getSelectedPlayer().port = document.getElementById("port").value;
+
+    if(document.getElementById("use_sunapi_client_checkbox").checked == true) {
+      initSunapiManager();
+    }
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+// http_radio/https_radio's change handler — defaults the Port field to
+// the protocol's standard port (80/443) whenever the user manually
+// switches protocol. Only wired to the radios' own 'change' event, not
+// invoked when this codebase sets .checked programmatically (row
+// selection below, onchangeprotocol()) — those already set the device's
+// actual discovered/reported port, which is more accurate than this
+// generic default and shouldn't be clobbered by it.
+var changehttptype = function () {
+  try {
+    var checkedHttpType = document.querySelector('input[type="radio"][name="http_type"]:checked') as HTMLInputElement | null;
+    document.getElementById("port").value = (checkedHttpType && checkedHttpType.value === 'https') ? '443' : '80';
     getSelectedPlayer().port = document.getElementById("port").value;
 
     if(document.getElementById("use_sunapi_client_checkbox").checked == true) {
@@ -2563,7 +2587,7 @@ var search_oneday_timeline = function () {
         console.error('' + HTTP_STATUS_CODES[Number(error)]);
         // alert(HTTP_STATUS_CODES[Number(error, 10)]);
       } else {
-        console.error("getTimeline error: ", fastJsonStringfy(error));
+        console.error("getTimeline error: ", errorDetails(error), error);
         // alert("getTimeline error: " + fastJsonStringfy(error));
       }
     });
@@ -2859,13 +2883,30 @@ var updateTimeline = function (results) {
 
     var customTime, today;
     if(!document.getElementById("use_gmt").checked) {
-      var temp = "";
-      console.log("" + parseFloat(document.querySelector('select[id="usegmttime"]').value),
-                  "type:", typeof parseFloat(document.querySelector('select[id="usegmttime"]').value),
-                  "pad:", parseFloat(document.querySelector('select[id="usegmttime"]').value).pad(2));
-      temp += (document.querySelector('select[id="usegmttime"]').value > 0) ? "+" : "";
-      temp += parseFloat(document.querySelector('select[id="usegmttime"]').value).pad(2) + ":00";
-      today = vis.moment(itemMin).utcOffset(temp);
+      // #usegmttime has no corresponding element in window.html — same
+      // pre-existing dead reference as on_player_select()'s guarded use
+      // of it (see MEMORY.md's #broadcast/#usegmttime entry). Unguarded
+      // here, this threw `Cannot read properties of null (reading
+      // 'value')` on every call, aborting updateTimeline() before it
+      // ever reached visTimeline.on("click"/"select", ...) below — the
+      // timeline still rendered (setItems() above already ran) but no
+      // click ever did anything, and the exception surfaced two levels
+      // up as an opaque "getTimeline error: {}" (see errorDetails()).
+      // Guarded the same way, falling back to the item range's own local
+      // time (no custom offset) rather than deciding whether this field
+      // should actually exist.
+      var usegmttimeEl = document.querySelector('select[id="usegmttime"]');
+      if (usegmttimeEl !== null) {
+        var temp = "";
+        console.log("" + parseFloat(usegmttimeEl.value),
+                    "type:", typeof parseFloat(usegmttimeEl.value),
+                    "pad:", parseFloat(usegmttimeEl.value).pad(2));
+        temp += (usegmttimeEl.value > 0) ? "+" : "";
+        temp += parseFloat(usegmttimeEl.value).pad(2) + ":00";
+        today = vis.moment(itemMin).utcOffset(temp);
+      } else {
+        today = vis.moment(itemMin);
+      }
     } else {
       today = vis.moment(itemMin).utc();
     }
@@ -2873,6 +2914,7 @@ var updateTimeline = function (results) {
     visTimeline.addCustomTime(today);
 
     visTimeline.on("click", function(properties) {
+      console.log('[timeline click] fired', properties);
       visTimeline.setSelection(properties.item);
       // var index = visTimeline.getSelection();
       // alert('selected items: ' + fastJsonStringfy(properties));
@@ -2936,11 +2978,15 @@ var updateTimeline = function (results) {
 
     // vid timeline select event
     visTimeline.on('select', function (properties) {
+     try {
+      console.log('[timeline select] fired', properties, 'readyState:', getSelectedPlayer().readyState);
       if(getSelectedPlayer().readyState === RTSPOverWebSocketPlayState.PLAYING) {
+        console.log('[timeline select] skipped: player is PLAYING');
         return;
       }
 
       var item = items.get(properties.items);
+      console.log('[timeline select] item count:', item.length, item);
 
       if(item.length > 0) {
 
@@ -2951,6 +2997,8 @@ var updateTimeline = function (results) {
         var startTimeControl = document.querySelector('input[id="start_time"]');
         var endDateControl = document.querySelector('input[id="end_date"]');
         var endTimeControl = document.querySelector('input[id="end_time"]');
+
+        console.log('[timeline select] controls:', { startDateControl, startTimeControl, endDateControl, endTimeControl, start: item[0].start, end: item[0].end });
 
         // set start/end time to rtsp-over-websocket
         if (typeof startDateControl !== 'undefined' &&
@@ -3060,6 +3108,20 @@ var updateTimeline = function (results) {
 
         }
       }
+     } catch (error) {
+       // Was previously unguarded — an exception here (e.g. the
+       // <rtsp-over-websocket> element's startTime/endTime setter
+       // rejecting an unexpected format) silently aborted the rest of
+       // this handler with only a browser "Uncaught" console entry,
+       // which could leave startTime never actually set on the element
+       // even though the UI's start_date/start_time fields looked
+       // populated from lines earlier in this same handler that did run
+       // — see the "start time is empty" (0x0411) report this was found
+       // from. Logged the same way every other handler in this file
+       // reports its own errors, so this is now visible via
+       // console.error instead of vanishing.
+       console.error("timeline select error:", error);
+     }
     });
   } else {
     window.popup("Result is empty" + fastJsonStringfy(results));
