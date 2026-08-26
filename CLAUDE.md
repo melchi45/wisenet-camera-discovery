@@ -37,6 +37,17 @@ see [`src/chrome-extension/native-host/README.md`](src/chrome-extension/native-h
   later. `scripts/build.js`'s `retryOnTransientFsError` rides this out with backoff — if you
   see one of these errors from a *different* script, the same retry pattern is the fix, not a
   real bug.
+  If `retryOnTransientFsError` exhausts all its retries (`rm -rf dist/chrome-extension` failing
+  with `EBUSY`/`ENOTEMPTY`/"Permission denied" on `native-host/` specifically, repeatedly, not
+  just once), that's *not* the transient antivirus case above — it means something on the Windows
+  side is actively holding that folder open, almost always Edge/Chrome still running with the
+  extension loaded (a spawned native-host `node.exe` can also hold it, though in practice the
+  browser itself was the culprit every time this came up). Fully closing the browser (not just its
+  windows — check `Get-Process msedge`/`Get-Process chrome` in PowerShell come back empty) clears
+  it; killing an individual lingering `node.exe` from `Get-CimInstance Win32_Process -Filter
+  "Name = 'node.exe'"` is the lower-friction alternative when you don't want to lose other browser
+  state. `npm run build:extension` alone (skips the `dist/` clean+assemble step) still works for
+  verifying the TypeScript/Vite side compiles while the lock is in place.
 - **WSL2 can't reach real UDP-broadcast devices**: run discovery-testing tools (native host,
   `npm run start:server`) from a real Windows process, not inside WSL bash — WSL2's virtual/NAT
   network isn't on the same broadcast domain as your physical LAN, so `dgram`/native UDP either
@@ -53,6 +64,15 @@ see [`src/chrome-extension/native-host/README.md`](src/chrome-extension/native-h
   Without that `.npmrc`, npm 11+'s `allow-remote: none` default blocks the tarball fetch because
   the resolved download host (`npm.pkg.github.com`) doesn't match the *unconfigured* default
   registry (`registry.npmjs.org`) — the fix is the `.npmrc`, not disabling `allow-remote`.
+- **Self-signed camera certificate → `net::ERR_CERT_AUTHORITY_INVALID`**: Chrome blocks the SUNAPI
+  HTTPS request at the browser level before any extension code sees it — this is a browser TLS
+  trust decision, not something `host_permissions`/`manifest.json` can override. The safe fix is
+  opening the camera's URL in a tab once and accepting the certificate exception; the extension
+  also has an opt-in "Bypass Untrusted Certificate (Native Host)" checkbox that avoids that manual
+  step via the native messaging host — see
+  [docs/native-https-proxy/](docs/native-https-proxy/) (PRD/MRD/SRS/DESIGN/TC) for the full spec
+  before touching `src/shared/scripts/nativeSunapiClient.ts` or
+  `native-host/wisenet-udp-host.ts`'s `httpRequest` command.
 
 ## Conventions
 

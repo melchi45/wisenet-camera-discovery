@@ -109,3 +109,123 @@ The nodejs example server also gained real persistent state it didn't have befor
 the extension) — a second deliberate scope decision (full auto-discovery parity, not just
 manual "Start Discovery"), made for the same reason: matching the extension's actual behavior
 mattered more here than keeping the example minimal.
+
+## Native-host HTTPS proxy for self-signed camera certificates
+
+A camera/NVR's self-signed HTTPS certificate makes Chrome block the SUNAPI request with
+`ERR_CERT_AUTHORITY_INVALID` before any extension code runs — full spec/design in
+`docs/native-https-proxy/` (PRD/MRD/SRS/DESIGN/TC), summarized here for the non-obvious part of
+*why* it's built the way it is.
+
+**The feasibility question was "can we do this without forking the vendored
+`@melchi45/rtsp-over-websocket` package or monkey-patching global `XMLHttpRequest`" — and the
+answer turned out to be yes**: that package's `SunapiManager` class already exposes `attach()` /
+`getSunapiClient()` for substituting its internal HTTP client with anything implementing a small
+`SunapiClientLike` interface (confirmed against its shipped `.d.ts`, not just its minified
+source). Every SUNAPI call except the very first (`SunapiManager.init()`'s own
+`/stw-cgi/attributes.cgi` GET, which always constructs its own client internally and can't be
+redirected via `attach()`) goes through that substitutable client already. So
+`src/shared/scripts/nativeSunapiClient.ts` only has to replicate `init()`'s few lines of device
+normalization for that first call — everything after is unmodified existing code. This is the kind
+of "the library already has the seam you need, read the `.d.ts` before assuming you'd have to
+fork it" finding worth remembering if a similar substitution need comes up elsewhere against this
+same vendored package.
+
+**Security tradeoff, made deliberately, not by default**: the new native-host `httpRequest`
+command bypasses TLS certificate validation entirely (`rejectUnauthorized: false`) for whatever
+URL it's given. Two things keep that from becoming a general-purpose vulnerability rather than a
+narrow, opt-in feature: (1) the extension UI only offers it behind an unchecked-by-default
+checkbox, per device/session — never automatic; (2) the native host itself refuses to proxy to
+anything that isn't a literal RFC1918/loopback/link-local IP address, so even a compromised
+`window.html` couldn't turn this into an arbitrary-URL TLS-bypass fetch. It's also deliberately
+**not** wired into `background.ts`'s `onMessageExternal` handler (which already accepts messages
+from other extensions/pages for discovery) — only `window.ts`'s own dedicated native port can
+issue it.
+
+**Real bug found against an actual device, fixed**: the first version of this feature had no
+timeout anywhere in the request path — neither the native host's `https.request()` (Node's HTTP
+clients have no default timeout) nor `NativeSunapiClient`'s own wait for a response. Against a
+real camera, a stuck request (host process wedged, or a response that never arrives for any
+reason) left `initSunapiManager()`'s promise chain pending forever: no console output, no popup,
+indistinguishable from the checkbox silently doing nothing — very hard to diagnose from a bug
+report alone, since "nothing happened" and "still loading" look identical to the user. Fixed with
+two independent timeouts (native host: 15s on the HTTP request itself; `NativeSunapiClient`: 20s
+on the whole round trip, covering a wedged host too) plus `console.debug`/`console.warn` logging
+at each step, so the same failure now surfaces as a real, loggable error. Worth remembering for
+any other feature that adds a native-messaging or cross-process round trip to this codebase:
+**always add a client-side timeout independent of whatever timeout the far side claims to have**
+— a promise with no timeout at all is a silent hang waiting to happen, and "no error, no popup, no
+console output" is nearly impossible to distinguish from "still working" without one.
+
+## Native-host relay extended to the video streaming `wss://` connection
+
+The native-host HTTPS proxy above only covered SUNAPI REST calls — `<rtsp-over-websocket>` opens
+its *own* `wss://<camera>/StreamingServer` browser WebSocket directly for the actual video stream,
+independently subject to the same TLS validation. Confirmed against a real device this needed its
+own fix: `ws://` worked, `wss://` failed, and — surprisingly — registering a manual browser
+certificate exception for the same host (the "visit `https://ip/` once and click through" trick
+that already fixes plain page navigation and `fetch`/XHR) did **not** make the `wss://` connection
+start working. Worth remembering: don't assume a browser TLS exception is scheme/API-universal for
+a given host — it can cover regular HTTPS traffic while still leaving a WebSocket upgrade on the
+same host failing, at least as observed here (root cause not confirmed, just the empirical result).
+
+**Second `attach()`-style seam found, one layer lower**: `@melchi45/rtsp-over-websocket`'s
+`Transport.createWebSocket(serverAddr)` (`src/player/network/transport/Transport.ts` in that
+package's own source) is a `protected` method whose own doc comment already says *"Overridable
+factory so tests can inject a fake socket instead of opening a real connection"* — and
+`StreamPlayer`'s constructor already accepts an optional `transportFactory`, defaulting to
+`(serverAddr) => new Transport(serverAddr)`. The only gap was that the custom element's `play()`
+never threaded a `transportFactory` through to its internal `new StreamPlayer(...)` call. Unlike
+the SUNAPI case, this one **did** need a small, additive change to the vendored package itself (a
+`transportFactory` property on the element, mirroring `sunapiClient`'s existing getter/setter
+pattern) — but still no fork of third-party code (it's the user's own package) and no
+reimplementation of `Transport`'s RTSP/RTP interleaved-frame demultiplexing: `NativeTransport`
+subclasses the real `Transport` and overrides only `createWebSocket()`.
+
+**Vite-bundling trap avoided**: the natural way to reference `Transport` from the new
+`nativeWebSocketTransport.ts` (Vite-bundled into `window.js`) would be a real `import { Transport }
+from '@melchi45/rtsp-over-websocket'` — but that would pull real runtime code from the vendored
+package into `window.js`'s bundle, risking exactly the Worker-asset re-inlining CSP break this
+repo's "`@melchi45/rtsp-over-websocket` stays un-bundled" decision (see this file's earlier entry)
+was written to avoid. Fixed by extending `legacy-globals-bridge.js` (already the established
+pattern for `SunapiManager`/`SunapiError`/etc.) to also expose `window.Transport`, and declaring it
+ambiently in `types/globals.d.ts` — `nativeWebSocketTransport.ts` subclasses the ambient global,
+never importing the class as a real value. `import type { WebSocketLike, TransportFactory }` for
+the *types* is fine and used freely — type-only imports are fully erased before Vite's bundler
+ever runs, so they carry none of that re-inlining risk; only a value import does. Confirmed after
+the fact by checking the built bundle for `ffmpeg`/`audiotranscoderWorker` strings (the real
+player's own Worker/wasm asset references) — none present, so the real 2.4MB player build did not
+get pulled in a second time.
+
+## Two real bugs found testing the WSS relay against a real device
+
+**`ReferenceError: Transport is not defined`, aborting all of window.js's setup (discovery
+included)** — `nativeWebSocketTransport.ts`'s `NativeTransport` class was originally declared at
+module top level: `class NativeTransport extends Transport { ... }`. A class's `extends` clause
+evaluates immediately when the class statement itself runs, unlike a reference inside a method
+body — and `window.js` (a classic, non-deferred script, so it runs as soon as the parser reaches
+it) executes before `legacy-globals-bridge.js` (a deferred `<script type="module">`) has had a
+chance to set `window.Transport`. So this threw the moment `window.js` loaded, aborting everything
+after it — same failure class as this file's `#broadcast`/`#usegmttime` entries above, just via a
+class declaration's `extends` clause instead of a top-level `document.getElementById(...)` call.
+`nativeSunapiClient.ts` avoided this by only ever referencing its ambient global
+(`SunapiError`) *inside a method body* (`initDevice()`), which only runs later, well after both
+deferred scripts finish — `nativeWebSocketTransport.ts` broke that same discipline by putting a
+class *declaration* (not just a reference) at module scope. Fixed by moving the class declaration
+inside `createNativeTransportFactory()` itself, so `extends Transport` only evaluates when that
+function is actually called (from `initSunapiManager()`, long after page load). **Lesson**: when a
+value can only safely be referenced after deferred scripts finish, that includes `extends
+SomeAmbientGlobal` in a class declaration, not just plain reads of the global — both need to live
+inside a function body that only runs later, not at module top level.
+
+**`ffmpegAAC.decoder.js` → `net::ERR_FILE_NOT_FOUND`** — `scripts/build.js`'s vendor-asset copy
+step hardcodes the list of `rtsp-over-websocket` files to copy out of `assets/` next to it
+(`ffmpeg.js`/`.wasm`, `ffmpegAAC.transcoder.js`/`.wasm`, `minizip-asm.js` — see that function's own
+comment on *why* they need to sit next to `assets/`, not inside it). `ffmpegAAC.decoder.js` exists
+in the vendored package's own `dist/player/` output but was missing from this hardcoded list — a
+stale allowlist that happened not to matter until something actually exercised the AAC decode path
+this build. Added to the list. **Lesson**: this hardcoded-list pattern needs re-checking against
+`node_modules/@melchi45/rtsp-over-websocket/dist/player/`'s actual file listing after any version
+bump of that package, not just assumed to still be complete — `ls` that directory and diff against
+the list in `scripts/build.js` when something like this comes up again.
+

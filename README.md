@@ -115,6 +115,16 @@ compiles to under `dist/`):
   published independently of this extension — see
   [src/nodejs/README.md](src/nodejs/README.md).
 * `src/shared/window.ts`: GUI script for window.html.
+
+## Camera has a self-signed HTTPS certificate?
+
+If connecting to a camera/NVR over HTTPS fails with `net::ERR_CERT_AUTHORITY_INVALID`, the
+simplest fix is opening the camera's URL directly in a browser tab once and accepting the
+certificate warning. The Chrome extension also offers an opt-in "Bypass Untrusted Certificate
+(Native Host)" checkbox that avoids that manual step by having the native messaging host make the
+HTTPS request instead — see [docs/native-https-proxy/PRD.md](docs/native-https-proxy/PRD.md) for
+when to use it and [docs/native-https-proxy/DESIGN.md](docs/native-https-proxy/DESIGN.md) for how
+it works.
 * `src/shared/window.html`: GUI — optional; only needed if you want to
   see discovery results or run discovery manually (see below).
 

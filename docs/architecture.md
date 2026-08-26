@@ -99,6 +99,17 @@ Before this change, call site 4 was unguarded top-level code — it would throw 
 outside the extension and abort the rest of `window.ts`'s module-level setup (see `MEMORY.md`'s
 `#broadcast`/`#usegmttime` entry for the same failure class found earlier in this codebase).
 
+There's a 5th, opt-in `chrome.*` call site: `src/shared/scripts/nativeSunapiClient.ts`, its own
+`chrome.runtime.connectNative()` port (separate from `socket.hostPort` above), used only when the
+"Bypass Untrusted Certificate (Native Host)" checkbox is checked — a way to complete SUNAPI
+requests against a camera/NVR with a self-signed HTTPS certificate without the manual
+per-device/per-machine browser certificate-exception step, by having the native host (which sits
+outside the browser's TLS trust store) make the HTTPS request instead. Extension-only, same as the
+other 4. See [`native-https-proxy/DESIGN.md`](native-https-proxy/DESIGN.md) for the full design —
+in short, it substitutes a `SunapiClientLike` implementation into the vendored
+`@melchi45/rtsp-over-websocket` package's `SunapiManager.attach()`, a seam that package already
+exposes for exactly this kind of transport substitution.
+
 ## `examples/server.ts`: mirroring `background.ts`'s role
 
 The extension's `background.ts` (MV3 service worker) runs discovery continuously, keeps a

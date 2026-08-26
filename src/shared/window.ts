@@ -12,10 +12,29 @@
 import moment from 'moment';
 import 'moment-timezone';
 import * as vis from 'vis';
+import { NativeSunapiClient } from './scripts/nativeSunapiClient';
+import { createNativeTransportFactory } from './scripts/nativeWebSocketTransport';
 
 // Circular-reference-safe JSON.stringify — used throughout this file for
 // logging. Defined here directly rather than pulling in a whole vendored
 // utility script just for this one function.
+// JSON.stringify(error) reliably yields "{}" for real Error/DOMException
+// instances — V8 defines .message/.name/.stack (and DOMException's fields
+// entirely) as non-enumerable, so fastJsonStringfy() above (plain
+// JSON.stringify under the hood) silently drops them. Used where a catch
+// block needs to actually show what failed, not just confirm that
+// *something* did.
+function errorDetails(error: any): string {
+  if (error === null || typeof error !== 'object') {
+    return String(error);
+  }
+  try {
+    return JSON.stringify(error, Object.getOwnPropertyNames(error));
+  } catch (e) {
+    return String(error);
+  }
+}
+
 function fastJsonStringfy(obj: any): string {
   let cache: any[] = [];
   let data = JSON.stringify(obj, function(key, value) {
@@ -101,6 +120,15 @@ function getSunapiManager() {
   }
   return sunapiManager;
 }
+
+// Backing client for the "Bypass Untrusted Certificate (Native Host)"
+// checkbox — see docs/native-https-proxy/DESIGN.md. One instance per
+// initSunapiManager() run using the native-proxy path, closed and replaced
+// on the next run (mirrors sunapiManager's own "one shared instance for
+// whichever player is selected" comment above); null whenever that
+// checkbox is unchecked, so the default XHR-based SunapiManager.init()
+// path (unaffected by this feature) is used instead.
+var nativeSunapiClient: NativeSunapiClient | null = null;
 
 // Implicit globals (bare assignment, no var/let/const) in the original
 // window.js — declared here so TypeScript can see them; behavior is
@@ -227,6 +255,13 @@ document.addEventListener("DOMContentLoaded", function(){
         });
       }
     });
+  }
+
+  // "Bypass Untrusted Certificate (Native Host)" — extension-only (needs
+  // the native messaging host); see docs/native-https-proxy/DESIGN.md and
+  // initSunapiManager()'s use of this checkbox further down.
+  if (!IS_EXTENSION) {
+    document.getElementById("native_tls_proxy_field").style.display = "none";
   }
 
   var divChannel = document.getElementById("");
@@ -629,6 +664,22 @@ document.addEventListener("DOMContentLoaded", function() {
       getSelectedPlayer().hostname = row_data[1];
       document.getElementById("port").value = row_data[3];
       getSelectedPlayer().port = row_data[3];
+
+      // row_data[5] is the discovered device's Protocol ("http"/"https" —
+      // see socket.ts's displayResult()). Setting .checked directly here
+      // (not .click()) deliberately does not fire changehttptype()'s
+      // 'change' listener above, so the real discovered port set just
+      // above isn't immediately overwritten by that handler's 80/443
+      // default. Defaulting "Bypass Untrusted Certificate" on for a
+      // discovered HTTPS device: an HTTPS device found via SUNAPI
+      // discovery is highly likely to be a self-signed factory cert (see
+      // docs/native-https-proxy/PRD.md) — still fully opt-out via the
+      // checkbox itself, and has no effect outside the extension target
+      // (IS_EXTENSION-gated visibility, see initSunapiManager()).
+      var isHttps = row_data[5] === 'https';
+      document.getElementById("https_radio").checked = isHttps;
+      document.getElementById("http_radio").checked = !isHttps;
+      document.getElementById("use_native_tls_proxy_checkbox").checked = isHttps;
 
       // window.open("https://www.google.com", "_blank")
       // popupWindow(row_data[4], 'Title',"800px","600px");
@@ -1563,7 +1614,43 @@ var initSunapiManager = () => {
       // single .then() now instead of the old init().then(() => login())
       // chain. Not verified against a real device — see this repo's WSL2
       // networking note in README.md for why that couldn't be tested here.
-      getSunapiManager().init(device).then(attributes => {
+      //
+      // "Bypass Untrusted Certificate (Native Host)" checkbox — see
+      // docs/native-https-proxy/DESIGN.md. SunapiManager.init() always
+      // builds its own browser-XHR client internally and ignores anything
+      // already attach()ed, so working around a self-signed certificate
+      // means not calling init() at all here: nativeSunapiClient.initDevice()
+      // replicates its device normalization and first request itself
+      // (through the native host instead of the browser), then attach()es
+      // so every later SunapiManager call in this chain (getVideoSource(),
+      // etc.) transparently goes through the same client.
+      if (nativeSunapiClient !== null) {
+        nativeSunapiClient.close();
+        nativeSunapiClient = null;
+      }
+      var useNativeTlsProxyEl = document.getElementById("use_native_tls_proxy_checkbox");
+      var useNativeTlsProxy = IS_EXTENSION && useNativeTlsProxyEl !== null && useNativeTlsProxyEl.checked;
+      var initPromise;
+      if (useNativeTlsProxy) {
+        nativeSunapiClient = new NativeSunapiClient(device);
+        getSunapiManager().attach(nativeSunapiClient);
+        initPromise = nativeSunapiClient.initDevice(device);
+      } else {
+        initPromise = getSunapiManager().init(device);
+      }
+
+      // Streaming counterpart of the SUNAPI proxy above — wss://.../StreamingServer
+      // is a browser WebSocket independent of the SUNAPI REST calls above,
+      // and hits the exact same TLS-trust wall on a self-signed camera. See
+      // docs/native-https-proxy/DESIGN.md. rtsp-over-websocket's
+      // <rtsp-over-websocket> element only builds its internal StreamPlayer
+      // once (play()'s own `if (this.player === undefined || this.player
+      // === null)` guard), so this must be set before the first play() —
+      // setting it again later on an already-playing element is a no-op
+      // until the next fresh connection.
+      getSelectedPlayer().transportFactory = useNativeTlsProxy ? createNativeTransportFactory() : undefined;
+
+      initPromise.then(attributes => {
         console.log("", attributes);
 
         // `Initialized` was a JSON-encoded string ("true"/"false") in the

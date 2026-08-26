@@ -188,7 +188,18 @@ function copySharedWebAssets(destDir) {
   // assets/ here, not inside it. (As of rtsp-over-websocket 1.0.4: moved out
   // of assets/'s base64-inlined-into-the-chunk form, which broke under this
   // extension's CSP — see that package's MEMORY.md for the full story.)
-  for (const vendorFile of ['ffmpeg.js', 'ffmpeg.wasm', 'ffmpegAAC.transcoder.js', 'ffmpegAAC.transcoder.wasm', 'minizip-asm.js']) {
+  //
+  // This list is a hardcoded snapshot, not derived from the package — it
+  // silently went stale once already (`ffmpegAAC.decoder.js` shipped in the
+  // package but was missing here, surfacing as a runtime
+  // net::ERR_FILE_NOT_FOUND only once something actually exercised the AAC
+  // decode path — see MEMORY.md). After bumping
+  // @melchi45/rtsp-over-websocket, diff this list against `ls
+  // node_modules/@melchi45/rtsp-over-websocket/dist/player/` (excluding
+  // `assets/`, the two `.esm.js`/`.global.js`/`-react.esm.js` bundles
+  // already handled above, and anything not actually referenced by a
+  // `new URL(...)` in this shape) rather than assuming it's still complete.
+  for (const vendorFile of ['ffmpeg.js', 'ffmpeg.wasm', 'ffmpegAAC.decoder.js', 'ffmpegAAC.transcoder.js', 'ffmpegAAC.transcoder.wasm', 'minizip-asm.js']) {
     copyFile(
       path.join(ROOT, 'node_modules', '@melchi45', 'rtsp-over-websocket', 'dist', 'player', vendorFile),
       path.join(destDir, 'external-lib', 'rtsp-over-websocket', vendorFile)

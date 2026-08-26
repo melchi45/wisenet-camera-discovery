@@ -31,10 +31,19 @@ only testing one side:
   'done', ...}`) into the same `onHostMessage()`/`onDevice()`/`displayResult()` pipeline — don't
   special-case one transport's device shape without checking the other still matches.
 
+- If the change touches SUNAPI client selection (`initSunapiManager()`, `getSunapiManager()`,
+  or anything under `src/shared/scripts/nativeSunapiClient.ts`), also read
+  `docs/native-https-proxy/` (PRD/MRD/SRS/DESIGN/TC) first — that's the source of truth for the
+  "Bypass Untrusted Certificate (Native Host)" feature's `SunapiClientLike`/`attach()` contract,
+  not just `docs/architecture.md`'s brief pointer to it.
+
 ## After changing `src/shared/` or `examples/server.ts`
 
 - Update the matching section of `docs/architecture.md` in the same change (data flow, the
   transport table, or the `/settings`/known-devices design, whichever changed).
+- If the change touched the native-proxy SUNAPI client selection noted above, also keep
+  `docs/native-https-proxy/` in sync (its `DESIGN.md`/`SRS.md` in particular) — don't let
+  `docs/architecture.md`'s one-paragraph summary drift from that folder's fuller spec.
 - Run `npm run build` (builds **both** `dist/chrome-extension/` and `dist/nodejs/`) — not just
   `build:extension` or `build:node` alone — and verify both outputs, since a change here always
   touches both.

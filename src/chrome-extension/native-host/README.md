@@ -147,6 +147,10 @@ Extension → host:
 | `{ "command": "start", "receivePort": 7711, "sendPort": 7701, "broadcastAddress": "255.255.255.255" }` | bind + broadcast (the discovery request payload is built in by the host itself, not sent by the extension) |
 | `{ "command": "broadcast" }` | re-send the discovery payload |
 | `{ "command": "stop" }` | close the socket |
+| `{ "command": "httpRequest", "requestId", "method", "url", "headers", "body", "username", "password" }` | performs a SUNAPI HTTP(S) request on the extension's behalf, bypassing browser TLS certificate validation (`rejectUnauthorized: false`), including the Digest-auth challenge/response round if the device asks for one. Used by `src/shared/scripts/nativeSunapiClient.ts` for cameras/NVRs with a self-signed certificate — restricted to private/loopback/link-local IP-literal targets only. Full spec: [`../../../docs/native-https-proxy/SRS.md`](../../../docs/native-https-proxy/SRS.md). |
+| `{ "command": "wsOpen", "connectionId", "url" }` | opens a `ws://`/`wss://` connection to the RTSP-over-WebSocket streaming server on the extension's behalf, also bypassing browser TLS validation — the video-streaming counterpart to `httpRequest`. Same IP-literal restriction. Used by `src/shared/scripts/nativeWebSocketTransport.ts`. |
+| `{ "command": "wsSend", "connectionId", "data" }` | sends one binary frame (base64) on an already-open connection |
+| `{ "command": "wsClose", "connectionId" }` | closes the connection |
 
 Host → extension:
 
@@ -155,6 +159,12 @@ Host → extension:
 | `{ "type": "started", "receivePort": 7711 }` | socket bound, broadcast sent |
 | `{ "type": "device", "device": {...} }` | a parsed camera/NVR reply — same shape as `UdpResponse.prototype.toLegacyDeviceObject()` (`../../sunapi/response.ts`): `chMac`, `chIP`, `chDeviceName`, `DDNSURL`, `nHttpPort`, `url`, `rtspUrl`, etc. Replies that aren't a scan response (RSA key exchange, password-apply, ...) are parsed and dropped, not relayed. |
 | `{ "type": "error", "message": "..." }` | something failed (e.g. port in use) |
+| `{ "type": "httpResponse", "requestId", "status", "statusText", "headers", "body" }` | the `httpRequest` command's final response (after any Digest retry) |
+| `{ "type": "httpError", "requestId", "message" }` | the `httpRequest` command failed (rejected non-private-IP target, connection error, etc.) |
+| `{ "type": "wsOpen", "connectionId" }` | the streaming connection is open |
+| `{ "type": "wsMessage", "connectionId", "data" }` | one binary frame (base64) from the streaming connection |
+| `{ "type": "wsError", "connectionId", "message" }` | the streaming connection failed |
+| `{ "type": "wsClose", "connectionId", "code", "reason" }` | the streaming connection closed |
 
 ## Test without a device
 

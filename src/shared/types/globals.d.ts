@@ -57,6 +57,20 @@ declare class SunapiManager {
   [key: string]: any;
 }
 
+// scripts/nativeWebSocketTransport.ts's NativeTransport extends this (see
+// legacy-globals-bridge.js's own comment on why it's a global here instead
+// of a real ES module import into that Vite-bundled file). `[key: string]:
+// any` for the same "first TS pass" looseness as SunapiManager above —
+// the real shape (Connect/Disconnect/SendRtspCommand/SendRtpData/etc., see
+// TransportLike in rtsp-over-websocket's own RtspClient.ts) isn't
+// re-declared here since NativeTransport only ever overrides the one
+// protected method it needs to (createWebSocket), inheriting everything
+// else from the real runtime class untouched.
+declare class Transport {
+  constructor(serverAddr: string);
+  [key: string]: any;
+}
+
 // background.ts runs as a classic (non-module) MV3 service worker — the
 // "DOM" lib above (needed by window.ts/socket.ts) doesn't include the
 // WebWorker-only importScripts(), so it's declared ambiently here instead
