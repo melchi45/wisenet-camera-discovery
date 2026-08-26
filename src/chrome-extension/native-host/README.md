@@ -58,21 +58,31 @@ suspect — see that comment for how to revert.
    ./install-host.sh <extension-id>
    ```
 
-3. Restart Chrome, open the extension window, and click **Start Discovery**.
+3. **Fully quit and restart the browser** (not just close one window/tab —
+   native messaging host registrations are only read at browser startup),
+   open the extension window, and click **Start Discovery**.
 
-`install-host.ps1` writes the host manifest to
+`install-host.ps1`/`install-host.sh` write **one** host manifest — to
 `%LOCALAPPDATA%\WisenetIPInstaller\native-host\com.wisenet.ipinstaller.json`
-and points `HKCU\Software\Google\Chrome\NativeMessagingHosts\com.wisenet.ipinstaller`
-at it — deliberately **not** next to this script: when run from
+(Windows) or Chrome's per-user `NativeMessagingHosts` directory
+(macOS/Linux) — deliberately **not** next to this script: when run from
 `dist/chrome-extension/native-host/` (the built copy, not this checked-in
 source), that directory gets wiped and recreated by every `npm run build`,
 which would silently delete the manifest and leave the registry pointing
-at a file that no longer exists. `install-host.sh` writes the manifest
-into Chrome's per-user `NativeMessagingHosts` directory, for the same
-reason (a stable, non-`dist/` location). For Microsoft Edge, use the same
-manifest under `HKCU\Software\Microsoft\Edge\NativeMessagingHosts`
-(Windows) or `~/.config/microsoft-edge/NativeMessagingHosts` (Linux) /
-`~/Library/Application Support/Microsoft Edge/NativeMessagingHosts` (macOS).
+at a file that no longer exists.
+
+They then register that **same** manifest with **both** Chrome and
+Microsoft Edge (`HKCU\Software\Google\Chrome\NativeMessagingHosts` +
+`HKCU\Software\Microsoft\Edge\NativeMessagingHosts` on Windows;
+`.../Google/Chrome/...` + `.../Microsoft Edge/...` on macOS;
+`~/.config/google-chrome/...` + `~/.config/microsoft-edge/...` on Linux) —
+this extension targets both browsers (see the repo's top-level README
+title), and each reads its *own* native-messaging registration
+independently. Registering only one and testing in the other produces
+`Access to the specified native messaging host is forbidden` (or "not
+found") even though the manifest itself is correct and up to date — if you
+hit that, re-run the install script and make sure you fully restarted the
+browser you're actually testing in afterward.
 
 **`dist/` is generated and gitignored** — `npm run clean` (or a fresh
 clone) removes it entirely, including `wisenet-udp-host.js`/`.bat` (the

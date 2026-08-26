@@ -38,10 +38,24 @@ New-Item -Path $stableDir -ItemType Directory -Force | Out-Null
 $manifestPath = Join-Path $stableDir "$hostName.json"
 $manifest | ConvertTo-Json | Set-Content -Encoding UTF8 $manifestPath
 
-$regPath = "HKCU:\Software\Google\Chrome\NativeMessagingHosts\$hostName"
-New-Item -Path $regPath -Force | Out-Null
-Set-ItemProperty -Path $regPath -Name '(default)' -Value $manifestPath
-
 Write-Host "Installed: $manifestPath"
-Write-Host "Registry:  $regPath"
-Write-Host "Restart Chrome, then click 'Start Discovery' in the extension window."
+
+# Both browsers this extension targets (see repo README's title) read
+# native messaging host registrations from their OWN, separate
+# HKCU\...\NativeMessagingHosts key — registering only Chrome's silently
+# leaves Edge unable to find the host ("Access to the specified native
+# messaging host is forbidden"/"not found") even though the manifest
+# itself is correct and up to date. Both keys point at the exact same
+# manifest file above; nothing else differs between the two browsers.
+$registryRoots = @(
+    'HKCU:\Software\Google\Chrome\NativeMessagingHosts',
+    'HKCU:\Software\Microsoft\Edge\NativeMessagingHosts'
+)
+foreach ($root in $registryRoots) {
+    $regPath = Join-Path $root $hostName
+    New-Item -Path $regPath -Force | Out-Null
+    Set-ItemProperty -Path $regPath -Name '(default)' -Value $manifestPath
+    Write-Host "Registry:  $regPath"
+}
+
+Write-Host "Restart Chrome/Edge (fully close every window, not just this tab), then click 'Start Discovery' in the extension window."

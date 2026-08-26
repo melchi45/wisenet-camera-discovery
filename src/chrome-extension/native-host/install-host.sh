@@ -20,19 +20,30 @@ fi
 
 chmod +x "$HOST_PATH"
 
+# Both browsers this extension targets (see repo README's title) read
+# native messaging host registrations from their OWN, separate directory —
+# registering only Chrome's silently leaves Edge unable to find the host
+# ("Access to the specified native messaging host is forbidden"/"not
+# found") even though the manifest content itself is identical and
+# correct. Install into both.
 case "$(uname -s)" in
   Darwin)
-    TARGET_DIR="$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts"
+    TARGET_DIRS="$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts
+$HOME/Library/Application Support/Microsoft Edge/NativeMessagingHosts"
     ;;
   *)
-    TARGET_DIR="$HOME/.config/google-chrome/NativeMessagingHosts"
+    TARGET_DIRS="$HOME/.config/google-chrome/NativeMessagingHosts
+$HOME/.config/microsoft-edge/NativeMessagingHosts"
     ;;
 esac
 
-mkdir -p "$TARGET_DIR"
-sed -e "s|@HOST_PATH@|$HOST_PATH|" \
-    -e "s|@EXTENSION_ID@|$EXT_ID|" \
-    "$DIR/$HOST_NAME.json.template" > "$TARGET_DIR/$HOST_NAME.json"
+echo "$TARGET_DIRS" | while IFS= read -r TARGET_DIR; do
+  [ -z "$TARGET_DIR" ] && continue
+  mkdir -p "$TARGET_DIR"
+  sed -e "s|@HOST_PATH@|$HOST_PATH|" \
+      -e "s|@EXTENSION_ID@|$EXT_ID|" \
+      "$DIR/$HOST_NAME.json.template" > "$TARGET_DIR/$HOST_NAME.json"
+  echo "Installed: $TARGET_DIR/$HOST_NAME.json"
+done
 
-echo "Installed: $TARGET_DIR/$HOST_NAME.json"
-echo "Restart Chrome, then click 'Start Discovery' in the extension window."
+echo "Restart Chrome/Edge (fully quit, not just close the window), then click 'Start Discovery' in the extension window."
