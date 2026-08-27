@@ -116,6 +116,30 @@ compiles to under `dist/`):
   [src/nodejs/README.md](src/nodejs/README.md).
 * `src/shared/window.ts`: GUI script for window.html.
 
+## Discovery result views: table or star topology
+
+The discovery result panel (`window.html`, both the Chrome extension and the Node.js example
+server below) offers two ways to look at what's been found, switched with the **View** dropdown
+next to the search box:
+
+* **Table** (default) — the original sortable/searchable list.
+* **Star Topology** — a node-link diagram (via `vis.Network`) with devices grouped into hub
+  clusters. A second dropdown, **Group by**, picks which column decides the grouping:
+  * **IP Address** (default) — one hub per `/24` subnet.
+  * **Name** — one hub per model-line prefix (e.g. `PNM-9322VQP` groups under `PNM`).
+  * **MAC Address** — one hub per vendor OUI (the MAC's first 3 octets).
+  * **Port** / **Protocol** — one hub per exact value.
+
+  These groupings are a client-side convenience, not real network topology — SUNAPI discovery
+  replies don't carry any parent/child device relationship, so hub nodes are never linked to each
+  other. See [docs/architecture.md](docs/architecture.md#discovery-result-views-table-vs-star-topology)
+  for the full design.
+
+  The search box filters the topology view too: typing narrows to whichever hubs currently have a
+  matching device and zooms the graph to fit them — try `"192."` (then `"192.168."` to narrow
+  further) while grouped by IP Address, or a model-line letter like `"P"` while grouped by Name to
+  see every matching group (`PNM`/`PNO`/`PND`/...) at once.
+
 ## Camera has a self-signed HTTPS certificate?
 
 If connecting to a camera/NVR over HTTPS fails with `net::ERR_CERT_AUTHORITY_INVALID`, the

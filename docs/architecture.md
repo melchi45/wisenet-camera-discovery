@@ -178,6 +178,70 @@ flowchart TB
   DR -->|window.dispatchEvent('discover')| WT["window.ts\naddDiscoveredDeviceRow()"]
 ```
 
+## Discovery result views: table vs. star topology
+
+See [`docs/star-topology/`](star-topology/) (MRD/PRD/SRS/DESIGN/TC) for the full spec — this
+section is a brief pointer, the same relationship `docs/native-https-proxy/` has to this file for
+that feature. In particular, [`docs/star-topology/DESIGN.md`](star-topology/DESIGN.md)'s
+"Interaction stability" section covers a non-obvious point not repeated here: every
+`renderDiscoveryTopology()` call **destroys and reconstructs** the `vis.Network` instance from
+scratch rather than reusing it via `setOptions()`/`setData()` — reuse was tried first and caused
+every interaction (hover/click/drag) to misbehave after a search/group-by re-render.
+
+`#discovery_view_type` (`window.html`, next to `#datatable_search`) toggles between the original
+`#datatable` table and `#datatable_topology`, a node-link diagram rendered by
+`renderDiscoveryTopology()`. Both views read the same `dataSet: string[][]` — `addDiscoveredDeviceRow()`
+is still the single write path; the topology view adds no second data source. `dataSet` stays a
+flat, IP-keyed list (see above) — SUNAPI discovery has no parent/child device field, so the
+topology's hub nodes are always a client-side derivation, not real network topology, and hub nodes
+are never linked to each other for the same reason. See `MEMORY.md`'s "Discovery result 'Star
+Topology' view" entry for why this needed no new dependency (`vis.Network` ships in the same `vis`
+package already used for the playback `Timeline`, already fully bundled via `window.ts`'s `import
+* as vis from 'vis'`) and what would be needed for a real NVR→channel hierarchy instead. Selecting
+a device — a table row click or a topology leaf-node click — both funnel through the shared
+`applyDiscoveredDeviceSelection(row_data)`; a leaf node's `id` is always the device's IP address
+(the same dedup key `addDiscoveredDeviceRow()` already uses), regardless of how it's grouped, so
+that lookup never has to change.
+
+### Group by: which column decides the hub a device belongs to
+
+`#discovery_topology_group_by` (visible only while the topology view is active, same show/hide
+pattern as `#datatable_topology` itself) selects the `dataSet` column `renderDiscoveryTopology()`
+groups by. `getTopologyGroupKey(row, groupBy)` extracts the key, `getTopologyHubLabel(key,
+groupBy)` formats the hub's label:
+
+| `groupBy` value | `dataSet` index | key extraction | hub label |
+|---|---|---|---|
+| `ip` (default) | 1 (IPAddress) | first 3 dot-segments (`/24`) | `"{key}.0/24"` |
+| `name` | 0 (DeviceName) | substring before the first `-` (whole value if none) | `"{key}"` |
+| `mac` | 2 (MACAddress) | first 3 colon-segments (OUI/vendor prefix) | `"{key} (OUI)"` |
+| `port` | 3 (Port) | exact value | `"Port {key}"` |
+| `protocol` | 5 (Protocol) | exact value | `"{key}"` |
+
+`Http URL` (index 4) is not a grouping option — it's derived from IP+port, not an independent
+dimension. MAC addresses are confirmed colon-separated (`"00:09:18:AB:CD:EF"`-shaped): `chMAC` in
+`src/sunapi/protocol.ts` is an 18-byte null-terminated wire string, and 17 chars + a null
+terminator is exactly that format. `name`'s "prefix before the first `-`" rule matches Wisenet/
+Hanwha model-line codes (`PNM-9322VQP` → `PNM`, `QNO-8010R` → `QNO`).
+
+### Search filters and zooms the topology view too — by reusing the table's own row-match predicate
+
+`#datatable_search` already filters the table by testing whether *any* cell in a `dataSet` row
+contains the search text (`renderDiscoveryTable()`'s filter). `renderDiscoveryTopology()` reuses
+that exact same per-row predicate to decide which leaves to include, rather than inventing a
+second, per-`groupBy`-type matching rule — a hub is kept whenever it has at least one matching
+leaf, computed as a side effect of one pass over `dataSet`. This is enough on its own to produce
+prefix-drill-down behavior for every `groupBy` type, because every hub label is itself derived
+from a literal substring of its leaves' own field values: typing `"192."` matches every leaf whose
+IP contains it, which can span several `/24` hubs at once (typing `"192.168."` then `"192.168.
+214."` narrows further, same mechanism); typing `"P"` while grouped by `name` matches every leaf
+whose Name contains it, spanning multiple hubs at once (e.g. "PNM"/"PNO"/"PND"). No hub is ever
+special-cased as "the" match — all currently-matching hubs and their matching leaves stay, and
+`visNetwork.fit({ animation: {...} })` is called after `setData()` so the camera bounds to
+whatever's left, whether that's one cluster or several. An empty search text is a no-op (same
+full-graph behavior as before). Changing `#discovery_topology_group_by` re-runs this same
+render/filter/fit pipeline from scratch.
+
 ## Before/after touching `src/shared/`
 
 Read this file first. After changing `window.ts`, `socket.ts`, or `server.ts`'s

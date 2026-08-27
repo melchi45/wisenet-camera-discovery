@@ -564,6 +564,251 @@ function renderDiscoveryTable() {
   }
 }
 
+// Node-link view of the same dataSet, toggled alongside the table via
+// #discovery_view_type. Reuses vis.Network (already bundled for the
+// playback Timeline below via `import * as vis from 'vis'` -- vis@4's
+// package includes Network alongside Timeline/DataSet in one module, so
+// this needs no extra dependency).
+var discoveryViewType: string = 'table';
+var discoveryTopologyGroupBy: string = 'ip';
+var visNetwork: any = null;
+
+// Fixed palette so a given group's hub/leaf colors stay stable across
+// re-renders; cycles if there are more than 6 distinct groups. Plain hex
+// strings are deliberate here, not objects -- vis.Network's own color
+// normalization (confirmed against node_modules/vis/dist/vis.js's
+// exports.parseColor(), since this old vis@4.20 build ships no .d.ts to
+// just read instead) already expands a hex string into background/border
+// plus HSV-lightened/darkened highlight+hover variants automatically, and
+// applies the hover variant purely at draw time (Node.getFormattingValues())
+// -- no DataSet mutation involved, so hovering can't perturb physics. See
+// MEMORY.md's "Discovery result 'Star Topology' view" entry for the two
+// earlier, more complicated attempts at this (manual chosen:false + a
+// DataSet.update() per hoverNode/blurNode) that this replaced, and why
+// they were the actual cause of the graph jumping on hover/click.
+var TOPOLOGY_GROUP_COLORS = [
+  { hub: '#e05c5c', leaf: '#f0a3a3' },
+  { hub: '#4caf50', leaf: '#a3d6a5' },
+  { hub: '#e0b400', leaf: '#f0d67a' },
+  { hub: '#4a90d9', leaf: '#a3c8ec' },
+  { hub: '#9b59b6', leaf: '#cba3d9' },
+  { hub: '#e67e22', leaf: '#f0bd8a' },
+];
+
+// Shared by the table row click handler and the topology leaf-node click
+// handler in renderDiscoveryTopology() — applying the same
+// discovered-device fields regardless of which view the user clicked in.
+function applyDiscoveredDeviceSelection(row_data: string[]) {
+  if(getSelectedPlayer().isplay) {
+    getSelectedPlayer().stop();
+  }
+
+  if(document.getElementById("use_sunapi_client_checkbox").checked == true) {
+    document.getElementById("use_sunapi_client_checkbox").checked = false;
+    getSelectedPlayer().sunapiClient = null;
+  }
+  if(document.getElementById("is_android").checked == true) {
+    getSelectedPlayer().android = false;
+    document.getElementById("is_android").checked = false;
+  }
+
+  console.log( row_data );
+  document.getElementById("hostname").value = row_data[1];
+  getSelectedPlayer().hostname = row_data[1];
+  document.getElementById("port").value = row_data[3];
+  getSelectedPlayer().port = row_data[3];
+
+  // row_data[5] is the discovered device's Protocol ("http"/"https" —
+  // see socket.ts's displayResult()). Setting .checked directly here
+  // (not .click()) deliberately does not fire changehttptype()'s
+  // 'change' listener above, so the real discovered port set just
+  // above isn't immediately overwritten by that handler's 80/443
+  // default. Defaulting "Bypass Untrusted Certificate" on for a
+  // discovered HTTPS device: an HTTPS device found via SUNAPI
+  // discovery is highly likely to be a self-signed factory cert (see
+  // docs/native-https-proxy/PRD.md) — still fully opt-out via the
+  // checkbox itself, and has no effect outside the extension target
+  // (IS_EXTENSION-gated visibility, see initSunapiManager()).
+  var isHttps = row_data[5] === 'https';
+  document.getElementById("https_radio").checked = isHttps;
+  document.getElementById("http_radio").checked = !isHttps;
+  document.getElementById("use_native_tls_proxy_checkbox").checked = isHttps;
+
+  document.getElementById("webviewer").src = row_data[4];
+  document.getElementById("web").disabled = false;
+}
+
+// dataSet column each #discovery_topology_group_by option groups on -- see
+// docs/architecture.md's "Discovery result views" section for the full
+// per-type key-extraction/hub-label rule table.
+var TOPOLOGY_GROUP_COLUMN: { [key: string]: number } = {
+  ip: 1, name: 0, mac: 2, port: 3, protocol: 5
+};
+
+function getTopologyGroupKey(row: string[], groupBy: string): string {
+  var column = TOPOLOGY_GROUP_COLUMN.hasOwnProperty(groupBy) ? TOPOLOGY_GROUP_COLUMN[groupBy] : 1;
+  var value = String(row[column]);
+  if (groupBy === 'ip') {
+    var ipParts = value.split('.');
+    return ipParts.length >= 3 ? ipParts.slice(0, 3).join('.') : value;
+  }
+  if (groupBy === 'mac') {
+    var macParts = value.split(':');
+    return macParts.length >= 3 ? macParts.slice(0, 3).join(':') : value;
+  }
+  if (groupBy === 'name') {
+    var dashIndex = value.indexOf('-');
+    return dashIndex > 0 ? value.substring(0, dashIndex) : value;
+  }
+  return value; // port / protocol: exact value, no truncation
+}
+
+function getTopologyHubLabel(key: string, groupBy: string): string {
+  if (groupBy === 'ip') return key + '.0/24';
+  if (groupBy === 'mac') return key + ' (OUI)';
+  if (groupBy === 'port') return 'Port ' + key;
+  return key; // name / protocol
+}
+
+function renderDiscoveryTopology() {
+  var container = document.getElementById('datatable_topology');
+  if (container === null) return;
+
+  // Grouping is a client-side derivation of the flat discovery list --
+  // SUNAPI discovery replies carry no real parent/child device
+  // relationship (see docs/architecture.md), so there's nothing more
+  // meaningful to group by than whichever column
+  // #discovery_topology_group_by picks. Hub nodes are deliberately not
+  // linked to each other for the same reason (see the comment on
+  // #datatable_topology in window.html).
+  //
+  // Search reuses the exact same per-row predicate renderDiscoveryTable()
+  // uses (any cell contains discoverySearchText) -- see MEMORY.md's
+  // "Discovery result 'Star Topology' view" entry for why that alone
+  // makes multi-group prefix matches (e.g. "192." spanning several /24
+  // hubs, or "P" spanning "PNM"/"PNO"/"PND") work without a second,
+  // per-groupBy-type matching rule.
+  var groupIndex: { [key: string]: number } = {};
+  var groupCount = 0;
+  var nodes: any[] = [];
+  var edges: any[] = [];
+
+  dataSet.forEach(function (row) {
+    if (discoverySearchText !== '' && !row.some(function (cell) {
+      return String(cell).toLowerCase().indexOf(discoverySearchText) !== -1;
+    })) {
+      return;
+    }
+
+    var name = row[0], ip = row[1];
+    var groupKey = getTopologyGroupKey(row, discoveryTopologyGroupBy);
+
+    if (!(groupKey in groupIndex)) {
+      groupIndex[groupKey] = groupCount++;
+      var hubColors = TOPOLOGY_GROUP_COLORS[groupIndex[groupKey] % TOPOLOGY_GROUP_COLORS.length];
+      nodes.push({
+        id: 'hub:' + groupKey,
+        label: getTopologyHubLabel(groupKey, discoveryTopologyGroupBy),
+        shape: 'dot',
+        size: 16,
+        color: hubColors.hub,
+        font: { color: '#ffffff' }
+      });
+    }
+
+    var colors = TOPOLOGY_GROUP_COLORS[groupIndex[groupKey] % TOPOLOGY_GROUP_COLORS.length];
+    nodes.push({
+      id: ip,
+      label: name || ip,
+      title: ip,
+      shape: 'dot',
+      size: 10,
+      color: colors.leaf,
+      font: { color: '#ffffff' }
+    });
+    edges.push({ from: 'hub:' + groupKey, to: ip, color: { color: '#888888' } });
+  });
+
+  var data = { nodes: new vis.DataSet(nodes), edges: new vis.DataSet(edges) };
+  var options = {
+    // stabilization.fit: false -- vis's own default (true) re-fits/zooms
+    // the view itself as soon as physics finishes stabilizing, racing our
+    // own fit() call below (registered on the same 'stabilizationIterationsDone'
+    // event, so ours always wins/is the only one that runs).
+    physics: { barnesHut: { springLength: 90 }, stabilization: { iterations: 150, fit: false } },
+    interaction: { hover: true }
+  };
+
+  // Destroy and fully reconstruct the Network on every render, rather than
+  // reusing the existing instance via setOptions()+setData() -- reusing it
+  // was the actual cause of every interaction (hover, click, drag) going
+  // wrong specifically *after* a search/group-by re-render, not just one
+  // of them: something about repeated setData() calls on the same instance
+  // left stale internal state (mouse/canvas coordinate handling, physics,
+  // or both -- this old vis@4.20 build's lack of a changelog or .d.ts made
+  // it impractical to pin down further without a real browser). destroy()
+  // tears down its canvas/DOM/event bindings cleanly, so every render
+  // starts from the exact same known-good state the very first render
+  // does. See MEMORY.md's "Discovery result 'Star Topology' view" entry
+  // for the three narrower attempts this replaced.
+  if (visNetwork !== null) {
+    visNetwork.destroy();
+    visNetwork = null;
+  }
+
+  visNetwork = new vis.Network(container, data, options);
+  visNetwork.on('click', function (params: any) {
+    // params.nodes (hit-testing done once, at mousedown/mouseup time) is
+    // not enough on its own -- a click landing while the layout is still
+    // mid-stabilization can resolve against nodes that haven't settled
+    // into their final positions yet. getNodeAt() re-queries against
+    // wherever nodes *actually* are right now, at click time, so this
+    // only ever acts when a node is truly under the pointer -- doesn't
+    // touch dragging/panning at all, only gates whether a click selects a
+    // device.
+    if (params.nodes.length === 0) return;
+    var nodeId = visNetwork.getNodeAt(params.pointer.DOM);
+    if (nodeId === undefined || nodeId === null) return;
+    nodeId = String(nodeId);
+    if (nodeId.indexOf('hub:') === 0) return; // hubs are a derived grouping, not a selectable device
+    var row = dataSet.find(function (r) { return r[1] === nodeId; });
+    if (row) applyDiscoveredDeviceSelection(row);
+  });
+  // Fit-and-freeze together, both gated on physics having actually
+  // finished moving nodes to their final resting positions -- fit()
+  // used to run synchronously right after setData(), which could land
+  // *before* an async stabilization pass had finished: the camera would
+  // lock onto the graph's bounds while nodes were still physically
+  // drifting into place underneath it. Tying both to this event means the
+  // camera only ever settles once the layout has too. This fires again on
+  // every fresh render since it's a brand-new Network instance each time.
+  visNetwork.on('stabilizationIterationsDone', function () {
+    visNetwork.stopSimulation();
+    visNetwork.setOptions({ physics: { enabled: false } });
+    visNetwork.fit({ animation: { duration: 300, easingFunction: 'easeInOutQuad' } });
+  });
+}
+
+function setDiscoveryViewType(viewType: string) {
+  discoveryViewType = viewType;
+  var tableScroll = document.querySelector('.datatable-scroll') as HTMLElement;
+  var topologyContainer = document.getElementById('datatable_topology');
+  var infoElement = document.getElementById('datatable_info');
+  var groupByWrap = document.getElementById('discovery_topology_group_by_wrap');
+  if (viewType === 'topology') {
+    tableScroll.style.display = 'none';
+    infoElement.style.display = 'none';
+    topologyContainer.style.display = 'block';
+    groupByWrap.style.display = '';
+    renderDiscoveryTopology();
+  } else {
+    tableScroll.style.display = '';
+    infoElement.style.display = '';
+    topologyContainer.style.display = 'none';
+    groupByWrap.style.display = 'none';
+  }
+}
+
 function updateDiscoverySortIndicator() {
   document.querySelectorAll('#datatable thead th').forEach(function (th) {
     th.classList.remove('sort-asc', 'sort-desc');
@@ -596,6 +841,16 @@ document.addEventListener("DOMContentLoaded", function() {
   document.getElementById('datatable_search').addEventListener('input', function (this: HTMLInputElement) {
     discoverySearchText = this.value.trim().toLowerCase();
     renderDiscoveryTable();
+    if (discoveryViewType === 'topology') renderDiscoveryTopology();
+  });
+
+  document.getElementById('discovery_view_type').addEventListener('change', function (this: HTMLSelectElement) {
+    setDiscoveryViewType(this.value);
+  });
+
+  document.getElementById('discovery_topology_group_by').addEventListener('change', function (this: HTMLSelectElement) {
+    discoveryTopologyGroupBy = this.value;
+    renderDiscoveryTopology();
   });
 
   document.getElementById("drag").addEventListener('mousedown', function(event) {
@@ -642,19 +897,6 @@ document.addEventListener("DOMContentLoaded", function() {
       tr.classList.remove('selected');
       document.getElementById("web").disabled = true;
     } else {
-      if(getSelectedPlayer().isplay) {
-        getSelectedPlayer().stop();
-      }
-
-      if(document.getElementById("use_sunapi_client_checkbox").checked == true) {
-        document.getElementById("use_sunapi_client_checkbox").checked = false;
-        getSelectedPlayer().sunapiClient = null;
-      }
-      if(document.getElementById("is_android").checked == true) {
-        getSelectedPlayer().android = false;
-        document.getElementById("is_android").checked = false;
-      }
-
       document.querySelectorAll('#datatable tbody tr.selected').forEach(function (selectedRow) {
         selectedRow.classList.remove('selected');
       });
@@ -662,39 +904,7 @@ document.addEventListener("DOMContentLoaded", function() {
 
       var cells = tr.querySelectorAll('td');
       var row_data = [cells[0].textContent, cells[1].textContent, cells[2].textContent, cells[3].textContent, cells[4].textContent, cells[5].textContent];
-      console.log( row_data );
-      document.getElementById("hostname").value = row_data[1];
-      getSelectedPlayer().hostname = row_data[1];
-      document.getElementById("port").value = row_data[3];
-      getSelectedPlayer().port = row_data[3];
-
-      // row_data[5] is the discovered device's Protocol ("http"/"https" —
-      // see socket.ts's displayResult()). Setting .checked directly here
-      // (not .click()) deliberately does not fire changehttptype()'s
-      // 'change' listener above, so the real discovered port set just
-      // above isn't immediately overwritten by that handler's 80/443
-      // default. Defaulting "Bypass Untrusted Certificate" on for a
-      // discovered HTTPS device: an HTTPS device found via SUNAPI
-      // discovery is highly likely to be a self-signed factory cert (see
-      // docs/native-https-proxy/PRD.md) — still fully opt-out via the
-      // checkbox itself, and has no effect outside the extension target
-      // (IS_EXTENSION-gated visibility, see initSunapiManager()).
-      var isHttps = row_data[5] === 'https';
-      document.getElementById("https_radio").checked = isHttps;
-      document.getElementById("http_radio").checked = !isHttps;
-      document.getElementById("use_native_tls_proxy_checkbox").checked = isHttps;
-
-      // window.open("https://www.google.com", "_blank")
-      // popupWindow(row_data[4], 'Title',"800px","600px");
-      // chrome.tabs.create({url: row_data[4], active: false});
-      // chrome.app.window.
-      // chrome.app.window.create('https://www.google.com', {
-      //   id: 'popup',
-      //   // type: 'popup',
-      //   bounds: { width: 620, height: 500 }
-      // });
-      document.getElementById("webviewer").src = row_data[4];
-      document.getElementById("web").disabled = false;
+      applyDiscoveredDeviceSelection(row_data);
     }
   } );
 
@@ -718,6 +928,7 @@ function addDiscoveredDeviceRow(data) {
   if (!exists) {
     dataSet.push([data.DeviceName, data.IPAddress, data.MACAddress, data.Port, data.URL, data.Protocol]);
     renderDiscoveryTable();
+    if (discoveryViewType === 'topology') renderDiscoveryTopology();
   }
 }
 

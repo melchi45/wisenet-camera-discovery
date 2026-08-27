@@ -46,15 +46,24 @@
 
 .datatable-toolbar {
   margin-bottom: 5px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .datatable-toolbar input[type="search"] {
-  width: 100%;
+  flex: 1;
 }
 
 .datatable-scroll {
   max-height: 230px;
   overflow-y: auto;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+}
+
+#datatable_topology {
+  height: 230px;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
 }

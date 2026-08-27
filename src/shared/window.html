@@ -77,6 +77,26 @@
                     <div class="discovery">
                         <div class="datatable-toolbar">
                             <input type="search" id="datatable_search" placeholder="Search">
+                            <label for="discovery_view_type">View:</label>
+                            <select id="discovery_view_type">
+                                <option value="table">Table</option>
+                                <option value="topology">Star Topology</option>
+                            </select>
+                            <!-- Only shown while the topology view is active (toggled by
+                            setDiscoveryViewType() in window.ts) -- picks which dataSet column
+                            renderDiscoveryTopology() groups devices by. See
+                            docs/architecture.md's "Discovery result views" section for the
+                            per-type grouping-key rules. -->
+                            <span id="discovery_topology_group_by_wrap" style="display:none">
+                                <label for="discovery_topology_group_by">Group by:</label>
+                                <select id="discovery_topology_group_by">
+                                    <option value="ip">IP Address</option>
+                                    <option value="name">Name</option>
+                                    <option value="mac">MAC Address</option>
+                                    <option value="port">Port</option>
+                                    <option value="protocol">Protocol</option>
+                                </select>
+                            </span>
                         </div>
                         <div class="datatable-scroll">
                             <table id="datatable" class="dataTable" width="100%">
@@ -93,6 +113,13 @@
                                 <tbody></tbody>
                             </table>
                         </div>
+                        <!-- Force-directed node-link view of the same dataSet, grouped into
+                        one hub per /24 subnet (IP's first 3 octets) with each discovered
+                        device as a leaf — see renderDiscoveryTopology() in window.ts. Hub
+                        nodes are NOT connected to each other: that relationship isn't real
+                        network topology, just a derived grouping of the flat discovery
+                        list, so drawing it would imply a link that doesn't exist. -->
+                        <div id="datatable_topology" style="display:none"></div>
                         <div id="datatable_info" class="datatable-info"></div>
                     </div>
                 </div>

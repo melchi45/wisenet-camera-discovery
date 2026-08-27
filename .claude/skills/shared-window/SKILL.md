@@ -36,6 +36,13 @@ only testing one side:
   `docs/native-https-proxy/` (PRD/MRD/SRS/DESIGN/TC) first — that's the source of truth for the
   "Bypass Untrusted Certificate (Native Host)" feature's `SunapiClientLike`/`attach()` contract,
   not just `docs/architecture.md`'s brief pointer to it.
+- If the change touches the discovery result Group by/topology behavior
+  (`renderDiscoveryTopology()`, `#discovery_view_type`/`#discovery_topology_group_by`, or the
+  search-box filtering / `vis.Network` interaction handling that feeds it), also read
+  `docs/star-topology/` (PRD/MRD/SRS/DESIGN/TC) first — that's the source of truth for the
+  per-type grouping-key/hub-label rules and, in `DESIGN.md`'s "Interaction stability" section, why
+  the `vis.Network` instance is destroyed and reconstructed on every render rather than reused —
+  not just `docs/architecture.md`'s brief pointer to it.
 
 ## After changing `src/shared/` or `examples/server.ts`
 
@@ -44,6 +51,8 @@ only testing one side:
 - If the change touched the native-proxy SUNAPI client selection noted above, also keep
   `docs/native-https-proxy/` in sync (its `DESIGN.md`/`SRS.md` in particular) — don't let
   `docs/architecture.md`'s one-paragraph summary drift from that folder's fuller spec.
+- If the change touched the Group by/topology behavior noted above, likewise keep
+  `docs/star-topology/` in sync (its `SRS.md`/`DESIGN.md` in particular).
 - Run `npm run build` (builds **both** `dist/chrome-extension/` and `dist/nodejs/`) — not just
   `build:extension` or `build:node` alone — and verify both outputs, since a change here always
   touches both.

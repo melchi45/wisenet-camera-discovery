@@ -83,3 +83,10 @@ see [`src/chrome-extension/native-host/README.md`](src/chrome-extension/native-h
   latent quirks from its jQuery-era history (see `MEMORY.md`); check whether a comment nearby
   explains *why* something looks odd before "fixing" it.
 - See [`MEMORY.md`](MEMORY.md) for non-obvious past decisions and bugs found/fixed in this repo.
+- The discovery result panel has a Table/Star Topology toggle with a Group by selector
+  (`#discovery_view_type`/`#discovery_topology_group_by` in `window.html`,
+  `renderDiscoveryTopology()` in `window.ts`) — read
+  [`docs/star-topology/`](docs/star-topology/) (MRD/PRD/SRS/DESIGN/TC) before changing
+  grouping, search-filter, or `vis.Network` interaction behavior there; `docs/architecture.md`'s
+  "Discovery result views" section is only a brief pointer to it, same as for
+  `docs/native-https-proxy/`.

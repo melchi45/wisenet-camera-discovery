@@ -281,3 +281,132 @@ error handling already exists. Worth checking any other `chrome.runtime.sendMess
 `chrome.runtime.sendMessage(id, ...)` call sites the same way if this class of noise shows up
 again — `grep -n "sendMessage(" src/shared/scripts/socket.ts src/shared/window.ts
 src/chrome-extension/background.ts` to re-audit all of them at once.
+
+## Discovery result "Star Topology" view: `vis.Network` was already bundled, no new dependency
+
+Added a second view (alongside the existing table) for the discovery result list — a node-link
+diagram, toggled via `#discovery_view_type` in `window.html`, rendered by
+`renderDiscoveryTopology()` in `window.ts`. Two findings worth remembering:
+
+**`vis.Network` needed zero new dependencies.** `package.json`'s `vis` package (the old
+monolithic vis@4.x bundle) already ships `Timeline`, `DataSet`, *and* `Network` in one module;
+`window.ts` only ever used the first two (`vis.Timeline` for the playback timeline). Since
+`window.ts` already does `import * as vis from 'vis'`, Vite already bundles the whole module
+regardless of which properties are accessed off it (property access on a wildcard import can't be
+tree-shaken) — so `new vis.Network(...)` was reachable immediately, confirmed by the built
+`build/shared/window.js` bundle size being unchanged before/after adding the topology code. Worth
+checking what a `import * as X from 'pkg'`-style dependency actually contains before assuming a
+new visualization/utility need requires a new package — this repo had already paid the bundle-size
+cost for the whole `vis` library, just wasn't using all of it.
+
+**No real parent/child device data exists to build a topology from.** SUNAPI UDP discovery
+replies are a flat list — each camera/NVR reports itself once, with no field linking an NVR to its
+attached camera channels (see `src/sunapi/response.ts`'s `toLegacyDeviceObject()`; the only
+NVR-adjacent field, `nMaxChannel`, is a channel *count*, not per-channel identity, and isn't even
+forwarded into `window.ts`'s `dataSet` today). So "topology" here is a client-side derived
+grouping — hub node per `/24` subnet (`IPAddress`'s first 3 octets), each discovered device as a
+leaf under its subnet's hub — not a reflection of actual network wiring. Hub nodes are
+deliberately **not** connected to each other, to avoid implying a link that isn't real. If a future
+ask wants genuine NVR→channel topology, that needs new data: per-NVR channel enumeration via a
+SUNAPI call (the codebase already has a channel-list SUNAPI flow gated behind "Use SUNAPI" in the
+Control panel, just not wired into the discovery list/dataSet).
+
+**Follow-up: made grouping generic (`#discovery_topology_group_by`: Name/IP/MAC/Port/Protocol)
+and wired the existing search box into the topology view.** Two more findings from that change,
+worth keeping alongside the above:
+
+**MAC address wire format confirmed colon-separated, not written down anywhere else in the repo.**
+Needed for the new MAC-grouping option's OUI (first-3-octet) extraction. `src/sunapi/protocol.ts`'s
+`FIELDS` table sizes `chMAC` at 18 bytes, a null-terminated wire string (`STRING_FIELDS`) — and
+`"00:09:18:AB:CD:EF"` is exactly 17 characters plus a null terminator, i.e. the only format that
+fits. Confirmed by field-sizing arithmetic, not by observing a real device reply — worth
+re-verifying against an actual captured packet if a future change depends on this more critically
+than a display-grouping key.
+
+**Search filtering reuses the table's existing row-match predicate as-is, instead of writing a
+second matching rule per `groupBy` type.** The ask was: typing a search prefix should show *every*
+currently-matching hub at once (e.g. `"192."` spanning several `/24` hubs, or `"P"` while grouped
+by Name spanning `"PNM"`/`"PNO"`/`"PND"`), not just the nearest/first one. The table's filter
+(`renderDiscoveryTable()`: does any cell in a `dataSet` row contain the search text) already
+produces exactly this once reused for the topology's leaf-inclusion test, *because every hub label
+is itself derived from a literal substring of its leaves' own field values* — so a leaf-level
+substring match automatically keeps every hub that should match, with no per-type prefix-parsing
+logic needed on top. `visNetwork.fit()` after `setData()` then bounds the camera to whatever
+combination of hubs/leaves survived the filter, one cluster or several, satisfying "filter and
+zoom, together" without special-casing either count. Worth remembering as a general pattern: when
+a new view needs to "search" the same underlying list a table already searches, check whether the
+table's existing predicate already implies the new view's desired behavior before writing a
+second, view-specific one.
+
+**Second follow-up (superseded by the third, below — kept for the "don't repeat this" lesson):**
+hovering a node looked like it was zooming in/out. First guess was that `vis.Network`'s default
+per-node `chosen` behavior grows border width on hover (this old vis@4.20 build has no shipped
+`.d.ts`, so guessing instead of reading types was the mistake). "Fixed" by
+`options.nodes.chosen = false` plus manually swapping each node's `color` via
+`hoverNode`/`blurNode` handlers calling `visNodesDataSet.update({id, color})`. **This made things
+worse, not better**: reading the actual source
+(`node_modules/vis/dist/vis.js`'s `Node.getFormattingValues()`) afterward showed the default
+`chosen: true` hover path only ever swaps `values.color`/`values.borderColor` at *draw time* —
+never touches border width, and never touches the `DataSet`. The `DataSet.update()` calls this
+"fix" added were themselves a new source of churn: every hover/blur mutated the live `DataSet`,
+which is exactly the kind of change that can perturb the physics engine (see third follow-up).
+**Lesson**: for a vis-network version with no `.d.ts`, read `node_modules/.../dist/vis.js`
+directly before hypothesizing about its default behavior — a wrong guess here didn't just fail to
+fix the reported bug, it added a second one.
+
+**Third follow-up, the real fix: the graph visibly "jumping" (nodes suddenly repositioning /
+the camera suddenly zooming) was never about hover or click themselves — it was
+`visNetwork.fit()` racing physics.** `renderDiscoveryTopology()` used to call `.fit()`
+synchronously right after `setData()`, but `stabilization: {iterations: 150}` runs
+asynchronously — on a real device count this can still be mid-flight when `.fit()` computes
+bounds, especially on a search-triggered re-render (every render starts physics over from
+scratch, since it's a brand-new `vis.DataSet` each time). The camera would lock onto the graph's
+bounds while barnesHut was still actively moving nodes underneath it; the mismatch surfaced
+whenever the canvas next redrew, most easily via a hover or click nudging a redraw, which read as
+"hovering/clicking causes the jump" without either interaction actually being the cause. Fixed by
+moving `.fit()` **into** the `stabilizationIterationsDone` handler (fires once physics has
+actually finished moving nodes for the current data) instead of calling it unconditionally right
+after `setData()`, and disabling physics there too (`physics: {enabled: false}`) so there's
+nothing left running to drift out from under a settled camera. `stabilization.fit: false` in
+`options.physics` stops vis's own built-in auto-fit-on-stabilize from also firing and duplicating/
+racing this. Physics re-enables itself on the next `renderDiscoveryTopology()` call
+(`options.physics` carries no `enabled: false` of its own, and `setOptions(options)` runs before
+`setData()` on every render after the first), so this refires and re-freezes-in-sync after every
+search/group-by/new-device update, not just the first render. **Lesson**: when an async layout
+engine (physics, in this case) is involved, gate any one-time "now do X" call (fit, snapshot,
+whatever) on the engine's own "I'm done" event — never on "I just called setData(), so it must be
+ready by now."
+
+**Fourth follow-up: after a search re-render, clicking still occasionally misbehaved (wrong
+device selected).** `params.nodes` in vis-network's `click` event is resolved from hit-testing
+done at click time against wherever nodes are positioned *then* — if a click lands while the
+layout is still mid-stabilization (e.g. right after typing into the search box, before that
+render's `stabilizationIterationsDone` has fired), several unrelated nodes can still be bunched
+near their shared starting position, so `params.nodes[0]` isn't reliably "the node the user
+actually clicked." Fixed by re-querying `visNetwork.getNodeAt(params.pointer.DOM)` inside the
+handler — an authoritative, current-position hit-test — instead of trusting `params.nodes[0]`
+as-is; `applyDiscoveredDeviceSelection()` only ever runs if that independently confirms a real
+node id under the pointer. Confirmed with the user that this must not interfere with dragging (a
+node, or the canvas itself to pan) — it doesn't, since drag/pan position updates in vis-network
+are handled by the interaction/manipulation module directly from pointer deltas, entirely separate
+from both the `click` event and the physics engine `stopSimulation()`/`enabled: false` calls in
+the third follow-up above.
+
+**Fifth follow-up, the actual fix: after a search re-render, *every* interaction was wrong —
+hover, click, click-and-drag, all of it, not just the specific cases the third/fourth follow-ups
+above targeted.** That breadth was the tell that the previous two fixes had been treating symptoms
+of the same underlying problem rather than its cause: `renderDiscoveryTopology()` was reusing the
+existing `vis.Network` instance across renders (`visNetwork.setOptions(options);
+visNetwork.setData(data);` in an `else` branch, only constructing `new vis.Network(...)` the very
+first time). Something about repeated `setData()` calls on the same long-lived instance left stale
+internal state behind — most likely mouse/canvas coordinate handling, physics, or both, though
+this old vis@4.20 build ships no changelog or `.d.ts` to confirm exactly what without a real
+browser to instrument. Fixed by calling `visNetwork.destroy()` and setting `visNetwork = null`
+before *every* render, then always constructing a fresh `new vis.Network(...)` (with the
+`click`/`stabilizationIterationsDone` listeners re-registered each time, since they were
+previously only attached once inside the `visNetwork === null` branch) — every render now starts
+from the exact same known-good state the very first render always did, eliminating whatever the
+stale-state mechanism was rather than continuing to chase individual symptoms of it. **Lesson**:
+when several seemingly-different interaction bugs all share one precondition ("only after X"), stop
+patching them one at a time — look for what X actually changes structurally (here: reusing one
+long-lived widget instance across data updates) before trying a fourth narrower fix.
