@@ -736,7 +736,17 @@ function renderDiscoveryTopology() {
     // own fit() call below (registered on the same 'stabilizationIterationsDone'
     // event, so ours always wins/is the only one that runs).
     physics: { barnesHut: { springLength: 90 }, stabilization: { iterations: 150, fit: false } },
-    interaction: { hover: true }
+    interaction: { hover: true },
+    // improvedLayout's initial-positioning pass only kicks in above vis's
+    // internal 150-node cluster threshold, which real discovery results
+    // routinely exceed; when clustering can't reduce below that threshold
+    // it bails out and logs "could not be positioned by this version of
+    // the improved layout algorithm" -- on every re-render, since this
+    // view reconstructs the Network each time (see the destroy/reconstruct
+    // comment below). Disabling it is vis's own suggested fix in that
+    // message; physics-based placement (already relied on above) positions
+    // the graph regardless.
+    layout: { improvedLayout: false }
   };
 
   // Destroy and fully reconstruct the Network on every render, rather than

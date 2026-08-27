@@ -101,6 +101,19 @@ detail, including exact vis.js source line references).
 bugs all share one precondition ("only after a re-render"), stop patching them one at a time — look
 for what that precondition actually changes structurally before trying a narrower fix.
 
+## `layout.improvedLayout: false`
+
+vis@4.x's `improvedLayout` (on by default) runs a clustering + kamada-kawai initial-positioning
+pass, but only once node count exceeds its internal 150-node threshold
+(`node_modules/vis/dist/vis.js`'s `_initialDrawing`) — real discovery results routinely exceed
+that. When clustering can't reduce below the threshold, it bails and logs "This network could not
+be positioned by this version of the improved layout algorithm. Please disable improvedLayout for
+better performance." straight to the console, on *every* render (destroy-and-reconstruct means
+every search keystroke, group-by change, or newly-discovered device re-triggers it). Disabled via
+`layout: { improvedLayout: false }` in `renderDiscoveryTopology()`'s `options` — the physics engine
+(`barnesHut`, already relied on for node placement) positions the graph regardless, so this is a
+pure noise/wasted-computation fix with no positioning-quality tradeoff for this feature's graphs.
+
 ## Components
 
 - **`src/shared/window.html`** — `#discovery_view_type` (Table/Star Topology), 
