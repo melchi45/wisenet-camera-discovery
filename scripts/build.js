@@ -218,6 +218,90 @@ function copySharedWebAssets(destDir) {
   }
 }
 
+// docs/window-ui/ — a from-scratch, independently-tested reimplementation
+// of src/shared/, built alongside it (never replacing it) purely to prove
+// docs/window-ui/SRS.md's completeness via Playwright equivalence tests
+// (see docs/window-ui/PRD.md's Success Criteria). Deliberately a SEPARATE
+// build target ('shared-v2', not part of 'all'/'extension'/'node') so a
+// problem in this new/experimental code can never affect the real product
+// build — see docs/window-ui/MRD.md's "parallel, not in-place" reasoning.
+// Mirrors copySharedWebAssets() above exactly, source directory swapped.
+function buildSharedV2() {
+  const BUILD_SHARED_V2 = path.join(ROOT, 'build', 'shared-v2');
+  const DIST_SHARED_V2 = path.join(ROOT, 'dist', 'shared-v2-preview');
+
+  console.log('Cleaning previous dist/shared-v2-preview/ output...');
+  rmrf(DIST_SHARED_V2);
+
+  console.log('Type-checking shared-v2 window.ts...');
+  run('npx', ['tsc', '-p', path.join('src', 'shared-v2', 'tsconfig.window.json')]);
+  console.log('Bundling shared-v2 window.ts with Vite...');
+  run('npx', ['vite', 'build', '--config', path.join('src', 'shared-v2', 'vite.config.ts')]);
+
+  console.log('Compiling shared socket.ts (reused unmodified from src/shared/)...');
+  run('npx', ['tsc', '-p', path.join('src', 'shared', 'tsconfig.socket.json'), '--outDir', BUILD_SHARED_V2]);
+  run('node', [path.join('scripts', 'substitute-player-extension-ids.js'), path.join(BUILD_SHARED_V2, 'scripts', 'socket.js')]);
+
+  console.log('Assembling dist/shared-v2-preview/...');
+  copyFile(
+    path.join(ROOT, 'src', 'shared-v2', 'window.html'),
+    path.join(DIST_SHARED_V2, 'window.html')
+  );
+  copyFile(
+    path.join(BUILD_SHARED_V2, 'window.js'),
+    path.join(DIST_SHARED_V2, 'window.js')
+  );
+  copyFile(
+    path.join(BUILD_SHARED_V2, 'scripts', 'socket.js'),
+    path.join(DIST_SHARED_V2, 'scripts', 'socket.js')
+  );
+  copyFile(
+    path.join(ROOT, 'src', 'shared', 'scripts', 'legacy-globals-bridge.js'),
+    path.join(DIST_SHARED_V2, 'scripts', 'legacy-globals-bridge.js')
+  );
+  // Reused unmodified, same CSS as src/shared/ -- see docs/window-ui/PRD.md's
+  // Non-Goals (not a visual redesign).
+  copyDir(path.join(ROOT, 'src', 'shared', 'css'), path.join(DIST_SHARED_V2, 'css'));
+  copyFile(
+    path.join(ROOT, 'src', 'component', 'switch', 'switch.css'),
+    path.join(DIST_SHARED_V2, 'css', 'switch.css')
+  );
+  copyFile(
+    path.join(ROOT, 'src', 'component', 'disclosure', 'disclosure.css'),
+    path.join(DIST_SHARED_V2, 'css', 'disclosure.css')
+  );
+  copyFile(
+    path.join(ROOT, 'node_modules', 'vis', 'dist', 'vis.css'),
+    path.join(DIST_SHARED_V2, 'external-lib', 'vis', 'vis.css')
+  );
+  copyDir(
+    path.join(ROOT, 'node_modules', 'vis', 'dist', 'img'),
+    path.join(DIST_SHARED_V2, 'external-lib', 'vis', 'img')
+  );
+  copyFile(
+    path.join(ROOT, 'node_modules', '@melchi45', 'rtsp-over-websocket', 'dist', 'player', 'rtsp-over-websocket.esm.js'),
+    path.join(DIST_SHARED_V2, 'external-lib', 'rtsp-over-websocket', 'rtsp-over-websocket.esm.js')
+  );
+  copyDir(
+    path.join(ROOT, 'node_modules', '@melchi45', 'rtsp-over-websocket', 'dist', 'player', 'assets'),
+    path.join(DIST_SHARED_V2, 'external-lib', 'rtsp-over-websocket', 'assets')
+  );
+  for (const vendorFile of ['ffmpeg.js', 'ffmpeg.wasm', 'ffmpegAAC.decoder.js', 'ffmpegAAC.transcoder.js', 'ffmpegAAC.transcoder.wasm', 'minizip-asm.js']) {
+    copyFile(
+      path.join(ROOT, 'node_modules', '@melchi45', 'rtsp-over-websocket', 'dist', 'player', vendorFile),
+      path.join(DIST_SHARED_V2, 'external-lib', 'rtsp-over-websocket', vendorFile)
+    );
+  }
+
+  console.log('Build complete:');
+  console.log(`  ${path.relative(ROOT, DIST_SHARED_V2)}/`);
+}
+
+if (process.argv[2] === 'shared-v2') {
+  buildSharedV2();
+  process.exit(0);
+}
+
 // `node scripts/build.js` (no args) builds both dist/ outputs, same as
 // always. `node scripts/build.js extension` / `node scripts/build.js node`
 // build just one side — used by `npm run start:server`, which still skips

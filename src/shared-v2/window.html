@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<!-- src/shared-v2/window.html -- authored from docs/window-ui/SRS.md (not
+     copied from src/shared/window.html), reusing src/shared/'s CSS files
+     and the same element ids/classes wherever an FR names them as part of
+     a reused library's contract (socket.ts, switch/disclosure components,
+     the vendored rtsp-over-websocket element) -- see docs/window-ui/DESIGN.md. -->
+<html data-theme="dark">
+  <head>
+    <meta charset='UTF-8'>
+    <meta name="robots" content="noindex">
+    <meta name="viewport" content="width=device-width, minimum-scale=1.0, maximum-scale=4.0, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0, initial-scale=1.0">
+
+    <link rel="stylesheet" type="text/css" href="external-lib/vis/vis.css">
+
+    <link rel="stylesheet" type="text/css" href="css/window.css" async>
+    <link rel="stylesheet" type="text/css" href="css/switch.css" async>
+    <link rel="stylesheet" type="text/css" href="css/disclosure.css" async>
+    <link rel="stylesheet" type="text/css" href="css/modal.css" async>
+
+    <link rel="stylesheet" type="text/css" href="css/table.css">
+    <link rel="stylesheet" type="text/css" href="css/timeline.css">
+
+    <script type="text/javascript" src="scripts/socket.js"></script>
+
+    <script type="module" src="external-lib/rtsp-over-websocket/rtsp-over-websocket.esm.js"></script>
+    <script type="module" src="scripts/legacy-globals-bridge.js"></script>
+
+    <script type="text/javascript" src="window.js"></script>
+  </head>
+  <body>
+    <div id="container" class="container">
+      <div id="left_panel">
+        <div class="video sameRow">
+          <rtsp-over-websocket class="rtsp-over-websocket" id="rtsp-over-websocket1" channel="1" profile="H.264" port="80" device="camera"
+            width="640px" height="320px" username="admin" statistics></rtsp-over-websocket>
+        </div>
+      </div>
+      <div id="right_panel">
+        <div id="drag"></div>
+        <div id="discovery" class="toolbar">
+          <div class="toolbar-group">
+            <button id="init">Start Discovery</button>
+            <button id="disconnect" disabled="disabled">Stop Discovery</button>
+            <button id="web" disabled="disabled">Show Web Area</button>
+            <label class="toolbar-checkbox">
+              <input type="checkbox" id="auto_discovery_toggle">
+              Run discovery automatically (minimized window)
+            </label>
+          </div>
+          <div class="toolbar-group">
+            <label id="theme_switch" for="toggle">
+              <input type="checkbox" id="toggle" checked />
+            </label>
+            <div class="theme-icon">
+              <img src="https://img.icons8.com/emoji/32/000000/crescent-moon-emoji.png" />
+              <em>Dark Mode</em>
+            </div>
+          </div>
+        </div>
+        <div class="panel-stack">
+          <div class="panel">
+            <label for="debug" class="panel-title">Discovery result</label>
+            <div class="discovery">
+              <div class="datatable-toolbar">
+                <input type="search" id="datatable_search" placeholder="Search">
+                <label for="discovery_view_type">View:</label>
+                <select id="discovery_view_type">
+                  <option value="table">Table</option>
+                  <option value="topology">Star Topology</option>
+                </select>
+                <span id="discovery_topology_group_by_wrap" style="display:none">
+                  <label for="discovery_topology_group_by">Group by:</label>
+                  <select id="discovery_topology_group_by">
+                    <option value="ip">IP Address</option>
+                    <option value="name">Name</option>
+                    <option value="mac">MAC Address</option>
+                    <option value="port">Port</option>
+                    <option value="protocol">Protocol</option>
+                  </select>
+                </span>
+              </div>
+              <div class="datatable-scroll">
+                <table id="datatable" class="dataTable" width="100%">
+                  <thead>
+                    <tr>
+                      <th data-column="0">Name</th>
+                      <th data-column="1">IP Address</th>
+                      <th data-column="2">MAC Address</th>
+                      <th data-column="3">Port</th>
+                      <th data-column="4">Http URL</th>
+                      <th data-column="5">Protocol</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+              <div id="datatable_topology" style="display:none"></div>
+              <div id="datatable_info" class="datatable-info"></div>
+            </div>
+          </div>
+        </div>
+        <div class="panel-stack">
+          <div class="panel">
+            <label for="debug" class="panel-title">Control</label>
+            <div class="panel-body">
+              <div id="user_info" class="panel-subgroup">
+                <p class="subgroup-title">Session</p>
+                <div class="flex field-row">
+                  <div id="player_list_div" class="field"></div>
+                  <div id="user" class="field-row">
+                    <label for="username">User:</label>
+                    <input type="text" id="username" value="admin">
+                    <label for="password">Password:</label>
+                    <input type="text" id="password" value="password">
+                  </div>
+                  <div class="field">
+                    <label for="statistics">Show Statistics:
+                      <input id="statistics" type="checkbox">
+                    </label>
+                  </div>
+                </div>
+              </div>
+              <div id="device" class="panel-subgroup">
+                <p class="subgroup-title">Device</p>
+                <div class="field-row">
+                  <div id="device_info" class="field">
+                    <label for="device_type">Type:</label>
+                    <select id="device_type">
+                      <option value="camera">Camera</option>
+                      <option value="nvr">NVR</option>
+                    </select>
+                  </div>
+                  <div id="hostname_info" class="field">
+                    <label for="hostname">Hostname:</label>
+                    <input type="text" id="hostname" size="16" value="">
+                  </div>
+                  <div id="port_info" class="field">
+                    <label for="port">Port:</label>
+                    <input type="text" id="port" size="4" value="">
+                  </div>
+                  <div id="channel_info" class="field">
+                    <label for="channel">Channel:</label>
+                    <input type="text" id="channel" size="4" value="1">
+                  </div>
+                  <div id="profile_info" class="field">
+                    <label for="profile">Profile:</label>
+                    <input type="textbox" id="profile" size="10" value="">
+                  </div>
+                  <div id="time_info" class="field-row">
+                    <div id="sunapi_info" class="field">
+                      <label class="switch">SUNAPI:</label>
+                      <div id="sunapi_toggle">
+                        <input id="use_sunapi_client_checkbox" type="checkbox">
+                      </div>
+                    </div>
+                    <div class="field">
+                      <input id="use_gmt" type="checkbox">
+                      <label for="use_gmt">Use timezone</label>
+                    </div>
+                    <div class="field">
+                      <label for="timezone">Timezone:</label>
+                      <select id="timezone">
+                        <option value="-12">GMT-12:00</option>
+                        <option value="-11">GMT-11:00</option>
+                        <option value="-10">GMT-10:00</option>
+                        <option value="-9.5">GMT-09:30</option>
+                        <option value="-9">GMT-09:00</option>
+                        <option value="-8">GMT-08:00</option>
+                        <option value="-7">GMT-07:00</option>
+                        <option value="-6">GMT-06:00</option>
+                        <option value="-5">GMT-05:00</option>
+                        <option value="-4">GMT-04:00</option>
+                        <option value="-3.5">GMT-03:30</option>
+                        <option value="-3">GMT-03:00</option>
+                        <option value="-2">GMT-02:00</option>
+                        <option value="-1">GMT-01:00</option>
+                        <option value="0">GMT</option>
+                        <option value="1">GMT+01:00</option>
+                        <option value="2">GMT+02:00</option>
+                        <option value="3">GMT+03:00</option>
+                        <option value="3.5">GMT+03:30</option>
+                        <option value="4">GMT+04:00</option>
+                        <option value="4.5">GMT+04:30</option>
+                        <option value="5">GMT+05:00</option>
+                        <option value="5.5">GMT+05:30</option>
+                        <option value="6">GMT+06:00</option>
+                        <option value="6.5">GMT+06:30</option>
+                        <option value="7">GMT+07:00</option>
+                        <option value="8">GMT+08:00</option>
+                        <option value="9">GMT+09:00</option>
+                        <option value="9.5">GMT+09:30</option>
+                        <option value="10">GMT+10:00</option>
+                        <option value="10.5">GMT+10:30</option>
+                        <option value="11">GMT+11:00</option>
+                        <option value="12">GMT+12:00</option>
+                        <option value="13">GMT+13:00</option>
+                      </select>
+                    </div>
+                    <div class="field">
+                      <label for="universaltime_checkbox">Coordinate UTC Time:</label>
+                      <input id="universaltime_checkbox" type="checkbox">
+                    </div>
+                    <div class="field">
+                      <label class="switch">Protocol:</label>
+                      <div id="http_type_toggle" role="tablist" aria-label="Protocol">
+                        <input type="radio" name="http_type" id="http_radio" value="http" checked>
+                        <label for="http_radio">HTTP</label>
+                        <input type="radio" name="http_type" id="https_radio" value="https">
+                        <label for="https_radio">HTTPS</label>
+                      </div>
+                    </div>
+                    <div id="native_tls_proxy_field" class="field">
+                      <input id="use_native_tls_proxy_checkbox" type="checkbox">
+                      <label for="use_native_tls_proxy_checkbox">Bypass Untrusted Certificate (Native Host)</label>
+                    </div>
+                    <div class="field">
+                      <label for="is_android">Is Android?</label>
+                      <input id="is_android" type="checkbox">
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div id="video_source_group" class="panel-subgroup">
+                <p class="subgroup-title">Video Source (selected channel)</p>
+                <div id="video_source_summary" class="field-row"></div>
+                <div id="video_profile_list" class="profile-list"></div>
+              </div>
+              <div id="video_control_info" class="panel-subgroup">
+                <p class="subgroup-title">Video Control</p>
+                <div id="video_control" class="field-row">
+                  <div class="field" id="live_control">
+                    <label>Control:</label>
+                    <button id="play_button">Play</button>
+                    <button id="stop_button">Stop</button>
+                    <button id="pause_button">Pause</button>
+                    <button id="resume_button">Resume</button>
+                    <button id="capture_button">Download Img.</button>
+                    <button id="capture2_button">Capture</button>
+                  </div>
+                  <div class="field-row">
+                    <div class="field">
+                      <label class="switch">Play Type:</label>
+                      <div id="play_type_toggle" role="tablist" aria-label="Play type">
+                        <input type="radio" name="play_type" id="live_radio" value="live" checked>
+                        <label for="live_radio">Live</label>
+                        <input type="radio" name="play_type" id="playback_radio" value="playback">
+                        <label for="playback_radio">Playback</label>
+                      </div>
+                    </div>
+                    <div class="field" id="framedrop_info">
+                      <input id="framedrop" type="checkbox" checked="false">
+                      <label for="framedrop">FrameDrop</label>
+                    </div>
+                    <div class="field" id="iframe_info">
+                      <input id="iframe" type="checkbox" checked="false">
+                      <label for="iframe">I Frame Only</label>
+                    </div>
+                    <div class="field" id="reconnect_info">
+                      <input id="reconnect" type="checkbox" checked="false">
+                      <label for="reconnect">Reconnect:</label>
+                    </div>
+                    <div class="field">
+                      <input id="minimap" type="checkbox" checked="false">
+                      <label for="minimap">Show Minimap</label>
+                    </div>
+                    <div class="field">
+                      <input id="bestshot" type="checkbox" checked="false">
+                      <label for="bestshot">Show AI Bestshotp</label>
+                    </div>
+                    <div class="field" id="renderer_info">
+                      <label for="renderer_type">Renderer Type:</label>
+                      <select id="renderer_type">
+                        <option value="null">null</option>
+                        <option value="video" selected>video tag</option>
+                        <option value="canvas">canvas tag</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div id="playback_control" class="panel-subgroup" style="display:none;">
+                <p class="subgroup-title">Playback</p>
+                <div class="field-row">
+                  <div class="field">
+                    <label class="switch">Search:</label>
+                    <button id="search_overlapped_id">Search Overlapped Id</button>
+                    <span id="overlapped_id_area"></span>
+                    <button id="search_date">Search Date</button>
+                    <div id="search_timeline_range_toggle" role="tablist" aria-label="Timeline search range">
+                      <button type="button" id="search_timeline_range_oneday" data-value="oneday" role="tab">1 Day</button>
+                      <button type="button" id="search_timeline_range_threemonth" data-value="threemonth" role="tab">3 Month</button>
+                    </div>
+                    <button id="search_timeline">Search Timeline</button>
+                  </div>
+                  <div class="field">
+                    <label class="switch">AI Search:</label>
+                    <button id="search_aitimeline">Search AI Timeline</button>
+                    <button id="search_three_month_aitimeline">Search 3 Month AI Timeline</button>
+                  </div>
+                  <div class="field" id="timeline" style="display: inline; min-width: calc(100% - 5px)"></div>
+                  <div class="field" id="manual_time_area">
+                    <label class="switch">Manual Start Time:</label>
+                    <input type="date" id="start_date" name="appt_date" value="2019-09-07" min="1970-01-01" max="2099-12-31" required>
+                    <input type="time" id="start_time" name="appt_time" value="00:00:00" min="00:00:00" max="23:59:59" step="1" style="min-width: 100px;width: 120px !important;" required>
+                    <button id="start_apply" style="display:none">Apply</button>
+                    <input type="checkbox" id="support_end_time">
+                    <label for="support_end_time">Support End time</label>
+                    <span class="field" id="manual_end_time_group" style="display:none">
+                      <label class="switch">Manual End Time:</label>
+                      <input type="date" id="end_date" name="appt_date" value="2019-09-07" min="1970-01-01" max="2099-12-31" required>
+                      <input type="time" id="end_time" name="appt_time" value="23:59:59" min="00:00:00" max="23:59:59" step="1" style="min-width: 100px;width: 120px !important;" required>
+                      <button id="end_apply" style="display:none">Apply</button>
+                    </span>
+                  </div>
+                  <div class="field">
+                    <div class="field">
+                      <label class="switch">Control:</label>
+                      <button id="forward">Forward</button>
+                      <button id="backward">Backward</button>
+                      <select id="speed">
+                        <option value="0.25">0.25x</option>
+                        <option value="0.5">0.5x</option>
+                        <option value="0.75">0.75x</option>
+                        <option value="+0.0">+0.0x</option>
+                        <option value="1">1x</option>
+                        <option value="2">2x</option>
+                        <option value="4">4x</option>
+                        <option value="8">8x</option>
+                        <option value="16">16x</option>
+                        <option value="32">32x</option>
+                        <option value="64">64x</option>
+                        <option value="128">128x</option>
+                        <option value="256">256x</option>
+                        <option value="-0.25">-0.25x</option>
+                        <option value="-0.5">-0.5x</option>
+                        <option value="-0.75">-0.75x</option>
+                        <option value="-0.0">-0.0x</option>
+                        <option value="-1">-1x</option>
+                        <option value="-2">-2x</option>
+                        <option value="-4">-4x</option>
+                        <option value="-8">-8x</option>
+                        <option value="-16">-16x</option>
+                        <option value="-32">-32x</option>
+                        <option value="-64">-64x</option>
+                        <option value="-128">-128x</option>
+                        <option value="-256">-256x</option>
+                      </select>
+                    </div>
+                    <div class="field">
+                      <input type="checkbox" id="iso_date_time_checkbox" name="isodatetime">
+                      <label for="iso_date_time_checkbox">ISO Type Data Time</label>
+                    </div>
+                    <div class="field">
+                      <label for="seeking_date">Seeking Date:</label>
+                      <input type="date" id="seeking_date" name="seeking_date" value="2018-07-22" min="1970-01-01" max="2099-12-31">
+                    </div>
+                    <div class="field">
+                      <label for="seeking_time">Seeking Time:</label>
+                      <input type="time" id="seeking_time" name="appt-time" min="00:00:00.000" step=".001" max="23:59:59.999" required>
+                    </div>
+                  </div>
+                  <div class="field">
+                    <input type="checkbox" id="use_bestshotfilter">
+                    <label for="bestshotfileter">BestshotFilter:</label>
+                    <select id="bestshotfileter">
+                      <option value="Person">Person</option>
+                      <option value="Face">Face</option>
+                      <option value="FaceRecognition">FaceRecognition</option>
+                      <option value="Vehicle">Vehicle</option>
+                      <option value="LicensePlate">LicensePlate</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+              <div id="audio">
+                <div class="field-row">
+                  <div class="field">
+                    <label class="switch">Audio Control:</label>
+                  </div>
+                  <div class="field">
+                    <button id="unmute">Unmute</button>
+                    <button id="mute">Mute</button>
+                  </div>
+                  <div class="field">
+                    <label class="switch" for="volume">Volume Level:</label>
+                    <select id="volume">
+                      <option value="0">Level 1</option>
+                      <option value="1">Level 2</option>
+                      <option value="2">Level 3</option>
+                      <option value="3">Level 4</option>
+                      <option value="4">Level 5</option>
+                      <option value="5">Level 6</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label class="switch" for="getaudiovolume">Volume Input(0-5):</label>
+                    <input type="text" id="getaudiovolume" value="Current Volume">
+                  </div>
+                  <div class="field">
+                    <input type="checkbox" id="talk" value="Talk">
+                    <label for="talk" class="switch">Talk</label>
+                  </div>
+                  <div class="field">
+                    <label for="audio_shift">Audio shift</label>
+                    <input id="audio_shift" type="number" min="-5000" max="5000" step="1" value="0" size="6">
+                  </div>
+                </div>
+              </div>
+              <div id="backup_control">
+                <div class="field-row">
+                  <div class="field">
+                    <label for="backup_checkbox" class="switch">Backup:</label>
+                    <input id="backup_checkbox" type="checkbox">
+                  </div>
+                  <div class="field">
+                    <label for="backup_filename" class="switch">Filename:</label>
+                    <input type="text" id="backup_filename" value="">
+                  </div>
+                  <div class="field">
+                    <label for="backup_time" class="switch">Backup Time:</label>
+                    <input type="text" id="backup_time">
+                  </div>
+                  <div class="field">
+                    <label for="media_record_start" class="switch">Capture:</label>
+                    <button id="media_record_start">Capture</button>
+                    <button id="media_record_stop">Stop</button>
+                    <button id="media_record_show">Show</button>
+                    <video id="displayVideo" autoplay="true" playsinline="" webkit-playsinline="1" controls="1" width="320" height="240" style="display:none"></video>
+                  </div>
+                </div>
+              </div>
+              <div id="instantplayback_control">
+                <div class="field-row">
+                  <div class="field">
+                    <label for="instantplayback_checkbox" class="switch">Instant playback:</label>
+                    <input id="instantplayback_checkbox" type="checkbox">
+                  </div>
+                  <div class="field">
+                    <label for="instantplayback_start" class="switch">Start time (From):</label>
+                    <input type="text" id="instantplayback_start" style="width: 30px;"> sec
+                  </div>
+                  <div class="field">
+                    <label for="instantplayback_end" class="switch">End time (To):</label>
+                    <input type="text" id="instantplayback_end" style="width: 30px;"> sec
+                  </div>
+                  <div class="field">
+                    <button id="instantplayback_play_button">Play</button>
+                    <button id="instantplayback_pause_button">Pause</button>
+                  </div>
+                  <div class="field">
+                    <label for="instantplayback_seek_time" class="switch">Seek time:</label>
+                    <input type="text" id="instantplayback_seek_time">
+                    <button id="instantplayback_seek_button">Seek</button>
+                  </div>
+                </div>
+              </div>
+              <div id="screen">
+                <div class="field-row">
+                  <input type="checkbox" id="fullscreen">
+                  <label for="fullscreen">Fullscreen</label>
+                  <input type="checkbox" id="use_waiting_icon">
+                  <label for="use_waiting_icon">Use Loading Icon when onwait state</label>
+                </div>
+              </div>
+            </div>
+            <div id="webdiv" class="sameRow" style="position:relative;justify-content:center;height:500px;min-height:500px;display:none">
+              <webview id="webviewer" src="test.html" style="display:inline-flex; width:100%; height:100%;overflow-y: scroll;"></webview>
+            </div>
+          </div>
+        </div>
+        <div class="panel-stack">
+          <div class="panel">
+            <details id="debug_disclosure" class="disclosure">
+              <summary class="disclosure-summary">
+                <span class="panel-title disclosure-title">Debug Information</span>
+                <span class="disclosure-chevron" aria-hidden="true"></span>
+                <label for="use_debug" class="field">Use
+                  <input type="checkbox" id="use_debug">
+                </label>
+                <button id="clear_debug">Clear</button>
+              </summary>
+              <div class="disclosure-content">
+                <textarea id="debug" maxlength="5000" rows="50" cols="100"></textarea>
+              </div>
+            </details>
+          </div>
+          <div class="panel">
+            <details id="discovery_disclosure" class="disclosure">
+              <summary class="disclosure-summary">
+                <span class="panel-title disclosure-title">Discovery</span>
+                <span class="disclosure-chevron" aria-hidden="true"></span>
+              </summary>
+              <div class="disclosure-content">
+                <textarea id="result" maxlength="10000" rows="10" cols="200"></textarea>
+              </div>
+            </details>
+          </div>
+        </div>
+        <div class="panel-stack">
+          <div class="panel">
+            <details id="rtsp_disclosure" class="disclosure">
+              <summary class="disclosure-summary">
+                <span class="panel-title disclosure-title">RTSP</span>
+                <span class="disclosure-chevron" aria-hidden="true"></span>
+              </summary>
+              <div class="disclosure-content">
+                <textarea id="rtsp" maxlength="5000" rows="50" cols="100"></textarea>
+              </div>
+            </details>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="myModal" class="modal-popup">
+      <div class="modal-content-popup">
+        <span class="close-popup">&times;</span>
+        <p class="message">Some text in the Modal..</p>
+      </div>
+    </div>
+
+    <div id="myCapture" class="modal-popup">
+      <div class="modal-content-popup" style="border: 1px;padding: 5px;">
+        <span class="close-popup">&times;</span>
+        <img id="capture" style="border:1px solid #ccc;padding: 5px 5px 5px 5px;min-height:50px;margin: 0px auto;" alt="Capture Image" width="640" height="480">
+      </div>
+    </div>
+  </body>
+</html>
