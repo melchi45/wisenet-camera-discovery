@@ -83,6 +83,13 @@ see [`src/chrome-extension/native-host/README.md`](src/chrome-extension/native-h
   latent quirks from its jQuery-era history (see `MEMORY.md`); check whether a comment nearby
   explains *why* something looks odd before "fixing" it.
 - See [`MEMORY.md`](MEMORY.md) for non-obvious past decisions and bugs found/fixed in this repo.
+- **Every `src/shared/` change updates `docs/architecture.md` in the same change, not just the
+  first change of a session.** This applies per-edit, not per-conversation — a session that
+  touches `window.ts`/`window.html`/`window.css` five separate times needs `docs/architecture.md`
+  (and a `MEMORY.md` entry, for anything non-obvious) updated five times, not once at the start
+  and then treated as covered for the rest. Do not report a `src/shared/` change as finished
+  without having done this for that specific change — see the `shared-window` skill for the full
+  checklist.
 - The discovery result panel has a Table/Star Topology toggle with a Group by selector
   (`#discovery_view_type`/`#discovery_topology_group_by` in `window.html`,
   `renderDiscoveryTopology()` in `window.ts`) — read

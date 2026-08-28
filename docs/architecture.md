@@ -25,10 +25,12 @@ src/
   shared/                     <- built once, copied into both dist/ outputs
     window.html
     window.ts                 (the full UI: discovery table, player controls, SUNAPI, etc.)
-    css/{window,modal,table}.css
+    css/{window,modal,table,timeline}.css
     scripts/
       socket.ts                (discovery transport — see "socket.ts" below)
       legacy-globals-bridge.js (rtsp-over-websocket ESM -> window globals bridge)
+      nativeSunapiClient.ts, nativeWebSocketTransport.ts (native-host proxy — see
+                                docs/native-https-proxy/)
     types/globals.d.ts
     tsconfig.window.json        (type-check only, module: ESNext, feeds Vite)
     tsconfig.socket.json        (emits, module: none — classic global script)
@@ -241,6 +243,52 @@ special-cased as "the" match — all currently-matching hubs and their matching 
 whatever's left, whether that's one cluster or several. An empty search text is a no-op (same
 full-graph behavior as before). Changing `#discovery_topology_group_by` re-runs this same
 render/filter/fit pipeline from scratch.
+
+## Playback controls: manual time range, timeline search, UTC
+
+The Playback panel (`#playback_control` in `window.html`) has three independent controls below
+the `#timeline` vis.js widget, each with its own execution model — worth keeping straight since
+they look superficially similar (all read `#start_date`/`#start_time`/`#end_date`/`#end_time`):
+
+- **Search Overlapped Id** / **Search Date** — two separate buttons, each triggering an
+  unrelated SUNAPI call (`getOverlappedIdList` vs. `getCalendarSearch`). These are *not* a
+  toggle: an earlier iteration merged them into one segmented-toggle + single "Search" button
+  (mirroring the pattern below) and had to be reverted — the two aren't alternate ways of running
+  the same action, they're genuinely different actions a user may want either or both of.
+- **Search Timeline** (`search_timeline` button) — *is* a toggle:
+  `#search_timeline_range_toggle` (1 Day / 3 Month, a `segmentedToggle` — see below) picks which
+  of `search_oneday_timeline()`/`search_three_month_timeline()` the shared
+  `runTimelineSearch(start, end)` helper actually runs. Both call the same `getTimeline()` +
+  `updateTimeline()` pipeline; they only differ in how the date range is computed — "1 Day" uses
+  the Manual Start/End Time fields as-is, "3 Month" ignores Manual End Time and always spans 3
+  months forward from Manual Start Time (there's no server-side "3 month" SUNAPI mode, it's a
+  client-side convenience). **The lesson from the revert above**: this segmented-toggle-plus-one-
+  button shape only fits when the two options are alternate executions of one action; two
+  genuinely independent actions (like Overlapped Id/Date) should stay separate buttons.
+- **Manual End Time** is opt-in via the `#support_end_time` checkbox (`onchangesupportendtime()`)
+  — unchecked (the default) hides `#manual_end_time_group` and clears the player element's
+  `endTime` to `null` rather than leaving a stale value set. `endTime === null` is not an error
+  state for `rtsp-over-websocket`: `RTSPOverWebSocket.ts`'s `play()`/`generateRTSPURL()` already
+  treat a null/undefined `endTime` as "no end" — an open-ended playback range from `startTime`
+  onward — so no library-side change was needed, only not setting it from this UI when the
+  checkbox is off.
+
+**`SearchByUTCTime` capability gating.** SUNAPI's Timeline Search only honors a `Z`-suffixed
+(UTC) `FromDate`/`ToDate` when the device's own `/stw-cgi/attributes.cgi` response declares
+`SearchByUTCTime=true` (SUNAPI Application Programmer's Guide §8.6) — sending `Z` to a device
+that doesn't declare support isn't guaranteed to be interpreted as UTC. `applySearchByUTCTimeCapability()`
+(called from the same `initPromise.then(attributes => ...)` continuation that already reads
+`attributes.MaxChannel`/`.IsAndroid`) disables `#use_gmt` ("Use timezone" — the checkbox that
+appends `Z` throughout `search_overlapped_id`/`search_date`/`search_oneday_timeline`/the playback
+timeline) whenever the capability isn't declared `true`, forcing it off first if it was already
+checked. **Non-obvious part**: `attributes` here is *either* a parsed object (JSON-firmware
+devices) *or* a raw XML string (see this file's own comment trail at the `deviceInformation.attributes.IsAndroid`
+call site — no XML capabilities parser ships with the extension, a previous ~2500-line one was
+removed). `getCapabilityValue()` reads a single named `<attribute value="...">` out of either
+shape via a targeted regex on the string case, rather than resurrecting a full parser just for
+this one field. `MaxChannel`/`IsAndroid` have the same object-vs-string exposure and silently
+read as `undefined` on an XML-firmware device today — a known, not-yet-fixed gap, not something
+`getCapabilityValue()` was extended to cover since nothing currently depends on it doing so.
 
 ## Before/after touching `src/shared/`
 

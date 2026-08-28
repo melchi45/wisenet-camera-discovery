@@ -1,0 +1,243 @@
+/* Modern restyle of vis-timeline (loaded after external-lib/vis/vis.css so
+   these rules win the cascade). vis.css itself is vendored verbatim from
+   node_modules (see scripts/build.js) and must not be hand-edited -- this
+   file only overrides the classes vis-timeline renders, reusing the same
+   CSS variables window.css defines for the rest of the UI so the timeline
+   matches the light/dark theme instead of vis's own hardcoded 2014-era
+   blue/gray palette. */
+
+:root {
+  --evt-normal-border: #16a34a;
+  --evt-normal-bg: #e7f7ec;
+  --evt-motion-border: #d97706;
+  --evt-motion-bg: #fef3e0;
+  --evt-audiodetection-border: #0891b2;
+  --evt-audiodetection-bg: #e0f7fb;
+  --evt-facedetection-border: #7c3aed;
+  --evt-facedetection-bg: #f1eafe;
+  --evt-audioanalysis-border: #db2777;
+  --evt-audioanalysis-bg: #fde8f2;
+  --evt-videoanalysis-border: #2563eb;
+  --evt-videoanalysis-bg: #e8effe;
+  --evt-defocusdetection-border: #64748b;
+  --evt-defocusdetection-bg: #eef1f4;
+  --evt-unknown-border: #9ca3af;
+  --evt-unknown-bg: #f1f2f4;
+  --evt-ai-border: #0d9488;
+  --evt-ai-bg: #e3f6f4;
+}
+
+[data-theme="dark"] {
+  --evt-normal-border: #22c55e;
+  --evt-normal-bg: rgba(34, 197, 94, 0.16);
+  --evt-motion-border: #fbbf24;
+  --evt-motion-bg: rgba(251, 191, 36, 0.16);
+  --evt-audiodetection-border: #22d3ee;
+  --evt-audiodetection-bg: rgba(34, 211, 238, 0.16);
+  --evt-facedetection-border: #a78bfa;
+  --evt-facedetection-bg: rgba(167, 139, 250, 0.16);
+  --evt-audioanalysis-border: #f472b6;
+  --evt-audioanalysis-bg: rgba(244, 114, 182, 0.16);
+  --evt-videoanalysis-border: #60a5fa;
+  --evt-videoanalysis-bg: rgba(96, 165, 250, 0.16);
+  --evt-defocusdetection-border: #94a3b8;
+  --evt-defocusdetection-bg: rgba(148, 163, 184, 0.16);
+  --evt-unknown-border: #9aa1ab;
+  --evt-unknown-bg: rgba(154, 161, 171, 0.16);
+  --evt-ai-border: #2dd4bf;
+  --evt-ai-bg: rgba(45, 212, 191, 0.16);
+}
+
+#timeline {
+  font-family: var(--font-family, "Spoqa Han Sans Neo", -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic", Roboto, Helvetica, Arial, sans-serif);
+}
+
+#timeline .vis-timeline {
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  background: var(--surface);
+}
+
+#timeline .vis-panel.vis-center,
+#timeline .vis-panel.vis-left,
+#timeline .vis-panel.vis-right,
+#timeline .vis-panel.vis-top,
+#timeline .vis-panel.vis-bottom {
+  border-color: var(--border-color);
+}
+
+#timeline .vis-labelset .vis-label {
+  border-bottom-color: var(--border-color);
+  background: var(--surface-alt);
+}
+
+#timeline .vis-foreground .vis-group {
+  border-bottom-color: var(--border-color);
+}
+
+#timeline .vis-nested-group {
+  background: var(--surface-sunken);
+}
+
+/* Group label row: replaces the old inline `font-size:3px` markup produced
+   by groupTemplate() in window.ts, which made the label/hide button
+   effectively unreadable regardless of any stylesheet. */
+#timeline .timeline-group-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  box-sizing: border-box;
+}
+
+#timeline .timeline-group-label-text {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--font-color);
+  white-space: nowrap;
+}
+
+#timeline .timeline-group-hide-btn {
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--button-border-color);
+  background: var(--button-background-color);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+}
+
+#timeline .timeline-group-hide-btn:hover {
+  background: var(--button-hover-background);
+  color: var(--font-color);
+  border-color: var(--border-color-strong);
+}
+
+/* Time axis */
+#timeline .vis-time-axis .vis-text {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+#timeline .vis-time-axis .vis-grid.vis-minor {
+  border-color: var(--border-color);
+}
+
+#timeline .vis-time-axis .vis-grid.vis-major {
+  border-color: var(--border-color-strong);
+}
+
+#timeline .vis-panel.vis-background.vis-horizontal .vis-grid.vis-minor {
+  border-color: var(--border-color);
+}
+
+#timeline .vis-panel.vis-background.vis-horizontal .vis-grid.vis-major {
+  border-color: var(--border-color-strong);
+}
+
+/* "Now" and seek/scrub markers */
+#timeline .vis-current-time {
+  background-color: var(--danger);
+  width: 2px;
+}
+
+#timeline .vis-custom-time {
+  background-color: var(--accent);
+  width: 2px;
+  cursor: ew-resize;
+}
+
+#timeline .vis-custom-time::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translate(-50%, -100%);
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 7px solid var(--accent);
+}
+
+/* Recording/event bars */
+#timeline .vis-item {
+  border-width: 1px;
+  border-radius: var(--radius-sm);
+  border-color: var(--evt-normal-border);
+  background-color: var(--evt-normal-bg);
+  color: var(--font-color);
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--transition), transform var(--transition);
+}
+
+#timeline .vis-item:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+  z-index: 3;
+}
+
+#timeline .vis-item .vis-item-content {
+  font-size: 11px;
+  padding: 2px 6px;
+}
+
+#timeline .vis-item.vis-selected {
+  border-color: var(--accent);
+  background-color: var(--accent-soft);
+  color: var(--font-color);
+  box-shadow: var(--shadow-md);
+  z-index: 4;
+}
+
+#timeline .vis-item.normal {
+  border-color: var(--evt-normal-border);
+  background-color: var(--evt-normal-bg);
+}
+
+#timeline .vis-item.motiondetection {
+  border-color: var(--evt-motion-border);
+  background-color: var(--evt-motion-bg);
+}
+
+#timeline .vis-item.audiodetection {
+  border-color: var(--evt-audiodetection-border);
+  background-color: var(--evt-audiodetection-bg);
+}
+
+#timeline .vis-item.facedetection {
+  border-color: var(--evt-facedetection-border);
+  background-color: var(--evt-facedetection-bg);
+}
+
+#timeline .vis-item.audioanalysis {
+  border-color: var(--evt-audioanalysis-border);
+  background-color: var(--evt-audioanalysis-bg);
+}
+
+#timeline .vis-item.videoanalysis {
+  border-color: var(--evt-videoanalysis-border);
+  background-color: var(--evt-videoanalysis-bg);
+}
+
+#timeline .vis-item.defocusdetection {
+  border-color: var(--evt-defocusdetection-border);
+  background-color: var(--evt-defocusdetection-bg);
+}
+
+#timeline .vis-item.unknown {
+  border-color: var(--evt-unknown-border);
+  background-color: var(--evt-unknown-bg);
+}
+
+#timeline .vis-item.ai {
+  border-color: var(--evt-ai-border);
+  background-color: var(--evt-ai-bg);
+}
+
+#timeline .vis-rolling-mode-btn {
+  background: var(--accent);
+}

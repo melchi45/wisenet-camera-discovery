@@ -46,8 +46,18 @@ only testing one side:
 
 ## After changing `src/shared/` or `examples/server.ts`
 
+**Do this for every change that touches these files, not just the first one in a session** — a
+long back-and-forth that makes five separate edits to `window.ts`/`window.html`/`window.css`
+needs this checklist five times, once per edit, not once at the start. Re-reading this file
+before the *first* edit and then treating the rest of the conversation as "already covered" is
+the actual failure mode this note exists to head off — it has happened before. Do not report a
+`src/shared/` change as finished until this list is done for *that* change:
+
 - Update the matching section of `docs/architecture.md` in the same change (data flow, the
-  transport table, or the `/settings`/known-devices design, whichever changed).
+  transport table, or the `/settings`/known-devices design, whichever changed) — including
+  something as small as a new file under `scripts/`/`css/` added to support the change (add it to
+  the file-tree listing near the top of that doc, don't just leave it undocumented because the
+  change "was really about" something else).
 - If the change touched the native-proxy SUNAPI client selection noted above, also keep
   `docs/native-https-proxy/` in sync (its `DESIGN.md`/`SRS.md` in particular) — don't let
   `docs/architecture.md`'s one-paragraph summary drift from that folder's fuller spec.

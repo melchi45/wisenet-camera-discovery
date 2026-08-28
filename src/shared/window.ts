@@ -439,6 +439,8 @@ document.addEventListener("DOMContentLoaded", function(){
     document.getElementById("end_date").addEventListener("change", onchangeendtime);
     document.getElementById("end_time").addEventListener("change", onchangeendtime);
 
+    document.getElementById("support_end_time").addEventListener("change", onchangesupportendtime);
+
     document.getElementById("search_overlapped_id").addEventListener("click", search_overlapped_id);
     document.getElementById("search_date").addEventListener("click", search_date);
     document.getElementById("search_timeline").addEventListener("click", search_oneday_timeline);
@@ -465,6 +467,7 @@ document.addEventListener("DOMContentLoaded", function(){
     document.getElementById("unmute").addEventListener("click", unmute);
     document.getElementById("mute").addEventListener("click", mute);
     document.getElementById("volume").addEventListener("change", setvolume);
+    document.getElementById("audio_shift").addEventListener("change", setaudioshift);
 
     // click the clear deubug button
     document.getElementById("clear_debug").addEventListener("click", oncleardebug);
@@ -1936,6 +1939,7 @@ var initSunapiManager = () => {
           deviceInformation.attributes = attributes;
           document.getElementById("is_android").checked = deviceInformation.attributes.IsAndroid;
           getSelectedPlayer().android = deviceInformation.attributes.IsAndroid;
+          applySearchByUTCTimeCapability(attributes);
           return getSunapiManager().getVideoSource();
           // return getSunapiManager().getDeviceInfo();
         } else {
@@ -2330,6 +2334,55 @@ var setrenderertype = function () {
   }
 }
 
+// `attributes` (the resolved /stw-cgi/attributes.cgi response) is either a
+// parsed object (JSON-firmware devices) or a raw XML string (see the
+// `deviceInformation.attributes.IsAndroid` comment above initPromise.then()
+// -- no XML capabilities parser ships with the extension), so this reads a
+// single named <attribute value="..."/> out of either shape without
+// building a full parser for it.
+var getCapabilityValue = function (attributes, name) {
+  if (attributes === null || typeof attributes === 'undefined') {
+    return undefined;
+  }
+  if (typeof attributes === 'string') {
+    var match = attributes.match(new RegExp('<attribute\\s+name="' + name + '"[^>]*\\svalue="([^"]*)"'));
+    return match ? match[1] : undefined;
+  }
+  return attributes[name];
+}
+
+// SUNAPI's Timeline Search only honors a `Z`-suffixed (UTC) FromDate/ToDate
+// when the device's own capabilities declare SearchByUTCTime=true -- see
+// "8.6. Timeline Search" in the SUNAPI Application Programmer's Guide. The
+// "Use timezone" checkbox (use_gmt) is what appends that `Z` throughout
+// search_overlapped_id/search_date/search_oneday_timeline/the playback
+// timeline, so a device that doesn't declare support gets the checkbox
+// disabled (and forced off if it was already on) rather than silently
+// sending a UTC-formatted request the device may not honor as UTC.
+var applySearchByUTCTimeCapability = function (attributes) {
+  try {
+    var useGmtCheckbox = document.getElementById("use_gmt");
+    var searchByUTCTime = getCapabilityValue(attributes, 'SearchByUTCTime');
+
+    if (typeof searchByUTCTime === 'undefined') {
+      // Capability not present in the response (or attributes couldn't be
+      // read at all) -- leave the checkbox exactly as before rather than
+      // guessing support one way or the other.
+      return;
+    }
+
+    var supportsUtcSearch = searchByUTCTime === true || searchByUTCTime === 'True' || searchByUTCTime === 'true';
+    useGmtCheckbox.disabled = !supportsUtcSearch;
+
+    if (!supportsUtcSearch && useGmtCheckbox.checked) {
+      useGmtCheckbox.checked = false;
+      changeusegmt();
+    }
+  } catch (error) {
+    console.error(error);
+  }
+}
+
 var changeusegmt = function () {
   try {
     if(document.getElementById("use_gmt").checked) {
@@ -2466,7 +2519,7 @@ var ontimestamp = function (timestamp) {
 
 var set_use_universal_time = function () {
   try {
-    getSelectedPlayer().GMT.coordinatedUniversalTime = document.getElementById("universaltime_checkbox").checked;
+    getSelectedPlayer().coordinatedUniversalTime = document.getElementById("universaltime_checkbox").checked;
   } catch (error) {
     console.error(error);
   }
@@ -2486,9 +2539,30 @@ var onchangestarttime = function () {
 var onchangeendtime = function () {
   try {
     let endDate = document.getElementById("end_date").value;
-    let endTime = document.getElementById("start_time").value;
+    let endTime = document.getElementById("end_time").value;
 
     getSelectedPlayer().endTime = endDate + 'T' + endTime + "Z";
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+// "Support End time" toggles whether the Manual End Time fields are shown
+// at all -- when off, rtsp-over-websocket's own play()/generateRTSPURL()
+// treat a null/undefined endTime as "no end", i.e. an open-ended playback
+// range from startTime onward, so clearing it here (rather than leaving
+// whatever value was last applied) is what actually removes the end time
+// from the request.
+var onchangesupportendtime = function () {
+  try {
+    var checked = document.getElementById("support_end_time").checked;
+    document.getElementById("manual_end_time_group").style.display = checked ? "" : "none";
+
+    if (checked) {
+      onchangeendtime();
+    } else {
+      getSelectedPlayer().endTime = null;
+    }
   } catch (error) {
     console.error(error);
   }
@@ -3010,14 +3084,14 @@ var updateTimeline = function (results) {
       },
       groupTemplate: function(group) {
         var container = document.createElement("div");
+        container.className = "timeline-group-label";
         var label = document.createElement("span");
-        label.innerHTML = group.content + " ";
-        label.style.fontSize = "3px";
+        label.className = "timeline-group-label-text";
+        label.innerHTML = group.content;
         container.insertAdjacentElement("afterBegin" as any, label);
         var hide = document.createElement("button");
-        hide.innerHTML = "hide";
-        hide.style.height = "10px";
-        hide.style.fontSize = "3px";
+        hide.className = "timeline-group-hide-btn";
+        hide.innerHTML = "Hide";
         hide.addEventListener("click", function() {
           groups.update({ id: group.id, visible: false });
         });
@@ -3406,6 +3480,14 @@ var setvolume = function () {
         getSelectedPlayer().isplay) {
       getSelectedPlayer().volume = document.getElementById("volume").value;
     }
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+var setaudioshift = function () {
+  try {
+    getSelectedPlayer().audioshift = document.getElementById("audio_shift").value;
   } catch (error) {
     console.error(error);
   }

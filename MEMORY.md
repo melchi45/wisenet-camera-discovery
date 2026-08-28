@@ -410,3 +410,89 @@ stale-state mechanism was rather than continuing to chase individual symptoms of
 when several seemingly-different interaction bugs all share one precondition ("only after X"), stop
 patching them one at a time — look for what X actually changes structurally (here: reusing one
 long-lived widget instance across data updates) before trying a fourth narrower fix.
+
+## Three small copy-paste/wiring bugs in the playback controls, found in one pass
+
+Not one bug with a deep root cause like the entries above — three unrelated, shallow ones that
+happened to surface together while chasing a "Playback video doesn't play" report, worth
+recording together since they're the kind of thing a quick `grep` for the pattern elsewhere would
+have caught sooner:
+
+- **`onchangeendtime()` read `#start_time`, not `#end_time`.** `getSelectedPlayer().endTime =
+  endDate + 'T' + document.getElementById("start_time").value + "Z"` — applying/changing the
+  Manual End Time field actually set the player's `endTime` using the *start* time's value,
+  collapsing the playback range toward zero length. A straight copy-paste from the sibling
+  `onchangestarttime()` that was never updated. This was the actual root cause of the reported
+  playback failure.
+- **`#audio_shift` had zero event listeners.** The input existed in `window.html` and
+  `rtsp-over-websocket`'s element supports an `audioshift` setter for A/V sync, but nothing in
+  `window.ts` ever read the field or assigned it — a UI control that looked functional but did
+  nothing. Added `setaudioshift()` wired to the input's `change` event.
+- **`set_use_universal_time()` chained through `.GMT` unnecessarily**:
+  `getSelectedPlayer().GMT.coordinatedUniversalTime = ...`. `.GMT` returns a plain string (e.g.
+  `"9"`), and assigning a property onto a string primitive throws in strict mode —
+  `TypeError: Cannot create property 'coordinatedUniversalTime' on string '9'`.
+  `coordinatedUniversalTime` was never nested under `.GMT` to begin with; it's `RTSPOverWebSocket`'s
+  own independent setter. Fixed by dropping the `.GMT.` link entirely.
+
+**Lesson**: `grep` for a handler's own name across the file after fixing one instance of a
+copy-paste bug — `onchangestarttime`/`onchangeendtime` are exactly the kind of near-duplicate
+pair where a fix to one raises the odds the sibling has the same mistake, and `#audio_shift`
+being wired to nothing at all wouldn't have thrown or logged anything — it just silently never
+worked, which is why it went unnoticed until someone asked "does the UI account for X" rather
+than hitting a visible error.
+
+## `SearchByUTCTime` capability and the capabilities-response object-vs-string trap
+
+SUNAPI's Timeline Search only honors a `Z`-suffixed (UTC) date on devices whose
+`/stw-cgi/attributes.cgi` capabilities response declares `SearchByUTCTime=true` (confirmed by
+fetching the actual SUNAPI Application Programmer's Guide §8.6 — an internal-only host,
+`http://55.101.56.209:8080/...`, reachable via plain `curl` but *not* through the WebFetch tool,
+which force-upgrades `http://` to `https://` and that host doesn't speak TLS at all — worth
+remembering if a future doc-lookup against an internal SUNAPI host gets a spurious
+`WRONG_VERSION_NUMBER` from WebFetch: try `curl` directly before concluding the host is
+unreachable). `window.ts` had a `#use_gmt` "Use timezone" checkbox that appends that `Z`
+throughout every search/timeline call, with **no check at all** against this capability — see
+`docs/architecture.md`'s "Playback controls" section for the fix
+(`applySearchByUTCTimeCapability()`).
+
+The more general finding underneath that fix, worth remembering on its own: **this codebase has
+no XML capabilities parser** (a previous ~2500-line one was deliberately removed — see the
+comment trail at `window.ts`'s `deviceInformation.attributes.IsAndroid` call site inside
+`initPromise.then(attributes => ...)`), so `attributes` is a parsed object on JSON-firmware
+devices but a raw XML *string* on others, and every existing `deviceInformation.attributes.X`
+read (`MaxChannel`, `IsAndroid`) already silently degrades to `undefined` on the latter. Adding
+`SearchByUTCTime` the same naive way would have had the identical silent-failure problem, so
+`getCapabilityValue(attributes, name)` handles both shapes (direct property access on an object,
+a targeted regex extraction on a string) instead — deliberately not a general parser, just enough
+to read one named attribute out of either representation.
+
+## Removing a button in favor of a segmented toggle: grep every reference to its old id first
+
+Collapsing the standalone "Search 3 Month" button into the new 1 Day/3 Month segmented toggle
+(see `docs/architecture.md`'s "Playback controls" section) removed `id="search_three_month_timeline"`
+from `window.html`. Two `document.getElementById("search_three_month_timeline").disabled =
+true/false` call sites elsewhere in `window.ts` (initial-state setup, and re-enabling once
+`search_date()`'s calendar search confirms recorded data exists) were missed on the first pass —
+same failure class as this file's `#broadcast`/`#usegmttime` entries: a property assignment on
+`null` throws and aborts the *entire* enclosing function, in this case a
+`document.querySelectorAll("rtsp-over-websocket").forEach(...)` setup callback, so the crash
+surfaced as `Uncaught TypeError: Cannot set properties of null (setting 'disabled') ... at
+NodeList.forEach` — several layers removed from the actual one-line cause. **Lesson, restated
+because it keeps recurring in this file**: removing or renaming an `id` requires grepping *every*
+`getElementById`/`querySelector` reference to it across the whole file before deleting the
+element, not just the call sites you remember wiring up yourself in the same change.
+
+## vis-timeline restyle: `groupTemplate()`'s `font-size: 3px` was a bug, not minimalism
+
+While giving the Playback recording timeline (`vis.Timeline`, not `vis.Network` — see
+`docs/architecture.md`'s pointer to `timeline.css`) a modern restyle, found that
+`updateTimeline()`'s `groupTemplate()` set the group label and its "Hide" button to `font-size:
+3px` via inline styles (`label.style.fontSize = "3px"`). Inline styles beat any external
+stylesheet rule regardless of specificity, so no amount of CSS restyling could have fixed this —
+it had to be removed at the source. There's no comment or test tying this to intentional
+behavior (unlike some of this file's other "looks like a bug but isn't" entries), and 3px is
+below any plausible legible size, so this reads as a genuine leftover mistake rather than a
+preserved quirk. Replaced with CSS classes (`.timeline-group-label`/`.timeline-group-hide-btn` in
+`timeline.css`) so the group label/button are both actually readable and themeable.
+
