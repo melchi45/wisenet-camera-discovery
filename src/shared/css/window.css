@@ -91,6 +91,15 @@
 html,
 body {
   height: 100%;
+  /* #left_panel/#right_panel are absolutely positioned to fill the viewport
+     and already scroll independently via their own `overflow: auto` --
+     without this, if their combined box ever reports a hair taller than the
+     viewport (a resize:horizontal drag on #right_panel, or just a browser
+     rounding quirk), html/body pick up their own outer scrollbar too,
+     rendering right next to #right_panel's -- a double-scrollbar sliver at
+     the window's true right edge. This delegates all scrolling to the two
+     panels, matching what the layout already intends. */
+  overflow: hidden;
 }
 
 body {
@@ -239,6 +248,16 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+/* #right_panel has no gap/flex layout of its own, so sibling .panel-stack
+   blocks (Discovery result / Control / Debug Information+Discovery / RTSP --
+   each authored as a separate .panel-stack in window.html) would otherwise
+   sit flush against each other, unlike panels *within* one .panel-stack
+   (spaced by its own `gap: 12px` above). Same 12px value, applied between
+   stacks instead of within one. */
+.panel-stack + .panel-stack {
+  margin-top: 12px;
 }
 
 .panel {
