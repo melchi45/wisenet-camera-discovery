@@ -17,6 +17,7 @@
 | 1.0 | 2026-08-28 | Youngho Kim | Initial documentation of discovered-device selection and SUNAPI On/Off Control-panel data binding. |
 | 1.1 | 2026-08-28 | Youngho Kim | Added §2 Player List selection; added Title/Abstract/Author/Milestone/History metadata. |
 | 1.2 | 2026-08-28 | Youngho Kim | Added §4 Video profile selection, including what the Default/Event/Record badges mean and the profile-click-doesn't-update-the-player gap found while documenting it. |
+| 1.3 | 2026-08-28 | Youngho Kim | Corrected §2: `on_player_select()` is also called once, unconditionally, at the end of `window.ts`'s second `DOMContentLoaded` listener — `selected_player_id` is not actually `null` after page load in practice, as this doc previously said. Found while writing `docs/window-ui/`'s full-file SRS. |
 
 ## Purpose
 
@@ -80,15 +81,19 @@ which case this selection just turned it back off, per the table above).
 ### Trigger point
 
 Changing the **"Plyaer List:"** `<select id="player_list">` (`window.ts`'s `on_player_select()`,
-wired to its `change` event). This `<select>` is built once at setup by iterating every
-`<rtsp-over-websocket>` element on the page (`document.querySelectorAll("rtsp-over-websocket")`),
-one `<option>` per element, `value`/text = the element's own `id` — `selected_player_id` (the
-module-level var `getSelectedPlayer()` reads via `document.getElementById(selected_player_id)`) is
-only ever assigned inside this handler, so it stays `null` until the user actually changes this
-dropdown at least once, even though the `<select>` itself visibly defaults to its first `<option>`
-(a plain `<select>`'s own default-selection doesn't fire `change` on its own — every other call
-site that reads `getSelectedPlayer()` before that point guards it with a `!== null` check, e.g.
-`onchangeusername`/`onchangepassword`).
+wired to its `change` event) — **and also once automatically at page load**: `window.ts` has two
+separate `DOMContentLoaded` listeners (the first builds `#player_list` — one `<option>` per
+`<rtsp-over-websocket>` element found via `document.querySelectorAll("rtsp-over-websocket")`,
+`value`/text = the element's own `id`; the second, unrelated to Player List setup itself, ends with
+an unconditional `on_player_select();` call). Since the first listener has already run by the time
+the second one's body executes (`DOMContentLoaded` listeners fire in registration order),
+`#player_list` already has its first `<option>` selected at that point, so this startup call seeds
+`selected_player_id` from it immediately — `getSelectedPlayer()` is **not** `null` after page load
+in practice (this doc previously said otherwise; corrected here). The `!== null` guards several call
+sites still carry (e.g. `onchangeusername`/`onchangepassword`) remain correct defensive code for the
+theoretical case of a page with zero `<rtsp-over-websocket>` elements (`#player_list` would then have
+no options, `.value` would be `""`, and `document.getElementById("")` returns `null`) — window.html
+always ships with at least one, so that case doesn't occur today, but the guards aren't dead code.
 
 ### What changes
 
