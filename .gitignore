@@ -18,3 +18,10 @@ node_modules/
 
 # Local dev TLS private key — not referenced by any script, never commit.
 key.pem
+
+# Playwright's own run artifacts (tests/window-ui-equivalence/) — regenerated
+# by every `npx playwright test` run, not meant to be committed.
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
