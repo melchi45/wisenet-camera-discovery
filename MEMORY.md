@@ -590,3 +590,44 @@ two optional header-control guards — `#debug`/`#result`/`#rtsp` and `#use_debu
 kept their exact ids and only moved position in the DOM, so every pre-existing
 `document.getElementById(...)` call site in `window.ts` needed zero changes.
 
+## docs/ standardized: every `.md` file gets an MRD/PRD/SRS/DESIGN/TC directory + a metadata header
+
+Two things changed across all of `docs/`, both user-requested:
+
+1. **`docs/switch-component.md`/`docs/disclosure-component.md` (flat single files) were split into
+   `docs/switch-component/`/`docs/disclosure-component/` directories**, each a full
+   MRD/PRD/SRS/DESIGN/TC set — matching `docs/star-topology/`/`docs/native-https-proxy/`'s existing
+   convention, which those two components hadn't followed originally (written before that
+   convention's weight was fully appreciated for a component-sized doc, not just a full feature).
+   Content mapped over near-1:1 (the original "Why this exists"/MRD-flavored material → MRD, the
+   functional spec's interface → SRS, the enhancement-detection/migration-table/style material →
+   DESIGN); the one genuinely new material was each set's `TC.md` — neither original flat doc had
+   a test-case table, so both were written fresh, including an honest "not yet exercised by a live
+   control" row for switch's 3+-option/dot-mode capabilities (implemented and validated, but no real
+   `window.html` control uses them yet).
+2. **Every `.md` under `docs/` (22 files) gained a standard metadata header**: `Title`/`Abstract`/
+   `Status`/`Author`/`Milestone`/`Related docs` as a table right after the `# TYPE — Title` line,
+   followed by a `## History` table. This was scoped as broadly as possible on purpose (confirmed
+   via `AskUserQuestion` — the alternative was limiting it to just the two newly-split component
+   sets) specifically because **none** of this repo's existing docs, including the already-mature
+   `star-topology`/`native-https-proxy` sets, had ever carried this metadata; leaving them out would
+   have made the two new sets inconsistent with the very convention they were just made to match.
+   `History` rows for already-git-tracked files are real, pulled from `git log --follow --format='%as
+   %s' -- <path>` (oldest first) rather than invented — e.g. `docs/architecture.md` got 4 content
+   rows spanning 2026-08-12 through 2026-08-27 plus a final metadata-addition row, not just a single
+   "1.0 initial" placeholder. `Milestone` reflects the git tag nearest the content's *most recent*
+   real revision (not its origin) — `docs/architecture.md` is `Unreleased (post v1.0.2)` despite
+   originating alongside the `v1.0.0` initial commit, because it kept being updated through
+   2026-08-27, after the `v1.0.2` tag.
+
+**Lesson, same class as this file's other "grep every reference before deleting" entries**: deleting
+the two old flat `.md` files required finding and updating every cross-reference to them first —
+`grep -rln "switch-component\.md\|disclosure-component\.md"` turned up 6 files
+(`CLAUDE.md`/`README.md`/`MEMORY.md`/the skill file/`docs/architecture.md`/
+`docs/control-panel-data-binding.md`) plus 4 source-code comments (`scripts/build.js`, both
+`switch.ts`/`switch.css`, both `disclosure.ts`/`disclosure.css`, and one `window.ts` comment) — none
+of which would have been obvious from just working inside the new `docs/switch-component/`/
+`docs/disclosure-component/` directories. A stray, unrelated duplicate bullet was also found and
+fixed in `README.md` while doing this pass — a leftover from an earlier session's transient
+WSL/DrvFs write retry (see `CLAUDE.md`'s own note on that class of issue), not something this
+change introduced.

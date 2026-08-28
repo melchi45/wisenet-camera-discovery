@@ -2,9 +2,20 @@
 
 | | |
 |---|---|
+| Title | Discovery Result Star Topology View — Product Requirements Document (PRD) |
+| Abstract | Problem, goals, non-goals, users, and success criteria for the Table/Star Topology discovery result view toggle. |
 | Status | Implemented |
 | Component | `src/shared/` (`window.html`/`window.ts`) — both the Chrome extension and the nodejs example server target |
+| Author | Youngho Kim |
+| Milestone | Unreleased (post v1.0.2) |
 | Related docs | [MRD](MRD.md) · [SRS](SRS.md) · [DESIGN](DESIGN.md) · [TC](TC.md) · [../architecture.md](../architecture.md) |
+
+## History
+
+| Version | Date | Author | Description |
+|---|---|---|---|
+| 1.0 | 2026-08-27 | Youngho Kim | Initial PRD for the Star Topology view feature. |
+| 1.1 | 2026-08-28 | Youngho Kim | Added Title/Abstract/Author/Milestone/History metadata. |
 
 ## Problem
 

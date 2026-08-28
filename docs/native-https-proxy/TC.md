@@ -2,7 +2,19 @@
 
 | | |
 |---|---|
+| Title | Native-Host HTTPS Proxy for Untrusted Camera Certificates — Test Cases (TC) |
+| Abstract | Manual test procedures (real Windows/LAN device required) covering the SUNAPI REST proxy, Digest auth, the IP-literal allowlist, and the `wss://` streaming relay. |
+| Status | Implemented |
+| Author | Youngho Kim |
+| Milestone | v1.0.2 |
 | Related docs | [PRD](PRD.md) · [MRD](MRD.md) · [SRS](SRS.md) · [DESIGN](DESIGN.md) |
+
+## History
+
+| Version | Date | Author | Description |
+|---|---|---|---|
+| 1.0 | 2026-08-26 | Youngho Kim | Initial TC for the native-host HTTPS proxy feature. |
+| 1.1 | 2026-08-28 | Youngho Kim | Added Title/Abstract/Author/Milestone/History metadata. |
 
 These are **manual** test procedures, not automated tests. This repository's sandbox runs under
 WSL2, which cannot reach real LAN broadcast/HTTPS devices (see `CLAUDE.md`'s "WSL2 can't reach real

@@ -2,7 +2,19 @@
 
 | | |
 |---|---|
+| Title | Discovery Result Star Topology View — Software Requirements Specification (SRS) |
+| Abstract | Functional and non-functional requirements for the view toggle, Group by grouping, search filtering, and vis.Network interaction behavior. |
+| Status | Implemented |
+| Author | Youngho Kim |
+| Milestone | Unreleased (post v1.0.2) |
 | Related docs | [PRD](PRD.md) · [MRD](MRD.md) · [DESIGN](DESIGN.md) · [TC](TC.md) |
+
+## History
+
+| Version | Date | Author | Description |
+|---|---|---|---|
+| 1.0 | 2026-08-27 | Youngho Kim | Initial SRS for the Star Topology view feature. |
+| 1.1 | 2026-08-28 | Youngho Kim | Added Title/Abstract/Author/Milestone/History metadata. |
 
 ## Functional requirements
 

@@ -1,5 +1,24 @@
 # Architecture: the shared `src/shared/` UI
 
+| | |
+|---|---|
+| Title | Architecture: the shared `src/shared/` UI |
+| Abstract | What's shared between the Chrome extension and the nodejs example server, the `socket.ts` transport abstraction, discovery result views, control panel data binding, and the reusable UI components (switch, disclosure). |
+| Status | Implemented |
+| Component | `src/shared/`, `src/component/` |
+| Author | Youngho Kim |
+| Milestone | Unreleased (post v1.0.2) |
+
+## History
+
+| Version | Date | Author | Description |
+|---|---|---|---|
+| 1.0 | 2026-08-12 | Youngho Kim | Initial commit: WiseNet/Hanwha Chrome IP Installer + Node.js UDP discovery package. |
+| 1.1 | 2026-08-26 | Youngho Kim | Native-host proxy bypasses untrusted TLS certs for SUNAPI + video streaming. |
+| 1.2 | 2026-08-26 | Youngho Kim | Fixed unhandled promise rejections in `socket.ts` + verbose discovery logging toggle. |
+| 1.3 | 2026-08-27 | Youngho Kim | Discovery result Star Topology view with Group by + search filtering. |
+| 1.4 | 2026-08-28 | Youngho Kim | Documented the switch/disclosure components and control panel data binding; added Title/Abstract/Author/Milestone/History metadata. |
+
 ## Why this exists
 
 This repo has two independent consumers of Wisenet SUNAPI UDP discovery:
@@ -333,6 +352,17 @@ passed as `headerCheckboxId`/`headerButtonId`), Discovery (`#discovery_disclosur
 keyboard activation, and the correct semantics come from the browser for free; the only JS problem
 `mountDisclosure()` actually solves is stopping a header control's click from bubbling up through
 `<summary>` and also toggling the panel.
+
+## Control panel data binding: device selection & SUNAPI response
+
+See [`docs/control-panel-data-binding.md`](control-panel-data-binding.md) for the full field-by-
+field spec of three existing (not new) `window.ts` behaviors that populate the Control panel
+automatically rather than from direct user input: selecting a discovered device
+(`applyDiscoveredDeviceSelection()` — hostname/port/protocol/native-TLS-proxy/webview fields),
+switching the "Plyaer List:" dropdown between already-existing `<rtsp-over-websocket>` elements
+(`on_player_select()` — reads that element's own current attributes back into the panel, no
+network request), and turning "SUNAPI:" On (`initSunapiManager()`'s request chain — channel list,
+video source/profile display, timezone, play-button state).
 
 ## Before/after touching `src/shared/`
 

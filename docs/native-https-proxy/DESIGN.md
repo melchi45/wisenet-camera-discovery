@@ -2,7 +2,19 @@
 
 | | |
 |---|---|
+| Title | Native-Host HTTPS Proxy for Untrusted Camera Certificates — Design Document |
+| Abstract | `SunapiManager.attach()`/`Transport.createWebSocket()` feasibility findings, the request/streaming architecture, security design, and alternatives rejected. |
+| Status | Implemented |
+| Author | Youngho Kim |
+| Milestone | v1.0.2 |
 | Related docs | [PRD](PRD.md) · [MRD](MRD.md) · [SRS](SRS.md) · [TC](TC.md) |
+
+## History
+
+| Version | Date | Author | Description |
+|---|---|---|---|
+| 1.0 | 2026-08-26 | Youngho Kim | Initial DESIGN for the native-host HTTPS proxy feature. |
+| 1.1 | 2026-08-28 | Youngho Kim | Added Title/Abstract/Author/Milestone/History metadata. |
 
 ## Feasibility finding: `SunapiManager.attach()` is a supported extension point
 

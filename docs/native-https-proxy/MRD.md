@@ -2,7 +2,19 @@
 
 | | |
 |---|---|
+| Title | Native-Host HTTPS Proxy for Untrusted Camera Certificates — Market Requirements Document (MRD) |
+| Abstract | Market rationale for bypassing self-signed camera certificates via the native host, and the alternatives considered (manual browser exception, plain HTTP, a CA-trusted cert, automatic fallback). |
+| Status | Implemented |
+| Author | Youngho Kim |
+| Milestone | v1.0.2 |
 | Related docs | [PRD](PRD.md) · [SRS](SRS.md) · [DESIGN](DESIGN.md) · [TC](TC.md) |
+
+## History
+
+| Version | Date | Author | Description |
+|---|---|---|---|
+| 1.0 | 2026-08-26 | Youngho Kim | Initial MRD for the native-host HTTPS proxy feature. |
+| 1.1 | 2026-08-28 | Youngho Kim | Added Title/Abstract/Author/Milestone/History metadata. |
 
 ## Market context
 

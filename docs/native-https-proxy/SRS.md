@@ -2,7 +2,19 @@
 
 | | |
 |---|---|
+| Title | Native-Host HTTPS Proxy for Untrusted Camera Certificates — Software Requirements Specification (SRS) |
+| Abstract | Functional/non-functional requirements, the `httpRequest`/`wsOpen` native messaging protocol, and the `SunapiClientLike`/`WebSocketLike` interface contracts. |
+| Status | Implemented |
+| Author | Youngho Kim |
+| Milestone | v1.0.2 |
 | Related docs | [PRD](PRD.md) · [MRD](MRD.md) · [DESIGN](DESIGN.md) · [TC](TC.md) |
+
+## History
+
+| Version | Date | Author | Description |
+|---|---|---|---|
+| 1.0 | 2026-08-26 | Youngho Kim | Initial SRS for the native-host HTTPS proxy feature. |
+| 1.1 | 2026-08-28 | Youngho Kim | Added Title/Abstract/Author/Milestone/History metadata. |
 
 ## Functional requirements
 

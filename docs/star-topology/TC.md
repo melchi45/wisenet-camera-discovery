@@ -2,7 +2,19 @@
 
 | | |
 |---|---|
+| Title | Discovery Result Star Topology View — Test Cases (TC) |
+| Abstract | Manual test procedures covering the view toggle, all 5 Group by types, search filtering, and interaction stability across re-renders. |
+| Status | Implemented |
+| Author | Youngho Kim |
+| Milestone | Unreleased (post v1.0.2) |
 | Related docs | [PRD](PRD.md) · [MRD](MRD.md) · [SRS](SRS.md) · [DESIGN](DESIGN.md) |
+
+## History
+
+| Version | Date | Author | Description |
+|---|---|---|---|
+| 1.0 | 2026-08-27 | Youngho Kim | Initial TC for the Star Topology view feature. |
+| 1.1 | 2026-08-28 | Youngho Kim | Added Title/Abstract/Author/Milestone/History metadata. |
 
 These are **manual** test procedures, not automated tests. Unlike `docs/native-https-proxy/TC.md`,
 this feature needs no real network access of its own — it only renders whatever `dataSet` the

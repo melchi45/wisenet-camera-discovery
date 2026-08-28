@@ -2,9 +2,20 @@
 
 | | |
 |---|---|
+| Title | Native-Host HTTPS Proxy for Untrusted Camera Certificates — Product Requirements Document (PRD) |
+| Abstract | Problem, goals, non-goals, users, and success criteria for the "Bypass Untrusted Certificate (Native Host)" checkbox. |
 | Status | Implemented |
 | Component | Chrome extension (`dist/chrome-extension/`) only |
+| Author | Youngho Kim |
+| Milestone | v1.0.2 |
 | Related docs | [MRD](MRD.md) · [SRS](SRS.md) · [DESIGN](DESIGN.md) · [TC](TC.md) · [../architecture.md](../architecture.md) |
+
+## History
+
+| Version | Date | Author | Description |
+|---|---|---|---|
+| 1.0 | 2026-08-26 | Youngho Kim | Initial PRD for the native-host HTTPS proxy feature. |
+| 1.1 | 2026-08-28 | Youngho Kim | Added Title/Abstract/Author/Milestone/History metadata. |
 
 ## Problem
 

@@ -2,7 +2,20 @@
 
 | | |
 |---|---|
+| Title | Discovery Result Star Topology View — Design Document |
+| Abstract | `vis.Network` feasibility, the client-side grouping data model, and the 4-iteration interaction-stability fix (hover/click/drag across re-renders). |
+| Status | Implemented |
+| Author | Youngho Kim |
+| Milestone | Unreleased (post v1.0.2) |
 | Related docs | [PRD](PRD.md) · [MRD](MRD.md) · [SRS](SRS.md) · [TC](TC.md) |
+
+## History
+
+| Version | Date | Author | Description |
+|---|---|---|---|
+| 1.0 | 2026-08-27 | Youngho Kim | Initial DESIGN for the Star Topology view feature. |
+| 1.1 | 2026-08-27 | Youngho Kim | Documented disabling `layout.improvedLayout` to stop a repeated console warning. |
+| 1.2 | 2026-08-28 | Youngho Kim | Added Title/Abstract/Author/Milestone/History metadata. |
 
 ## Feasibility finding: `vis.Network` needed zero new dependencies
 

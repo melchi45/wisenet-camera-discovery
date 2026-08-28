@@ -2,7 +2,19 @@
 
 | | |
 |---|---|
+| Title | Discovery Result Star Topology View — Market Requirements Document (MRD) |
+| Abstract | Market rationale for a node-link grouped view of the discovery result list, and the alternatives considered (status quo table, separate popup, real network topology, a third-party graph library). |
+| Status | Implemented |
+| Author | Youngho Kim |
+| Milestone | Unreleased (post v1.0.2) |
 | Related docs | [PRD](PRD.md) · [SRS](SRS.md) · [DESIGN](DESIGN.md) · [TC](TC.md) |
+
+## History
+
+| Version | Date | Author | Description |
+|---|---|---|---|
+| 1.0 | 2026-08-27 | Youngho Kim | Initial MRD for the Star Topology view feature. |
+| 1.1 | 2026-08-28 | Youngho Kim | Added Title/Abstract/Author/Milestone/History metadata. |
 
 ## Market context
 
