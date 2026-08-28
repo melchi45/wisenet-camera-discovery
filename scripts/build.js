@@ -157,6 +157,13 @@ function copySharedWebAssets(destDir) {
     path.join(destDir, 'scripts', 'legacy-globals-bridge.js')
   );
   copyDir(path.join(ROOT, 'src', 'shared', 'css'), path.join(destDir, 'css'));
+  // src/component/ lives outside src/shared/ (a reusable UI component, not
+  // shared-page-specific) so it isn't picked up by the copyDir above --
+  // see docs/switch-component/.
+  copyFile(
+    path.join(ROOT, 'src', 'component', 'switch', 'switch.css'),
+    path.join(destDir, 'css', 'switch.css')
+  );
   // vis.js and moment/moment-timezone are bundled directly into window.js
   // by Vite — only vis.css (kept as a separate <link>, not worth pulling
   // into the JS bundle) still needs copying from node_modules/.

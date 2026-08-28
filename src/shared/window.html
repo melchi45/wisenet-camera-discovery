@@ -9,6 +9,7 @@
     <link rel="stylesheet" type="text/css" href="external-lib/vis/vis.css">
 
     <link rel="stylesheet" type="text/css" href="css/window.css" async>
+    <link rel="stylesheet" type="text/css" href="css/switch.css" async>
     <link rel="stylesheet" type="text/css" href="css/modal.css" async>
 
     <link rel="stylesheet" type="text/css" href="css/table.css">
@@ -58,9 +59,8 @@
                     </label>
                 </div>
                 <div class="toolbar-group">
-                    <label class="theme-switch" for="toggle">
+                    <label id="theme_switch" for="toggle">
                     <input type="checkbox" id="toggle" checked />
-                    <div class="slider"></div>
                     </label>
                     <div class="theme-icon">
                         <img src="https://img.icons8.com/emoji/32/000000/crescent-moon-emoji.png" />
@@ -179,9 +179,10 @@
                             </div>
                             <div id="time_info" class="field-row">
                             <div id="sunapi_info" class="field">
-                                <input id="use_sunapi_client_checkbox" type="checkbox">
-                                <label for="use_sunapi_client_checkbox">Use SUNAPI</label>
-                                </input>
+                                <label class="switch">SUNAPI:</label>
+                                <div id="sunapi_toggle">
+                                    <input id="use_sunapi_client_checkbox" type="checkbox">
+                                </div>
                             </div>
                             <div class="field">
                                 <input id="use_gmt" type="checkbox">
@@ -231,12 +232,13 @@
                                 <input id="universaltime_checkbox" type="checkbox">
                             </div>
                             <div class="field">
-                                <input type="radio" name="http_type" id="http_radio" value="http" checked>
-                                <label for="http_radio">HTTP</label>
-                            </div>
-                            <div class="field">
-                                <input type="radio" name="http_type" id="https_radio" value="https">
-                                <label for="https_radio">HTTPS</label>
+                                <label class="switch">Protocol:</label>
+                                <div id="http_type_toggle" role="tablist" aria-label="Protocol">
+                                    <input type="radio" name="http_type" id="http_radio" value="http" checked>
+                                    <label for="http_radio">HTTP</label>
+                                    <input type="radio" name="http_type" id="https_radio" value="https">
+                                    <label for="https_radio">HTTPS</label>
+                                </div>
                             </div>
                             <div id="native_tls_proxy_field" class="field">
                                 <input id="use_native_tls_proxy_checkbox" type="checkbox">
@@ -276,13 +278,14 @@
                             <input id="timestamp" type="text"> -->
                             </div>
                             <div class="field-row">
-                            <div class="field" id="live_info">
-                                <input type="radio" name="play_type" id="live_radio" value="live" checked>
-                                <label for="live_radio">Live</label>
-                            </div>
-                            <div class="field" id="playback_info">
-                                <input type="radio" name="play_type" id="playback_radio" value="playback">
-                                <label for="playback_radio">Playback</label>
+                            <div class="field">
+                                <label class="switch">Play Type:</label>
+                                <div id="play_type_toggle" role="tablist" aria-label="Play type">
+                                    <input type="radio" name="play_type" id="live_radio" value="live" checked>
+                                    <label for="live_radio">Live</label>
+                                    <input type="radio" name="play_type" id="playback_radio" value="playback">
+                                    <label for="playback_radio">Playback</label>
+                                </div>
                             </div>
                             <div class="field" id="framedrop_info">
                                 <input id="framedrop" type="checkbox" checked="false">
@@ -324,6 +327,10 @@
                             <button id="search_overlapped_id">Search Overlapped Id</button>
                             <span id="overlapped_id_area"></span>
                             <button id="search_date">Search Date</button>
+                            <div id="search_timeline_range_toggle" role="tablist" aria-label="Timeline search range">
+                                <button type="button" id="search_timeline_range_oneday" data-value="oneday" role="tab">1 Day</button>
+                                <button type="button" id="search_timeline_range_threemonth" data-value="threemonth" role="tab">3 Month</button>
+                            </div>
                             <button id="search_timeline">Search Timeline</button>
                             </div>
                             <div class="field">

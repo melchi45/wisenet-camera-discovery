@@ -496,3 +496,58 @@ below any plausible legible size, so this reads as a genuine leftover mistake ra
 preserved quirk. Replaced with CSS classes (`.timeline-group-label`/`.timeline-group-hide-btn` in
 `timeline.css`) so the group label/button are both actually readable and themeable.
 
+## Switch component: unifying 3 ad hoc toggle mechanisms into one, and why progressive enhancement was chosen
+
+`window.html` had 5 switch-looking controls (dark mode, HTTP/HTTPS, Live/Playback, the Playback
+1 Day/3 Month range, SUNAPI On/Off) built on 3 unrelated mechanisms that only happened to look
+alike — a hand-rolled iOS-slider (`.theme-switch`), static `.segmented-toggle` radio/button
+markup, and `segmentedToggle.ts`'s one checkbox-only helper. None of the three could express a
+3+-option switch or a dot-instead-of-text option, and there was no single place to read the "how
+does a switch work here" answer from. Replaced by `src/component/switch/`'s `mountSwitch()` — see
+`docs/switch-component/` (MRD/PRD/SRS/DESIGN/TC) for the full spec.
+
+Three implementation shapes were considered for the new component:
+
+1. **A custom element** (`<ws-switch>`, `customElements.define`) — declarative, but would have
+   meant rewriting every one of `window.ts`'s ~35 existing `.checked`/`:checked`/
+   `classList.contains("active")` read/write sites across the 5 controls to go through a new
+   element API instead, since a custom element normally owns and generates its own markup.
+2. **A config-driven full-render function** (`renderSwitch(container, config): HTMLElement`) —
+   same problem: generating fresh markup from a config object means the existing ids/names the
+   ~35 call sites depend on would either need to be threaded through as more config, or the call
+   sites would need to change to read the new function's return value instead.
+3. **A progressive-enhancement function** (chosen) — mirrors what `segmentedToggle.ts` already did
+   for its one case: `mountSwitch()` never generates a native `<input>`/`<button>`, only enhances
+   whatever's already in the container (adding sibling labels/knob + CSS classes). Every original
+   id/name/value attribute survives untouched, so all ~35 call sites needed **zero** changes.
+
+The user explicitly asked for progressive enhancement over the other two, citing this exact
+lowest-integration-risk reasoning, and asked for a **full migration** of all pre-existing switches
+onto the new component rather than leaving them on the old mechanisms and only using
+`mountSwitch()` for new call sites going forward — deliberately accepting the markup/CSS churn in
+`window.html`/`window.css` in exchange for there being exactly one switch mechanism in this
+codebase afterward, not four (three old + one new).
+
+One non-obvious 5th control was found mid-migration: `#play_type_toggle` (Live/Playback) uses the
+exact same `.segmented-toggle` CSS classes as HTTP/HTTPS but wasn't mentioned in the original ask
+(which named 4 controls). Migrating it was necessary, not optional scope creep — removing the old
+`.segmented-toggle*` CSS rules from `window.css` (superseded by `switch.css`) would have silently
+unstyled it otherwise, since it depended on those same class names. **Lesson**: before deleting a
+CSS class's rule block, grep the *whole* `window.html`/`window.ts` for every other element still
+wearing that class, not just the elements the task description named — same "grep every reference
+before deleting" lesson this file already records for element ids.
+
+**Found in first real-world use (screenshot review), fixed same session**: the SUNAPI On/Off
+switch was first mounted on `#sunapi_info` — the existing `.field` div that holds *both* the
+`SUNAPI:` field-name `<label>` and the checkbox — instead of a dedicated wrapper around just the
+checkbox. `mountSwitch()`'s `'segmented'` variant puts `border`/`border-radius: 999px`/`overflow:
+hidden` on the whole container, so the field-name label ended up inside that rounded-pill border
+too, rendering as two disjoint boxes instead of one clean pill (visibly different from HTTP/HTTPS
+and Live/Playback, whose containers only ever held their own radios). Every other migrated control
+already had a container scoped to just itself; SUNAPI didn't, and that mismatch wasn't visible from
+reading the code — it only showed up once the page was actually rendered and screenshotted. Fixed
+by adding `<div id="sunapi_toggle">` around just the checkbox, inside the existing `#sunapi_info`.
+**Lesson**: `containerId` must be scoped to only the switch's own input(s), same requirement now
+called out in `docs/switch-component/DESIGN.md` — and this class of CSS-scope bug is easy to miss
+by reading markup/JS alone; a real render is what actually caught it here.
+

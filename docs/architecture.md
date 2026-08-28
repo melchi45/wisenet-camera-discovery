@@ -36,6 +36,14 @@ src/
     tsconfig.socket.json        (emits, module: none — classic global script)
     vite.config.ts               (bundles window.ts -> build/shared/window.js, one IIFE)
 
+  component/                  <- reusable UI components, not shared/-specific;
+                                  imported into window.ts by relative path
+    switch/
+      switch.ts                 (mountSwitch() — see "Reusable UI" below and
+                                  docs/switch-component/)
+      switch.css                 (copied into both dist/ css/ dirs by
+                                  scripts/build.js, alongside src/shared/css/)
+
   chrome-extension/           <- extension-only
     manifest.json, background.ts, icons/, native-host/
 
@@ -289,6 +297,23 @@ shape via a targeted regex on the string case, rather than resurrecting a full p
 this one field. `MaxChannel`/`IsAndroid` have the same object-vs-string exposure and silently
 read as `undefined` on an XML-firmware device today — a known, not-yet-fixed gap, not something
 `getCapabilityValue()` was extended to cover since nothing currently depends on it doing so.
+
+## Reusable UI: the switch component (`src/component/switch/`)
+
+See [`docs/switch-component/`](switch-component/) (MRD/PRD/SRS/DESIGN/TC) for the full spec — this
+section is a brief pointer, the same relationship this file has with `docs/star-topology/`/
+`docs/native-https-proxy/`. `src/component/switch/switch.ts`'s `mountSwitch()` progressively
+enhances existing checkbox/radio-group/button-group markup into a themed pill or iOS-style slider,
+replacing what used to be three separate ad hoc mechanisms (a hand-rolled `.theme-switch` slider,
+static `.segmented-toggle` radio/button markup, and `segmentedToggle.ts`'s one checkbox-only helper
+— now deleted). All five of this UI's switch-shaped controls are mounted through it: dark mode
+(`#theme_switch`), HTTP/HTTPS protocol (`#http_type_toggle`), Live/Playback (`#play_type_toggle`),
+the Playback 1 Day/3 Month range (`#search_timeline_range_toggle`), and SUNAPI On/Off
+(`#sunapi_toggle`) — every one of their
+pre-existing `document.getElementById(...).checked`/`querySelector('input[name="..."]:checked')`
+call sites in `window.ts` kept working unchanged through the migration, since `mountSwitch()` never
+replaces the original input(s)/ids/names, only adds sibling label/knob elements and CSS classes
+around them.
 
 ## Before/after touching `src/shared/`
 

@@ -115,6 +115,9 @@ compiles to under `dist/`):
   published independently of this extension — see
   [src/nodejs/README.md](src/nodejs/README.md).
 * `src/shared/window.ts`: GUI script for window.html.
+* `src/component/switch/`: reusable On/Off, Text1/Text2, and N-way switch UI component,
+  used for every toggle-looking control in `window.html` (dark mode, HTTP/HTTPS, Live/Playback,
+  Playback range, SUNAPI On/Off) — see [docs/switch-component/DESIGN.md](docs/switch-component/DESIGN.md).
 
 ## Discovery result views: table or star topology
 

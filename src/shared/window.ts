@@ -14,6 +14,7 @@ import 'moment-timezone';
 import * as vis from 'vis';
 import { NativeSunapiClient } from './scripts/nativeSunapiClient';
 import { createNativeTransportFactory } from './scripts/nativeWebSocketTransport';
+import { mountSwitch, SwitchController } from '../component/switch/switch';
 
 // Circular-reference-safe JSON.stringify — used throughout this file for
 // logging. Defined here directly rather than pulling in a whole vendored
@@ -103,6 +104,12 @@ var device = {
   protocol: 'http'
 };
 var visTimeline;
+
+// The timeline-range pill (1 Day/3 Month) has no legacy .checked-style
+// state of its own to preserve, so search_timeline_by_range() reads through
+// this controller instead of the old raw classList.contains("active")
+// check — see docs/switch-component/.
+var timelineRangeSwitch: SwitchController | null = null;
 
 // Single shared SunapiManager instance for whichever player is
 // selected_player_id at the time — mirrors the old SunapiManagerService
@@ -375,7 +382,6 @@ document.addEventListener("DOMContentLoaded", function(){
     let yyyy = today.getFullYear();
 
     document.getElementById("search_timeline").disabled = true;
-    document.getElementById("search_three_month_timeline").disabled = true;
     document.getElementById("forward").disabled = true;
     document.getElementById("backward").disabled = true;
     document.getElementById("speed").disabled = true;
@@ -412,6 +418,11 @@ document.addEventListener("DOMContentLoaded", function(){
     document.querySelectorAll('input[type="radio"][name="http_type"]').forEach(function (el) {
       el.addEventListener('change', changehttptype);
     });
+    mountSwitch({
+      containerId: "http_type_toggle",
+      variant: "segmented",
+      options: [{ value: "http", label: "HTTP" }, { value: "https", label: "HTTPS" }],
+    });
     document.getElementById("channel").addEventListener("change", changechannel);
     document.getElementById("profile").addEventListener("change", changeprofile);
 
@@ -443,18 +454,34 @@ document.addEventListener("DOMContentLoaded", function(){
 
     document.getElementById("search_overlapped_id").addEventListener("click", search_overlapped_id);
     document.getElementById("search_date").addEventListener("click", search_date);
-    document.getElementById("search_timeline").addEventListener("click", search_oneday_timeline);
+
+    timelineRangeSwitch = mountSwitch({
+      containerId: "search_timeline_range_toggle",
+      variant: "segmented",
+      options: [{ value: "oneday", label: "1 Day" }, { value: "threemonth", label: "3 Month" }],
+    });
+    document.getElementById("search_timeline").addEventListener("click", search_timeline_by_range);
 
     document.getElementById("speed").addEventListener("change", changespeed);
 
     document.querySelectorAll('input[type="radio"][name="play_type"]').forEach(function (el) {
       el.addEventListener('change', onchangeplaytype);
     });
+    mountSwitch({
+      containerId: "play_type_toggle",
+      variant: "segmented",
+      options: [{ value: "live", label: "Live" }, { value: "playback", label: "Playback" }],
+    });
 
     // initialize to true the use sunapi client checkbox
     // document.getElementById("use_sunapi_client_checkbox").checked = true;
     // if use
     document.getElementById("use_sunapi_client_checkbox").addEventListener("click", on_change_use_sunapi_client);
+    mountSwitch({
+      containerId: "sunapi_toggle",
+      variant: "segmented",
+      options: [{ value: "off", label: "Off" }, { value: "on", label: "On" }],
+    });
 
     document.getElementById("minimap").addEventListener("change", onchangeminimap);
     document.getElementById("framedrop").addEventListener("change", onchangeframedrop);
@@ -483,6 +510,11 @@ document.addEventListener("DOMContentLoaded", function(){
     document.getElementById("is_android").addEventListener("change", onchangeandroid);
 
     document.getElementById("toggle").addEventListener("change", changedarkmode);
+    mountSwitch({
+      containerId: "theme_switch",
+      variant: "slider",
+      options: [{ value: "light", label: "Light Mode" }, { value: "dark", label: "Dark Mode" }],
+    });
   });
 
   // selectChannel();
@@ -2802,7 +2834,6 @@ var search_date = function () {
           document.getElementById("end_date").max = [year, month, max].join('-');
 
           document.getElementById("search_timeline").disabled = false;
-          document.getElementById("search_three_month_timeline").disabled = false;
         } // end if (calendar.CalenderSearchResults[dates].Result !== 'undefined') {
       } // end for (dates in calendar.CalenderSearchResults) {
     }).catch(function (error) {
@@ -2814,7 +2845,11 @@ var search_date = function () {
   }
 }
 
-var search_oneday_timeline = function () {
+// Shared by search_oneday_timeline/search_three_month_timeline below --
+// those two only differ in how they compute strSearchStartTime/EndTime
+// (manual Start/End Time fields vs. Start Time + 3 months), the actual
+// getTimeline() call and vis Timeline render are identical either way.
+var runTimelineSearch = function (strSearchStartTime, strSearchEndTime) {
   try {
     if(!getSelectedPlayer().sunapiClient) {
       initSunapiManager();
@@ -2825,20 +2860,12 @@ var search_oneday_timeline = function () {
       document.getElementById("timeline_picker").remove();
     }
 
-    let startDate = document.getElementById("start_date").value;
-    let startTime = document.getElementById("start_time").value;
-    let endDate = document.getElementById("end_date").value;
-    let endTime = document.getElementById("end_time").value;
-
-    var strSearchStartTime = startDate + " " + startTime,
-        strSearchEndTime = endDate + " " + endTime;
-
     if(document.getElementById("use_gmt").checked) {
       var timezone = gettimezonestring(document.getElementById("timezone").value);
       strSearchStartTime = moment(strSearchStartTime).utcOffset(timezone).format('YYYY-MM-DD[T]HH:mm:ss[Z]');
       strSearchEndTime = moment(strSearchEndTime).utcOffset(timezone).format('YYYY-MM-DD[T]HH:mm:ss[Z]');
     }
-    console.log("onSearchOneDayTimeline, Search start:", strSearchStartTime, "end:", strSearchEndTime);
+    console.log("onSearchTimeline, Search start:", strSearchStartTime, "end:", strSearchEndTime);
 
     // channel number start from index 0
     var requestPromise;
@@ -2859,8 +2886,6 @@ var search_oneday_timeline = function () {
         );
       }
     } else {
-      var start = vis.moment(strSearchStartTime).utc().toISOString(); //format('YYYY-MM-DDTHH:mm:ss.SSSZ');
-      var end = vis.moment(strSearchEndTime).utc().toISOString(); //format('YYYY-MM-DDTHH:mm:ss.SSSZ');
       requestPromise = getSunapiManager().getTimeline(
         strSearchStartTime,
         strSearchEndTime,
@@ -2886,6 +2911,52 @@ var search_oneday_timeline = function () {
         // alert("getTimeline error: " + fastJsonStringfy(error));
       }
     });
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+var search_oneday_timeline = function () {
+  try {
+    let startDate = document.getElementById("start_date").value;
+    let startTime = document.getElementById("start_time").value;
+    let endDate = document.getElementById("end_date").value;
+    let endTime = document.getElementById("end_time").value;
+
+    runTimelineSearch(startDate + " " + startTime, endDate + " " + endTime);
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+// "3 Month" ignores the Manual End Time field entirely and always spans
+// 3 months forward from Manual Start Time -- there's no separate SUNAPI
+// call for this (SunapiManager.getTimeline() just takes a from/to range),
+// it's purely a convenience for not having to manually type a 3-month-wide
+// end date.
+var search_three_month_timeline = function () {
+  try {
+    let startDate = document.getElementById("start_date").value;
+    let startTime = document.getElementById("start_time").value;
+
+    var strSearchStartTime = startDate + " " + startTime;
+    var strSearchEndTime = moment(strSearchStartTime).add(3, 'months').format('YYYY-MM-DD HH:mm:ss');
+
+    runTimelineSearch(strSearchStartTime, strSearchEndTime);
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+// Single entry point for the "Search Timeline" button — which range it
+// runs is picked by the search_timeline_range_toggle pill selector next to it.
+var search_timeline_by_range = function () {
+  try {
+    if (timelineRangeSwitch.getValue() === "threemonth") {
+      search_three_month_timeline();
+    } else {
+      search_oneday_timeline();
+    }
   } catch (error) {
     console.error(error);
   }

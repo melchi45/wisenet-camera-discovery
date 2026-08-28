@@ -97,3 +97,8 @@ see [`src/chrome-extension/native-host/README.md`](src/chrome-extension/native-h
   grouping, search-filter, or `vis.Network` interaction behavior there; `docs/architecture.md`'s
   "Discovery result views" section is only a brief pointer to it, same as for
   `docs/native-https-proxy/`.
+- Every switch/toggle-looking control in `window.html` (dark mode, HTTP/HTTPS, Live/Playback, the
+  Playback 1 Day/3 Month range, SUNAPI On/Off) is mounted through `src/component/switch/`'s
+  `mountSwitch()`, not hand-rolled markup — read [`docs/switch-component/`](docs/switch-component/)
+  (MRD/PRD/SRS/DESIGN/TC) before adding a new switch or changing an existing one's variant/options/
+  CSS.

@@ -471,52 +471,8 @@ form {
 }
 
 /* ---------------------------------------------------------------------- */
-/* Theme switch                                                            */
+/* Theme switch icon (the switch itself is src/component/switch/switch.css) */
 /* ---------------------------------------------------------------------- */
-
-.theme-switch {
-  display: inline-block;
-  width: 40px;
-  height: 20px;
-  position: relative;
-}
-
-.slider {
-  background-color: var(--surface-sunken);
-  border: 1px solid var(--border-color-strong);
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 0;
-  bottom: 0;
-  cursor: pointer;
-  transition: 0.2s;
-  border-radius: 34px;
-}
-
-.slider:before {
-  content: " ";
-  position: absolute;
-  left: 2px;
-  top: 2px;
-  width: 14px;
-  height: 14px;
-  transition: 0.2s;
-  border-radius: 50%;
-  background-color: var(--accent);
-}
-
-.theme-switch input[type="checkbox"] {
-  display: none;
-}
-
-.theme-switch input:checked + .slider {
-  background-color: var(--accent-soft);
-}
-
-.theme-switch input:checked + .slider:before {
-  transform: translateX(20px);
-}
 
 .theme-icon {
   display: flex;
