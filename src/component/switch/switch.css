@@ -1,0 +1,162 @@
+/* Switch component styles -- see docs/switch-component/ (MRD/PRD/SRS/DESIGN/TC)
+   for the full spec. Reuses window.css's --accent/--surface/etc. custom properties so a
+   switch always matches the page's current light/dark theme; this file
+   defines no colors of its own. Ported from window.css's old
+   .theme-switch/.slider and .segmented-toggle*/.segmented-toggle-checkbox*
+   rule blocks (kept byte-for-byte visually identical, only renamed) when
+   those were replaced by src/component/switch/switch.ts. */
+
+.ws-switch {
+  display: inline-flex;
+  align-items: stretch;
+  vertical-align: middle;
+}
+
+/* ------------------------------------------------------------------------ */
+/* 'slider' variant -- classic iOS on/off knob (checkbox targets only)      */
+/* ------------------------------------------------------------------------ */
+
+.ws-switch--slider {
+  position: relative;
+  width: 40px;
+  height: 20px;
+}
+
+.ws-switch--slider .ws-switch-input {
+  display: none;
+}
+
+.ws-switch-knob {
+  background-color: var(--surface-sunken);
+  border: 1px solid var(--border-color-strong);
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  cursor: pointer;
+  transition: 0.2s;
+  border-radius: 34px;
+}
+
+.ws-switch-knob:before {
+  content: " ";
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  width: 14px;
+  height: 14px;
+  transition: 0.2s;
+  border-radius: 50%;
+  background-color: var(--accent);
+}
+
+.ws-switch--slider .ws-switch-input:checked ~ .ws-switch-knob {
+  background-color: var(--accent-soft);
+}
+
+.ws-switch--slider .ws-switch-input:checked ~ .ws-switch-knob:before {
+  transform: translateX(20px);
+}
+
+/* ------------------------------------------------------------------------ */
+/* 'segmented' variant -- pill selector, 2..N options, text or dot content  */
+/* ------------------------------------------------------------------------ */
+
+.ws-switch--segmented {
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  overflow: hidden;
+  margin: 1px;
+}
+
+/* `.ws-switch .ws-switch-option` (not just `.ws-switch-option`) deliberately
+   -- when this class is on a <label>, window.css's `.field label` rule
+   (specificity 0,1,1) would otherwise outrank a bare `.ws-switch-option`
+   (0,1,0) and revert its font-size/color. This compound selector (0,2,0)
+   outranks it instead. See docs/switch-component/DESIGN.md's Style section --
+   this is the exact same gotcha docs/architecture.md documented for the
+   old .segmented-toggle-option, carried over unchanged. */
+.ws-switch .ws-switch-option {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 1.1rem;
+  line-height: 1;
+  margin: 0;
+  padding: 5px 14px;
+  min-height: 26px;
+  border: none;
+  border-radius: 0;
+  background: var(--surface);
+  color: var(--accent);
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+
+.ws-switch .ws-switch-option:hover:not(.active) {
+  background: var(--accent-soft);
+}
+
+.ws-switch .ws-switch-option:active {
+  transform: none;
+}
+
+.ws-switch .ws-switch-option.active {
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 600;
+}
+
+/* Radio-driven (2+ <input type="radio"> sharing a name, e.g. HTTP/HTTPS) --
+   radios stay in the DOM (existing :checked-based reads keep working),
+   only their native appearance is hidden. */
+.ws-switch--segmented input[type="radio"].ws-switch-input {
+  display: none;
+}
+
+.ws-switch--segmented input[type="radio"].ws-switch-input:checked + .ws-switch-option {
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 600;
+}
+
+.ws-switch--segmented input[type="radio"].ws-switch-input:not(:checked) + .ws-switch-option:hover {
+  background: var(--accent-soft);
+}
+
+/* Checkbox-driven 2-option (e.g. SUNAPI On/Off) -- a single checkbox
+   followed by two <label for="..."> siblings ("Off" then "On" in DOM
+   order). `~` (general sibling), not `+`, since the "On" label isn't
+   immediately adjacent to the checkbox (the "Off" label sits between
+   them). */
+.ws-switch--segmented .ws-switch-input[type="checkbox"] {
+  display: none;
+}
+
+.ws-switch--segmented .ws-switch-input[type="checkbox"]:checked ~ .ws-switch-option-on,
+.ws-switch--segmented .ws-switch-input[type="checkbox"]:not(:checked) ~ .ws-switch-option-off {
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 600;
+}
+
+.ws-switch--segmented .ws-switch-input[type="checkbox"]:checked ~ .ws-switch-option-off:hover,
+.ws-switch--segmented .ws-switch-input[type="checkbox"]:not(:checked) ~ .ws-switch-option-on:hover {
+  background: var(--accent-soft);
+}
+
+/* ------------------------------------------------------------------------ */
+/* Dot content -- an option rendered as a colored dot instead of text       */
+/* ------------------------------------------------------------------------ */
+
+.ws-switch-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ws-switch-dot-color, var(--accent));
+}
