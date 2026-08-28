@@ -107,3 +107,18 @@ see [`src/chrome-extension/native-host/README.md`](src/chrome-extension/native-h
   `aria-expanded` widget — read [`docs/disclosure-component/`](docs/disclosure-component/)
   (MRD/PRD/SRS/DESIGN/TC) before adding a new collapsible panel or a new header control to an
   existing one.
+- `src/shared-v2/` is a from-scratch, independently-written reimplementation of `src/shared/`'s
+  `window.html`/`window.ts`, built directly from a full SDD spec — read
+  [`docs/window-ui/`](docs/window-ui/) (MRD/PRD/SRS/DESIGN/TC) before touching it. It builds to a
+  side, non-shipping `dist/shared-v2-preview/` via `npm run build:shared-v2` (also part of
+  `npm run build`) — never wired into `dist/chrome-extension/`/`dist/nodejs/`. Verified against the
+  original for functional equivalence by `tests/window-ui-equivalence/` (Playwright; run
+  `npx playwright test`, needs `npm run build && npm run build:shared-v2` first), backed by
+  `tools/mock-sunapi-server/` (canned SUNAPI responses) and `tools/equivalence-test-server/`
+  (serves either page + a fixture WS `/discover` feed). A handful of intentional, documented
+  deviations from the original's behavior exist (e.g. two real legacy crash bugs are *not*
+  reproduced) — see `docs/window-ui/DESIGN.md`'s "Deviations from legacy behavior" and the
+  corresponding test cases in `docs/window-ui/TC.md`/`tests/window-ui-equivalence/` before assuming
+  a mismatch is a new bug rather than a known, asserted-on-purpose asymmetry. `src/shared/` remains
+  the one actually shipped in `dist/chrome-extension/`/`dist/nodejs/` — this is a parallel
+  spec-driven build, not a replacement (see `docs/window-ui/MRD.md`).

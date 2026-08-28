@@ -631,3 +631,116 @@ of which would have been obvious from just working inside the new `docs/switch-c
 fixed in `README.md` while doing this pass — a leftover from an earlier session's transient
 WSL/DrvFs write retry (see `CLAUDE.md`'s own note on that class of issue), not something this
 change introduced.
+
+## `src/shared-v2/`: a spec-driven, independent reimplementation of `window.html`/`window.ts`
+
+A parallel front end at `src/shared-v2/`, built from scratch against a full SDD spec
+(`docs/window-ui/` — MRD/PRD/SRS/DESIGN/TC), not copy-pasted from `src/shared/`. Builds to a side
+artifact (`dist/shared-v2-preview/` via `npm run build:shared-v2`), never wired into the real
+`dist/chrome-extension/`/`dist/nodejs/` outputs — see `docs/window-ui/MRD.md` for why this is
+"parallel, not in-place". Verified against the original for functional equivalence with a
+Playwright suite (`tests/window-ui-equivalence/`, `npx playwright test`), backed by
+`tools/mock-sunapi-server/` (canned SUNAPI HTTP responses, endpoint paths/params read directly out
+of the vendored `@melchi45/rtsp-over-websocket` bundle, not guessed) and
+`tools/equivalence-test-server/` (a generic static+WS server, reused for both pages, that replays
+two fixed fixture devices over `/discover` instead of real UDP broadcast — WSL2 can't reach real
+devices anyway, see this file's networking notes elsewhere).
+
+**Real bugs found in the shipped original while building this**, confirmed live via Playwright, not
+just read from source — each is deliberately *not* reproduced in `src/shared-v2/`, and the
+equivalence test for it asserts the resulting asymmetry (old fails/crashes, new succeeds) rather
+than cross-page equality:
+- **NVR device type + "Use SUNAPI" always fails on the original.** `initSunapiManager()`'s
+  `getDateInfo()` `.then()` branch (`window.ts` line ~2087) reads `element.device === 'nvr'`, where
+  `element` is a stray reference to an outer-scope variable that's actually `undefined` at call
+  time — not a stale-but-valid element as first assumed from reading the source. `element.device`
+  throws a real `TypeError`, converted by the chain's own `.catch()` into an unconditional
+  `use_sunapi_client_checkbox.checked = false`. Every NVR-type device fails to bootstrap SUNAPI, not
+  just in some narrow edge case.
+- **Playback `STOPPED` state can get buttons stuck.** `onstatechange()`'s `STOPPED` case calls
+  `document.getElementById("timestamp_date").remove()`/`"timestamp_time"` unguarded — if a real
+  stream never entered 'live' mode's `ontimestamp()` first (which is what lazily creates those two
+  elements), this throws and aborts the rest of the `STOPPED` branch, potentially leaving
+  Play/Stop/Pause/Resume disabled-state stuck. `src/shared-v2/videoControl.ts` uses `?.remove()`.
+
+**One real spec gap found only by running the reimplementation, not by reading source carefully
+enough**: an entire startup initialization block in the original (`window.ts` ~L380-414— today's-
+date defaults for `#start_date`/`#end_date`/`#seeking_date`, initial `disabled`/`checked` state for
+about a dozen controls across Audio/Video Control/Playback/Device) was missed by the first SRS pass
+entirely, because it isn't attached to any one control's own event handler — it's the kind of thing
+that's easy to skim past reading linearly but immediately visible as a wrong `#end_date` value once
+two live pages are compared. Traced from one failing equivalence test (`TC-17`) back to the missing
+block, not spotted proactively — the lesson being that "read the source" and "compare live
+behavior" find genuinely different classes of gaps, and this SDD's Phase 4 iterate-to-green loop
+exists specifically because of gaps like this one.
+
+## `updateTimeline()`'s "hardcoded to today" bug that wasn't — a misdiagnosis, then a self-inflicted one
+
+A user reported (against a **real device**, not the mock server) that Search Timeline returned
+valid data but `vis.Timeline` showed nothing. Two separate investigations happened, in order:
+
+1. **Reading `src/shared/window.ts`'s source** showed `updateTimeline()`'s `vis.Timeline` options
+   hardcode `start`/`end` to *today's* calendar day and never adjust them afterward — a plausible-
+   looking explanation ("real recordings from any other day render outside the visible window").
+   A `visTimeline.fit(...)`/`setWindow(...)` call was added to `src/shared-v2/playback.ts` to "fix"
+   this, and passed against `tools/mock-sunapi-server/`'s (then only 3-item) fixture.
+2. **The user then reported real performance numbers from testing** with genuinely large data.
+   Investigating that surfaced the *actual* bug: the real device's `getTimeline()` response is
+   wrapped as `{TimeLineSearchResults: [...]}`, but `src/shared-v2/playback.ts` was passing the
+   whole wrapper (not `.TimeLineSearchResults`) into `updateTimeline()`, which silently did nothing
+   (`undefined.length`, swallowed by the outer `.catch()`). The mock server's fixture had the exact
+   same unwrapped shape, so this was invisible to equivalence testing on either side. **Fixing this
+   one line was the entire real fix.**
+3. Scaling the mock fixture to ~150 items (matching the real report's volume) to verify the
+   envelope fix then revealed that step 1's `fit()` "fix" was itself broken — it rendered **zero**
+   `.vis-item` elements at that volume, versus the original's (correct, unmodified) full render.
+   `vis.Timeline` (this vendored 4.20 build) already auto-fits its window to real item data the
+   first time `setItems()` runs with actual items — the hardcoded `start`/`end` options only ever
+   mattered before any items existed. The "bug" in step 1 never actually existed at runtime;
+   `fit()`/`setWindow()` was removed entirely, and rendering matched the original exactly once both
+   the real bug (2) was fixed and the fake one (1) was un-fixed.
+
+**Lesson**: a plausible bug found by reading source alone, without a live side-by-side comparison
+against real (or realistically-sized) data, produced a fix for a problem that didn't exist — and
+that fix then became a second, real, more severe regression once real data volume exposed it. Both
+`docs/window-ui/DESIGN.md`'s "Deviations from legacy behavior" and `SRS.md`'s FR-7.6 carry this as
+a retracted entry rather than silently deleting it, specifically so this reasoning trail (why it
+looked right, and what live testing had to reveal to unwind it) isn't lost. See
+`docs/window-ui/TC.md`'s TC-18 for the equivalence test at realistic volume that this whole thing
+turned into.
+
+## "vis.Timeline is slow" turned out to be redundant network round trips, not rendering
+
+A follow-up to the entry above: after the envelope-unwrap fix, the user reported vis.Timeline
+still *felt* slow against a real device (`requestAnimationFrame`/reflow console violations). Rather
+than guessing again, this was profiled directly:
+
+- **Chrome DevTools Protocol `Profiler` via Playwright** (`newCDPSession(page)` +
+  `Profiler.start()`/`.stop()`, sampled during the actual `#search_timeline` click) showed ~95% idle
+  time and under 50ms of real JS/layout work for a 150-item render — identical on both
+  `src/shared/` and `src/shared-v2/`. vis.Timeline itself was never the bottleneck.
+- **Counting actual HTTP requests** (`page.on('request', ...)` against
+  `tools/mock-sunapi-server/`) during the same flow showed `initSunapiManager()`'s
+  ~6-7-round-trip chain (attributes → videosource → videoprofilepolicy → videoprofile → timezone →
+  dateinfo) firing **multiple times** for one user flow — the original has no guard against this at
+  any of its ~12 call sites (every one only checks the target field/session state, never "is a
+  chain already running"). Near-free on localhost/mock; each redundant chain is a real, compounding
+  cost against actual camera network latency.
+- One specific, very findable-only-live trigger: clicking `#use_sunapi_client_checkbox` right after
+  typing credentials moves focus away from `#password`, and the **browser's own native
+  blur-triggered `change` event** fires there even though nothing was edited — the original's
+  unconditional re-init on that event turns it into a second full chain, effectively every time a
+  user turns SUNAPI on right after typing a password.
+
+Fixed with two narrow, independent guards in `src/shared-v2/` (a `sunapiInitInFlight` re-entrancy
+flag in `state.ts`, and a same-value check in `session.ts`'s username/password handlers) — not a
+rewrite of the many call sites' own pattern. See `docs/window-ui/DESIGN.md`'s "Deviations from
+legacy behavior" (4th entry) and `docs/window-ui/TC.md`'s TC-27, which counts real network requests
+rather than just checking DOM state, specifically because DOM-state-only equivalence checks had
+already missed this class of problem entirely.
+
+**Lesson**: when a performance complaint doesn't match where you'd instinctively look (here: "the
+chart library must be slow"), profile before fixing — CPU sampling ruled out the suspected
+component in one pass, and request-counting pointed straight at the real one. Both are cheap to set
+up via Playwright + CDP and are worth reaching for before further source-reading guesses, especially
+after the previous entry's lesson about what pure source-reading missed.
