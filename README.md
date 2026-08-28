@@ -118,6 +118,9 @@ compiles to under `dist/`):
 * `src/component/switch/`: reusable On/Off, Text1/Text2, and N-way switch UI component,
   used for every toggle-looking control in `window.html` (dark mode, HTTP/HTTPS, Live/Playback,
   Playback range, SUNAPI On/Off) — see [docs/switch-component/DESIGN.md](docs/switch-component/DESIGN.md).
+* `src/component/disclosure/`: reusable collapsible ("∧∨") panel component built on native
+  `<details>`/`<summary>`, used for the Debug Information/Discovery/RTSP log panels in
+  `window.html` — see [docs/disclosure-component/DESIGN.md](docs/disclosure-component/DESIGN.md).
 
 ## Discovery result views: table or star topology
 

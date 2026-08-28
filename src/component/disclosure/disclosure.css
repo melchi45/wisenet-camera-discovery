@@ -1,0 +1,50 @@
+/* Disclosure (show/hide) component styles -- see docs/disclosure-component/
+   (MRD/PRD/SRS/DESIGN/TC) for the full spec. Reuses window.css's --accent/--text-muted/etc. custom
+   properties, same as switch.css, so a disclosure panel always matches the
+   page's current light/dark theme. */
+
+.disclosure > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Removes the native marker triangle -- list-style:none above already does
+   this in Chrome/Firefox; ::-webkit-details-marker is the older WebKit path. */
+.disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.disclosure > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Reuses .panel-title's look (window.css) via the shared class on the title
+   span; only overrides what changes now that it's an inline flex-row item
+   instead of a block sitting above the panel's content. */
+.disclosure-title {
+  margin: 0;
+  flex: 1 1 auto;
+}
+
+.disclosure-chevron {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.disclosure-chevron::before {
+  content: "\2228"; /* ∨ -- collapsed, click to expand */
+}
+
+.disclosure[open] > summary .disclosure-chevron::before {
+  content: "\2227"; /* ∧ -- expanded, click to collapse */
+}
+
+.disclosure-content {
+  padding-top: 10px;
+}

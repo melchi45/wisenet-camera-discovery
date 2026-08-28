@@ -43,6 +43,11 @@ src/
                                   docs/switch-component/)
       switch.css                 (copied into both dist/ css/ dirs by
                                   scripts/build.js, alongside src/shared/css/)
+    disclosure/
+      disclosure.ts               (mountDisclosure() — see "Reusable UI" below
+                                  and docs/disclosure-component/)
+      disclosure.css               (copied into both dist/ css/ dirs, same as
+                                  switch.css)
 
   chrome-extension/           <- extension-only
     manifest.json, background.ts, icons/, native-host/
@@ -314,6 +319,20 @@ pre-existing `document.getElementById(...).checked`/`querySelector('input[name="
 call sites in `window.ts` kept working unchanged through the migration, since `mountSwitch()` never
 replaces the original input(s)/ids/names, only adds sibling label/knob elements and CSS classes
 around them.
+
+## Reusable UI: the disclosure component (`src/component/disclosure/`)
+
+See [`docs/disclosure-component/`](disclosure-component/) (MRD/PRD/SRS/DESIGN/TC) for the full spec
+— same brief-pointer relationship as the switch component above.
+`src/component/disclosure/disclosure.ts`'s `mountDisclosure()` progressively enhances an existing
+native `<details>`/`<summary>` element, used for the three collapsible log panels at the bottom of
+`window.html`: Debug Information (`#debug_disclosure`, with its "Use"/"Clear" header controls
+passed as `headerCheckboxId`/`headerButtonId`), Discovery (`#discovery_disclosure`), and RTSP
+(`#rtsp_disclosure`) — all three start collapsed and don't persist state across reloads. Built on
+`<details>`/`<summary>` rather than a hand-rolled `aria-expanded` widget specifically so open/close,
+keyboard activation, and the correct semantics come from the browser for free; the only JS problem
+`mountDisclosure()` actually solves is stopping a header control's click from bubbling up through
+`<summary>` and also toggling the panel.
 
 ## Before/after touching `src/shared/`
 

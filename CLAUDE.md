@@ -102,3 +102,8 @@ see [`src/chrome-extension/native-host/README.md`](src/chrome-extension/native-h
   `mountSwitch()`, not hand-rolled markup — read [`docs/switch-component/`](docs/switch-component/)
   (MRD/PRD/SRS/DESIGN/TC) before adding a new switch or changing an existing one's variant/options/
   CSS.
+- The three collapsible log panels (Debug Information, Discovery, RTSP) are built on native
+  `<details>`/`<summary>` via `src/component/disclosure/`'s `mountDisclosure()`, not a hand-rolled
+  `aria-expanded` widget — read [`docs/disclosure-component/`](docs/disclosure-component/)
+  (MRD/PRD/SRS/DESIGN/TC) before adding a new collapsible panel or a new header control to an
+  existing one.

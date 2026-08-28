@@ -551,3 +551,42 @@ by adding `<div id="sunapi_toggle">` around just the checkbox, inside the existi
 called out in `docs/switch-component/DESIGN.md` — and this class of CSS-scope bug is easy to miss
 by reading markup/JS alone; a real render is what actually caught it here.
 
+## Disclosure component: native `<details>`/`<summary>` chosen over a hand-rolled `aria-expanded` widget
+
+Added `src/component/disclosure/` (`mountDisclosure()`) to make the Debug Information/Discovery/
+RTSP log panels in `window.html` collapsible — see `docs/disclosure-component/` (MRD/PRD/SRS/
+DESIGN/TC) for the full design.
+
+**Built on native `<details>`/`<summary>`, not a custom `aria-expanded` button + CSS toggle.** The
+browser already provides open/close, `Enter`/`Space` keyboard activation, and correct
+expanded/collapsed semantics for free — reinventing that with a `<button aria-expanded>` + a
+manually toggled content `<div>` would mean hand-writing all of it, purely to end up with the exact
+same behavior the native element already has. This extension only targets evergreen Chrome/Edge
+(`README.md`), so there's no compatibility reason not to rely on `<details>`. The only real problem
+`mountDisclosure()` has to solve in JS is that `<summary>`'s native click-to-toggle activates on
+*any* bubbling click, so an interactive control placed inside it (Debug Information's "Use"
+checkbox / "Clear" button) would otherwise also collapse/expand the panel as a side effect of being
+clicked — fixed with one `event.stopPropagation()` per named header control.
+
+**Non-obvious part of that fix**: `#use_debug`'s checkbox is *nested inside* its own `<label
+for="use_debug">`, not a sibling the label points at. Clicking the label's "Use" text fires a click
+on the `<label>` element itself, which bubbles independently of the synthetic click the browser
+separately dispatches on the checkbox — guarding only the checkbox's own click would still let the
+label-text click through and toggle the panel. `guardHeaderControlClick()` walks up via
+`closest('label')` and guards that ancestor instead when one exists, falling back to the control
+itself otherwise (the case for `#clear_debug`, a plain unwrapped `<button>`).
+
+**Two UX decisions confirmed with the user before building** (AskUserQuestion, matching the same
+approach used for the switch component): all three panels **start collapsed** (they're diagnostic/
+log output, not needed on every page load), and collapsed/expanded state is **not persisted**
+across reloads — this codebase has no existing precedent for persisting this kind of UI-only
+convenience state (contrast `#auto_discovery_toggle`, which persists to `chrome.storage.local`
+because it's a functional setting, not a UI convenience), so not adding one here keeps the
+component's behavior simple and matches the rest of the page.
+
+Progressive enhancement, same convention as `src/component/switch/`: `mountDisclosure()` never
+generates the `<details>`/`<summary>`/content markup, only sets initial `open` state and wires the
+two optional header-control guards — `#debug`/`#result`/`#rtsp` and `#use_debug`/`#clear_debug`
+kept their exact ids and only moved position in the DOM, so every pre-existing
+`document.getElementById(...)` call site in `window.ts` needed zero changes.
+

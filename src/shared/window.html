@@ -10,6 +10,7 @@
 
     <link rel="stylesheet" type="text/css" href="css/window.css" async>
     <link rel="stylesheet" type="text/css" href="css/switch.css" async>
+    <link rel="stylesheet" type="text/css" href="css/disclosure.css" async>
     <link rel="stylesheet" type="text/css" href="css/modal.css" async>
 
     <link rel="stylesheet" type="text/css" href="css/table.css">
@@ -528,24 +529,43 @@
             </div>
             <div class="panel-stack">
                 <div class="panel">
-                  <div class="panel-title">Debug Information</div>
-                  <label for="debug" class="field-row">
-                    <label for="use_debug" class="field">Use
-                      <input type="checkbox" id="use_debug">
-                    </label>
-                    <button id="clear_debug">Clear</button>
-                  </label>
-                  <textarea id="debug" maxlength="5000" rows="50" cols="100"></textarea>
+                  <details id="debug_disclosure" class="disclosure">
+                    <summary class="disclosure-summary">
+                      <span class="panel-title disclosure-title">Debug Information</span>
+                      <span class="disclosure-chevron" aria-hidden="true"></span>
+                      <label for="use_debug" class="field">Use
+                        <input type="checkbox" id="use_debug">
+                      </label>
+                      <button id="clear_debug">Clear</button>
+                    </summary>
+                    <div class="disclosure-content">
+                      <textarea id="debug" maxlength="5000" rows="50" cols="100"></textarea>
+                    </div>
+                  </details>
                 </div>
                 <div class="panel">
-                  <div class="panel-title">Discovery</div>
-                  <textarea id="result" maxlength="10000" rows="10" cols="200"></textarea>
+                  <details id="discovery_disclosure" class="disclosure">
+                    <summary class="disclosure-summary">
+                      <span class="panel-title disclosure-title">Discovery</span>
+                      <span class="disclosure-chevron" aria-hidden="true"></span>
+                    </summary>
+                    <div class="disclosure-content">
+                      <textarea id="result" maxlength="10000" rows="10" cols="200"></textarea>
+                    </div>
+                  </details>
                 </div>
             </div>
             <div class="panel-stack">
             <div class="panel">
-                <div class="panel-title">RTSP</div>
-                <textarea id="rtsp" maxlength="5000" rows="50" cols="100"></textarea>
+                <details id="rtsp_disclosure" class="disclosure">
+                  <summary class="disclosure-summary">
+                    <span class="panel-title disclosure-title">RTSP</span>
+                    <span class="disclosure-chevron" aria-hidden="true"></span>
+                  </summary>
+                  <div class="disclosure-content">
+                    <textarea id="rtsp" maxlength="5000" rows="50" cols="100"></textarea>
+                  </div>
+                </details>
             </div>
             </div>
         </div>

@@ -15,6 +15,7 @@ import * as vis from 'vis';
 import { NativeSunapiClient } from './scripts/nativeSunapiClient';
 import { createNativeTransportFactory } from './scripts/nativeWebSocketTransport';
 import { mountSwitch, SwitchController } from '../component/switch/switch';
+import { mountDisclosure } from '../component/disclosure/disclosure';
 
 // Circular-reference-safe JSON.stringify — used throughout this file for
 // logging. Defined here directly rather than pulling in a whole vendored
@@ -502,6 +503,14 @@ document.addEventListener("DOMContentLoaded", function(){
     document.getElementById("use_debug").checked = true;
     // if use information debug check box was on change.
     document.getElementById("use_debug").addEventListener("change", onchangeusedebug);
+    mountDisclosure({
+      containerId: "debug_disclosure",
+      defaultOpen: false,
+      headerCheckboxId: "use_debug",
+      headerButtonId: "clear_debug",
+    });
+    mountDisclosure({ containerId: "discovery_disclosure", defaultOpen: false });
+    mountDisclosure({ containerId: "rtsp_disclosure", defaultOpen: false });
 
     document.getElementById("renderer_type").addEventListener("change", setrenderertype);
 

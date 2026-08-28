@@ -63,6 +63,18 @@ the actual failure mode this note exists to head off — it has happened before.
   `docs/architecture.md`'s one-paragraph summary drift from that folder's fuller spec.
 - If the change touched the Group by/topology behavior noted above, likewise keep
   `docs/star-topology/` in sync (its `SRS.md`/`DESIGN.md` in particular).
+- `src/component/*` (reusable UI components `window.ts` imports by relative path — currently
+  `switch/` for every switch/toggle-looking control, and `disclosure/` for the collapsible Debug
+  Information/Discovery/RTSP panels) lives outside `src/shared/`, but each one is imported directly
+  by `window.ts` and has its CSS copied into the same `dist/` output this skill covers — a change
+  to any of them still counts as a `src/shared/` integration change for this whole checklist. Keep
+  that component's own doc set in sync (`docs/switch-component/`, `docs/disclosure-component/` —
+  each a full MRD/PRD/SRS/DESIGN/TC set per `docs/star-topology/`'s convention, not
+  `docs/architecture.md`'s own one-paragraph pointer to it) whenever its `.ts`/`.css` changes, or a
+  control using it is added/removed/reconfigured. A new component under `src/component/` should
+  get its own doc set the same way (including the Title/Abstract/Status/Author/Milestone/Related
+  docs header table and `## History` section every `docs/*.md` file carries), plus a one-line
+  pointer added here.
 - Run `npm run build` (builds **both** `dist/chrome-extension/` and `dist/nodejs/`) — not just
   `build:extension` or `build:node` alone — and verify both outputs, since a change here always
   touches both.
