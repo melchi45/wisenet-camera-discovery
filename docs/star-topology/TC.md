@@ -7,7 +7,7 @@
 These are **manual** test procedures, not automated tests. Unlike `docs/native-https-proxy/TC.md`,
 this feature needs no real network access of its own — it only renders whatever `dataSet` the
 existing discovery pipeline already populated — so these can be run against either
-`dist/chrome-extension/` (loaded unpacked) or `dist/nodejs/` (`npm run start:server`), from WSL or
+`dist/chrome-extension/` (loaded unpacked) or `dist/nodejs/` (`npm run start`), from WSL or
 Windows, with either a real discovery scan or the nodejs example server's cached `knownDevices`
 replayed on reconnect. TC-3 onward assume **at least 3–4 discovered devices spanning more than one
 `/24` subnet and more than one model-line prefix** (e.g. two `192.168.1.x` devices and one

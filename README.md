@@ -50,7 +50,7 @@ npm run build
 | `npm run build:extension` | just the chrome-extension compile steps — `tsc` for `background.ts`/`socket.ts`, a separate `tsc --noEmit` type-check for `window.ts`, then `vite build` to bundle `window.ts` (+ its `vis`/`moment`/`moment-timezone` imports) into one `window.js` (compile-only, no assembly) |
 | `npm run build:node` | just `tsc -p tsconfig.node.json` (compile-only, no assembly) |
 | `npm run clean` | removes `dist/` and the `build/` intermediate |
-| `npm run start:server` | assembles just `dist/nodejs/` (`node scripts/build.js node`, skipping the chrome-extension side) then runs its [example HTTP(S)/WebSocket server](src/nodejs/README.md#example-server) on `:8080`/`:8443` |
+| `npm run start` | assembles just `dist/nodejs/` (`node scripts/build.js node`, skipping the chrome-extension side) then runs its [example HTTP(S)/WebSocket server](src/nodejs/README.md#example-server) on `:8080`/`:8443` |
 
 `src/sunapi/` (the shared SUNAPI wire-format implementation) is compiled
 once and copied into **both** `dist/chrome-extension/sunapi/` and

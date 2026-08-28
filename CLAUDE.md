@@ -21,7 +21,7 @@ npm install
 npm run build              # both dist/chrome-extension/ and dist/nodejs/
 npm run build:extension    # just the extension side (background.ts + shared window.ts/socket.ts + Vite bundle)
 npm run build:node         # just tsc -p tsconfig.node.json
-npm run start:server       # builds dist/nodejs/ then runs the example server (http://localhost:8080/)
+npm run start               # builds dist/nodejs/ then runs the example server (http://localhost:8080/)
 npm run clean               # removes dist/ and build/
 ```
 
@@ -49,7 +49,7 @@ see [`src/chrome-extension/native-host/README.md`](src/chrome-extension/native-h
   state. `npm run build:extension` alone (skips the `dist/` clean+assemble step) still works for
   verifying the TypeScript/Vite side compiles while the lock is in place.
 - **WSL2 can't reach real UDP-broadcast devices**: run discovery-testing tools (native host,
-  `npm run start:server`) from a real Windows process, not inside WSL bash — WSL2's virtual/NAT
+  `npm run start`) from a real Windows process, not inside WSL bash — WSL2's virtual/NAT
   network isn't on the same broadcast domain as your physical LAN, so `dgram`/native UDP either
   finds nothing or fails to bind at all, with no useful error either way. See `README.md`'s
   networking note for the full explanation.
