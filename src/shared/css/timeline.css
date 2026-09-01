@@ -50,6 +50,7 @@
 
 #timeline {
   font-family: var(--font-family, "Spoqa Han Sans Neo", -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic", Roboto, Helvetica, Arial, sans-serif);
+  min-height: 60px;
 }
 
 #timeline .vis-timeline {

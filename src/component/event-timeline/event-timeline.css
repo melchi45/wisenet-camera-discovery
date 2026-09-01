@@ -1,0 +1,472 @@
+/* Event-timeline component styles -- see docs/event-timeline-component/
+   (MRD/PRD/SRS/DESIGN/TC) for the full spec. Reuses window.css's --surface/
+   --border-color/--accent/etc. custom properties, same as calendar.css/
+   switch.css/disclosure.css, so this matches the page's current light/dark
+   theme rather than a new hardcoded palette. src/shared-v2/-only -- never
+   loaded by src/shared/ (which still uses vis.Timeline + its own
+   src/shared/css/timeline.css, untouched).
+
+   The --evt-<type>-border/--evt-<type>-bg tokens below are copied from
+   src/shared/css/timeline.css (not moved -- that file must stay untouched
+   for the old page) so each event Type keeps the exact same color meaning
+   across both pages. */
+
+:root {
+  --evt-normal-border: #16a34a;
+  --evt-normal-bg: #e7f7ec;
+  --evt-motiondetection-border: #d97706;
+  --evt-motiondetection-bg: #fef3e0;
+  --evt-audiodetection-border: #0891b2;
+  --evt-audiodetection-bg: #e0f7fb;
+  --evt-facedetection-border: #7c3aed;
+  --evt-facedetection-bg: #f1eafe;
+  --evt-audioanalysis-border: #db2777;
+  --evt-audioanalysis-bg: #fde8f2;
+  --evt-videoanalysis-border: #2563eb;
+  --evt-videoanalysis-bg: #e8effe;
+  --evt-defocusdetection-border: #64748b;
+  --evt-defocusdetection-bg: #eef1f4;
+  --evt-unknown-border: #9ca3af;
+  --evt-unknown-bg: #f1f2f4;
+  --evt-ai-border: #0d9488;
+  --evt-ai-bg: #e3f6f4;
+}
+
+[data-theme="dark"] {
+  --evt-normal-border: #22c55e;
+  --evt-normal-bg: rgba(34, 197, 94, 0.16);
+  --evt-motiondetection-border: #fbbf24;
+  --evt-motiondetection-bg: rgba(251, 191, 36, 0.16);
+  --evt-audiodetection-border: #22d3ee;
+  --evt-audiodetection-bg: rgba(34, 211, 238, 0.16);
+  --evt-facedetection-border: #a78bfa;
+  --evt-facedetection-bg: rgba(167, 139, 250, 0.16);
+  --evt-audioanalysis-border: #f472b6;
+  --evt-audioanalysis-bg: rgba(244, 114, 182, 0.16);
+  --evt-videoanalysis-border: #60a5fa;
+  --evt-videoanalysis-bg: rgba(96, 165, 250, 0.16);
+  --evt-defocusdetection-border: #94a3b8;
+  --evt-defocusdetection-bg: rgba(148, 163, 184, 0.16);
+  --evt-unknown-border: #9aa1ab;
+  --evt-unknown-bg: rgba(154, 161, 171, 0.16);
+  --evt-ai-border: #2dd4bf;
+  --evt-ai-bg: rgba(45, 212, 191, 0.16);
+}
+
+.event-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-family: var(--font-family, "Spoqa Han Sans Neo", -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic", Roboto, Helvetica, Arial, sans-serif);
+  background: var(--surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 8px;
+  user-select: none;
+}
+
+/* Toolbar */
+.event-timeline-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.event-timeline-presets {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.event-timeline-preset-btn {
+  background: var(--button-background-color);
+  color: var(--button-color);
+  border: 1px solid var(--button-border-color);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  padding: 3px 9px;
+  font-size: 11px;
+  line-height: 1.4;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+}
+
+.event-timeline-preset-btn:hover {
+  background: var(--button-hover-background);
+}
+
+.event-timeline-preset-btn-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.event-timeline-reset-btn {
+  margin-left: 4px;
+}
+
+.event-timeline-zoom-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.event-timeline-zoom-btn {
+  background: var(--button-background-color);
+  color: var(--button-color);
+  border: 1px solid var(--button-border-color);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  width: 22px;
+  height: 22px;
+  line-height: 1;
+  font-size: 14px;
+}
+
+.event-timeline-zoom-btn:hover {
+  background: var(--button-hover-background);
+}
+
+.event-timeline-zoom-readout {
+  font-size: 11px;
+  color: var(--text-muted);
+  min-width: 3.2em;
+  text-align: center;
+}
+
+/* Selected Time (docs/event-timeline-component/SRS.md FR-11) */
+.event-timeline-selected-time {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: var(--font-color);
+  padding: 2px 0 4px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.event-timeline-selected-time-label {
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.event-timeline-selected-time input[type="date"],
+.event-timeline-selected-time input[type="time"] {
+  font-size: 11px;
+}
+
+.event-timeline-has-end-time-label {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  cursor: pointer;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* Rows */
+.event-timeline-row {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  align-items: stretch;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.event-timeline-row-hidden {
+  display: none;
+}
+
+.event-timeline-row-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 4px 2px;
+  overflow: hidden;
+}
+
+.event-timeline-collapse-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 10px;
+  padding: 0 2px;
+}
+
+.event-timeline-row-label {
+  flex: 1;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--font-color);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.event-timeline-overview-label {
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.event-timeline-row-label.normal { color: var(--evt-normal-border); }
+.event-timeline-row-label.motiondetection { color: var(--evt-motiondetection-border); }
+.event-timeline-row-label.audiodetection { color: var(--evt-audiodetection-border); }
+.event-timeline-row-label.facedetection { color: var(--evt-facedetection-border); }
+.event-timeline-row-label.audioanalysis { color: var(--evt-audioanalysis-border); }
+.event-timeline-row-label.videoanalysis { color: var(--evt-videoanalysis-border); }
+.event-timeline-row-label.defocusdetection { color: var(--evt-defocusdetection-border); }
+.event-timeline-row-label.unknown { color: var(--evt-unknown-border); }
+.event-timeline-row-label.ai { color: var(--evt-ai-border); }
+
+.event-timeline-hide-btn {
+  font-family: inherit;
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px 7px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--button-border-color);
+  background: var(--button-background-color);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+}
+
+.event-timeline-hide-btn:hover {
+  background: var(--button-hover-background);
+  color: var(--font-color);
+}
+
+/* Overview row */
+.event-timeline-overview-row {
+  background: var(--surface-sunken);
+}
+
+/* Scaled down to match .event-timeline-overview-track's 25px height --
+   the general .event-timeline-row-header/-label/-collapse-btn/-hide-btn
+   sizes (used by the 30px-tall detail rows) are a bit large for this
+   shorter strip. */
+.event-timeline-overview-row .event-timeline-row-header {
+  padding: 2px 8px 2px 2px;
+}
+
+.event-timeline-overview-row .event-timeline-collapse-btn {
+  font-size: 9px;
+}
+
+.event-timeline-overview-row .event-timeline-row-label {
+  font-size: 10px;
+}
+
+.event-timeline-overview-row .event-timeline-hide-btn {
+  font-size: 9px;
+  padding: 1px 6px;
+}
+
+.event-timeline-overview-track {
+  position: relative;
+  height: 25px;
+  overflow: hidden;
+  cursor: grab;
+}
+
+.event-timeline-overview-items {
+  position: absolute;
+  inset: 2px 0;
+}
+
+.event-timeline-overview-collapsed .event-timeline-overview-items {
+  display: none;
+}
+
+/* Purely visual -- pointer-events: none so it never sits between the
+   pointer and the items underneath (previously an opaque, pointer-events:
+   auto highlight both hid Normal-type items visually and swallowed clicks
+   meant for them; panning/click-to-select are now wired on
+   .event-timeline-overview-track itself, see wireOverviewDrag()). The soft
+   accent fill is now translucent, not solid, so items stay visible through
+   it instead of being painted over. */
+.event-timeline-viewport-highlight {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  /* Translucent fill (not the border) so it doesn't also wash out the
+     border's contrast against the track background. */
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border: 1px solid var(--accent);
+  border-radius: 2px;
+  min-width: 4px;
+  pointer-events: none;
+}
+
+/* Purely a visual affordance (the little grab-bar look) -- NOT a real hit
+   target. pointer-events stays inherited `none` from the highlight parent
+   on purpose: resizing is instead detected by proximity to the highlight's
+   edge directly in event-timeline.ts's `wireOverviewDrag()`, computed from
+   `windowStart`/`windowEnd` rather than this element's own geometry. A
+   real (`pointer-events: auto`) element here would, at the default
+   full-extent zoom, sit exactly on top of whichever item starts/ends the
+   data range -- occluding it for a real mouse click exactly like the
+   highlight body and the current-time marker did before their own fixes
+   above, not just in this component's own click handling but in the
+   browser's underlying hit-test itself (unfixable from inside an
+   occluding element's own event handlers). See wireOverviewDrag()'s doc
+   comment for the full story. */
+.event-timeline-viewport-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: ew-resize;
+}
+
+.event-timeline-viewport-handle-left { left: -3px; }
+.event-timeline-viewport-handle-right { right: -3px; }
+
+/* Wraps the overview row + detail rows together (FR-14) -- the
+   current-time marker is positioned relative to this, not just
+   .event-timeline-rows, so it visually spans "ALL EVENTS" too. */
+.event-timeline-rows-wrapper {
+  position: relative;
+}
+
+/* Detail rows */
+.event-timeline-rows {
+  position: relative;
+}
+
+.event-timeline-row-track {
+  position: relative;
+  height: 30px;
+  overflow: hidden;
+  cursor: grab;
+}
+
+/* Items */
+.event-timeline-item {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  border: 1px solid var(--evt-unknown-border);
+  background: var(--evt-unknown-bg);
+  border-radius: var(--radius-sm);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  cursor: pointer;
+  transition: box-shadow var(--transition), transform var(--transition);
+}
+
+.event-timeline-overview-items .event-timeline-item {
+  top: 2px;
+  bottom: 2px;
+  border-radius: 1px;
+}
+
+.event-timeline-item:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+  z-index: 3;
+}
+
+.event-timeline-item-selected {
+  border-color: var(--accent);
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+  z-index: 4;
+}
+
+.event-timeline-item.normal { border-color: var(--evt-normal-border); background: var(--evt-normal-bg); }
+.event-timeline-item.motiondetection { border-color: var(--evt-motiondetection-border); background: var(--evt-motiondetection-bg); }
+.event-timeline-item.audiodetection { border-color: var(--evt-audiodetection-border); background: var(--evt-audiodetection-bg); }
+.event-timeline-item.facedetection { border-color: var(--evt-facedetection-border); background: var(--evt-facedetection-bg); }
+.event-timeline-item.audioanalysis { border-color: var(--evt-audioanalysis-border); background: var(--evt-audioanalysis-bg); }
+.event-timeline-item.videoanalysis { border-color: var(--evt-videoanalysis-border); background: var(--evt-videoanalysis-bg); }
+.event-timeline-item.defocusdetection { border-color: var(--evt-defocusdetection-border); background: var(--evt-defocusdetection-bg); }
+.event-timeline-item.unknown { border-color: var(--evt-unknown-border); background: var(--evt-unknown-bg); }
+.event-timeline-item.ai { border-color: var(--evt-ai-border); background: var(--evt-ai-bg); }
+
+.event-timeline-item-point {
+  width: 10px !important;
+  height: 10px;
+  top: 50%;
+  bottom: auto;
+  margin-top: -5px;
+  transform: rotate(45deg);
+  border-radius: 2px;
+}
+
+.event-timeline-item-point:hover {
+  transform: rotate(45deg) translateY(-1px);
+}
+
+.event-timeline-item-label {
+  font-size: 10px;
+  color: var(--font-color);
+  white-space: nowrap;
+  padding: 0 5px;
+  pointer-events: none;
+}
+
+/* "Now"/playhead marker */
+.event-timeline-custom-time {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--danger);
+  pointer-events: none;
+  z-index: 5;
+}
+
+/* Drag hit-target (FR-14, only when onCustomTimeSeek is provided) -- a
+   separate, wider transparent element from `.event-timeline-custom-time`
+   above, centered on the same position via negative margin so its own
+   `left` still targets the exact playhead position while giving the
+   pointer more than 2px to grab. Appended into `.event-timeline-rows`
+   (detail rows only), NOT `.event-timeline-rows-wrapper` (overview +
+   detail) like the always-visible line -- so this `pointer-events: auto`
+   box only ever covers the detail rows' height, never the overview ("ALL
+   EVENTS") row's, where it would otherwise sit on top of -- and block
+   clicks on -- whatever item happens to start at the same time (in
+   practice, near-guaranteed to be the earliest Normal item). See
+   event-timeline.ts's `customTimeHitEl` for the full rationale. */
+.event-timeline-custom-time-hit {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 9px;
+  margin-left: -3.5px;
+  background: transparent;
+  pointer-events: auto;
+  cursor: ew-resize;
+  touch-action: none;
+  z-index: 5;
+}
+
+/* Axis */
+.event-timeline-axis-row {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+}
+
+.event-timeline-axis-spacer {
+  padding: 0;
+}
+
+.event-timeline-axis-track {
+  position: relative;
+  height: 16px;
+}
+
+.event-timeline-axis-tick {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
