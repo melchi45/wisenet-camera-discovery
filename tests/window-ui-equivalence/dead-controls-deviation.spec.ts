@@ -13,7 +13,7 @@ import {
 // the old page (instantplayback_play/pause/seek -- onclick-only there) are
 // not included here; see this file's own note below.
 const DEAD_CONTROL_IDS = [
-  'forward', 'backward', 'talk',
+  'talk',
   'media_record_stop', 'media_record_show',
   'use_waiting_icon',
 ];
@@ -56,6 +56,59 @@ test.describe('Known dead controls', () => {
     await expect(pages.newPage.locator('#hostname')).toBeVisible();
     await pages.newPage.locator('#hostname').fill('still-alive');
     await expect(pages.newPage.locator('#hostname')).toHaveValue('still-alive');
+  });
+});
+
+test.describe('Documented deviation: #forward/#backward wired (SRS.md FR-6.11 v2.25)', () => {
+  let pages: BothPages;
+  test.beforeEach(async ({ browser }) => { pages = await openBothPages(browser); });
+  test.afterEach(async () => { await pages.close(); });
+
+  test('TC-42: new page calls player.forward()/backward(); old page stays a dead control', async () => {
+    // state.getSelectedPlayer() (videoControl.ts) resolves via
+    // state.selectedPlayerId, only set by #player_list's own 'change'
+    // handler (session.ts) -- not automatically just because the page's
+    // one <rtsp-over-websocket> is the <select>'s only/default option.
+    // Same pattern as TC-7 (session-device-profile.spec.ts) for selecting
+    // the page's one player.
+    await pages.newPage.locator('#player_list').dispatchEvent('change');
+
+    // New page: clicking each button calls the underlying element's own
+    // forward()/backward() (stubbed on the instance so this test exercises
+    // this repo's own click-wiring, not @melchi45/rtsp-over-websocket's
+    // internal frame-stepping, which is that package's own concern).
+    // #forward/#backward start `disabled` (playback.ts's setupPlayback())
+    // and only become enabled via onstatechange() (videoControl.ts) once
+    // playType is PLAYBACK -- a synthetic PAUSED statechange (not PLAYING)
+    // both enables them AND doubles as this test's proof that they work
+    // independent of Pause/Resume state, per the user's explicit request.
+    const newResult = await pages.newPage.evaluate(() => {
+      const el = document.querySelector('rtsp-over-websocket') as any;
+      let forwardCalled = 0;
+      let backwardCalled = 0;
+      el.forward = () => { forwardCalled++; };
+      el.backward = () => { backwardCalled++; };
+      el.playType = (window as any).RTSPOverWebSocketPlayType.PLAYBACK;
+      el.dispatchEvent(new CustomEvent('statechange', {
+        detail: { readyState: (window as any).RTSPOverWebSocketPlayState.PAUSED, elementId: el.id },
+      }));
+      (document.getElementById('forward') as HTMLButtonElement).click();
+      (document.getElementById('backward') as HTMLButtonElement).click();
+      return { forwardCalled, backwardCalled };
+    });
+    expect(newResult).toEqual({ forwardCalled: 1, backwardCalled: 1 });
+
+    // Old page: src/shared/'s original never wires these (confirmed by grep
+    // -- only disabled-state toggling, no addEventListener) -- clicking must
+    // call nothing at all, same as any other still-dead control.
+    const oldForwardCalled = await pages.oldPage.evaluate(() => {
+      const el = document.querySelector('rtsp-over-websocket') as any;
+      let forwardCalled = 0;
+      el.forward = () => { forwardCalled++; };
+      (document.getElementById('forward') as HTMLElement).click();
+      return forwardCalled;
+    });
+    expect(oldForwardCalled).toBe(0);
   });
 });
 

@@ -16,6 +16,7 @@
 |---|---|---|---|
 | 1.0 | 2026-08-31 | Youngho Kim | Initial PRD. |
 | 2.0 | 2026-08-31 | Youngho Kim | Retracted the "Custom date-range input tied to zoom presets" non-goal — reported directly by the user, the zoom presets now DO trigger a caller-owned re-fetch (`onRangePresetSelect`). Added a Selected Time goal ("Manual Start/End Time" moved into this component, renamed). See SRS.md v2.0 and `../window-ui/SRS.md` FR-7.1-7.4/FR-7.8 v2.0. |
+| 2.1 | 2026-09-01 | Youngho Kim | Retracted the "per-row Hide control" goal — removed outright per the user's explicit request, along with the "An 'All Types' filter dropdown" non-goal's own rationale (which cited that Hide control as the reason not to add a filter dropdown). The overview row's collapse button now collapses/expands every detail row at once instead. See SRS.md FR-3/FR-10 v2.15. |
 
 ## Problem
 
@@ -39,7 +40,9 @@ the user asked for. See [MRD.md](MRD.md).
 - `onSelect(item)`/`onDoubleClick(time)` callbacks and a `setCustomTime(date)` playhead API,
   sufficient to replace every `vis.Timeline` API `playback.ts` previously called
   (`addCustomTime`/`setCustomTime`, `on('select'/'doubleClick', ...)`).
-- A per-row "Hide" control, carried over from the previous `vis.Timeline`-based design.
+- ~~A per-row "Hide" control, carried over from the previous `vis.Timeline`-based design.~~
+  **Retracted (v2.1)**: removed outright per the user's explicit request — the overview row's
+  collapse button now collapses/expands every detail row at once instead (SRS.md FR-10 v2.15).
 - **(v2.0)** A "Selected Time" input pair (Start, always; End, behind a "Has End Time" checkbox for
   open-ended playback) owned by this component instead of the surrounding page — the single "what
   will play" state shared by both of `playback.ts`'s Playback UIs (manual and SUNAPI Calendar),
@@ -58,8 +61,9 @@ the user asked for. See [MRD.md](MRD.md).
   image field; the user explicitly chose to exclude this rather than fake or newly source it.
 - **The reference image's page chrome** — its top tab bar (Camera Events/ONVIF Timeline/
   Detections) belongs to a different application's page layout, not this panel.
-- **An "All Types" filter dropdown** — redundant with the per-row Hide button this widget already
-  has; not added as a second way to do the same thing.
+- **An "All Types" filter dropdown** — not added; the overview row's collapse-all-detail-rows button
+  (SRS.md FR-10 v2.15) already covers "declutter the row list," the closest analogue this widget has
+  to a per-type filter.
 - ~~**A "Custom" date-range input tied to the zoom presets** — the existing Search Timeline date
   fields (`docs/window-ui/SRS.md` FR-7.1–FR-7.3) already own *what gets fetched*; this widget only
   controls *how the already-fetched result is viewed*.~~ **Retracted (v2.0)**: those "existing

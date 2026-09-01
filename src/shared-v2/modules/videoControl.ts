@@ -50,6 +50,34 @@ export function resume(): void {
   }
 }
 
+/** FR-6.11: previously a "Known dead control" (no listener at all, see
+ *  docs/window-ui/SRS.md) -- `@melchi45/rtsp-over-websocket` already
+ *  implements real frame-level stepping (`RTSPOverWebSocket.ts`'s
+ *  `forward()`/`backward()`, backed by the canvas renderer's
+ *  `StepBufferList`), it was just never wired to these buttons. Works
+ *  independent of Pause/Resume -- both methods only require `playType ===
+ *  PLAYBACK` (checked internally), not a particular `readyState` -- and each
+ *  step's resulting `timestamp` event updates `#timestamp_date`/
+ *  `#timestamp_time` via the existing `ontimestamp()` pipeline
+ *  (playback.ts), which is what FR-6.9's resume-from-stop-point logic reads
+ *  on the next Stop -> Play. Requested directly by the user. */
+export function forward(): void {
+  try {
+    state.getSelectedPlayer().forward();
+  } catch (error) {
+    console.error('forward error:', error);
+  }
+}
+
+/** FR-6.11, see forward() above. */
+export function backward(): void {
+  try {
+    state.getSelectedPlayer().backward();
+  } catch (error) {
+    console.error('backward error:', error);
+  }
+}
+
 /** FR-6.2. */
 export function capture(): void {
   try {
@@ -128,6 +156,28 @@ export function onchangebestshot(): void {
   }
 }
 
+/** FR-7.7.1: previously a "Known dead control" (no listener at all, see
+ *  docs/window-ui/SRS.md). Real bug found via a live console.log trace
+ *  (`RTSPOverWebSocket.ts`'s `seeking()`): for camera devices, playback seek
+ *  only ever writes the actual outgoing `rangeClock` when
+ *  `player.useIsoTimeFormat` is truthy -- otherwise that branch is a no-op
+ *  and the previous `rangeClock` value (stale, unrelated to the just-
+ *  requested seek target) is resent as-is, so every Event Timeline drag-seek
+ *  (FR-14, docs/event-timeline-component/SRS.md) silently landed on the same
+ *  wrong position regardless of where the marker was dropped. Reported
+ *  directly by the user with the exact console trace. `#iso_date_time_checkbox`
+ *  stays unchecked by default (matching legacy's own markup -- no `checked`
+ *  attribute), so camera playback seek requires checking it manually; see
+ *  `docs/window-ui/DESIGN.md`'s "Deviations from legacy behavior" for why
+ *  this wasn't instead defaulted on automatically. */
+export function onchangeisodatetime(): void {
+  try {
+    state.getSelectedPlayer().useIsoTimeFormat = (document.getElementById('iso_date_time_checkbox') as HTMLInputElement).checked;
+  } catch (error) {
+    console.error(error);
+  }
+}
+
 export function setrenderertype(): void {
   try {
     state.getSelectedPlayer().type = (document.getElementById('renderer_type') as HTMLSelectElement).value;
@@ -178,6 +228,13 @@ export function onstatechange(evt: any): void {
       break;
     }
     case RTSPOverWebSocketPlayState.STOPPED: {
+      // Read before removing below -- #timestamp_date/#timestamp_time hold
+      // the last actually-played position (updateTimestampReadout(),
+      // playback.ts), which is what a subsequent plain Play should resume
+      // from instead of restarting at the original Selected Time/timeline
+      // pick's own start. Requested directly by the user.
+      const lastTimestampDate = (document.getElementById('timestamp_date') as HTMLInputElement | null)?.value;
+      const lastTimestampTime = (document.getElementById('timestamp_time') as HTMLInputElement | null)?.value;
       document.getElementById('timestamp_date')?.remove();
       document.getElementById('timestamp_time')?.remove();
       // FR-14: ontimestamp() (playback.ts) stops firing once playback
@@ -186,12 +243,33 @@ export function onstatechange(evt: any): void {
       // position shown before the stop.
       state.eventTimeline?.setCustomTime(null);
       // FR-6.9: a stopped player's startTime/endTime are stale once
-      // playback has actually ended -- without clearing them, the next
-      // plain Play (not preceded by a new Selected Time/timeline pick)
-      // would silently reuse the previous playback's range instead of
-      // starting fresh. Requested directly by the user.
-      state.getSelectedPlayer().startTime = null;
-      state.getSelectedPlayer().endTime = null;
+      // playback has actually ended. `endTime` is always cleared --
+      // resuming should play forward from the stop point rather than stay
+      // bound to whatever range was originally searched for. `startTime`
+      // resumes from the last actually-played position
+      // (lastTimestampDate/lastTimestampTime above) when one exists,
+      // falling back to `null` (a fresh Play requires a new Selected
+      // Time/timeline pick) otherwise -- e.g. stopped before any timestamp
+      // event ever arrived. Requested directly by the user.
+      //
+      // Only meaningful for Playback -- Live never sets these fields in the
+      // first place, so there is nothing stale to reset. Guarded (both the
+      // playType check and the try/catch) for the same reason this
+      // function's own doc comment above already guards the
+      // #timestamp_date/#timestamp_time .remove() calls: any throw here
+      // would abort every button-state reset below it, same class of bug
+      // (found live, real regression -- `player.startTime = null` used to
+      // throw unconditionally in `@melchi45/rtsp-over-websocket`, since
+      // fixed there to accept `null` like `endTime` already did, but this
+      // is cheap, correct insurance against the next one).
+      if ((document.getElementById(evt.detail.elementId) as any)?.playType === RTSPOverWebSocketPlayType.PLAYBACK) {
+        try {
+          state.getSelectedPlayer().startTime = lastTimestampDate && lastTimestampTime ? `${lastTimestampDate}T${lastTimestampTime}Z` : null;
+          state.getSelectedPlayer().endTime = null;
+        } catch (error) {
+          console.error('onstatechange STOPPED: resetting startTime/endTime failed:', error);
+        }
+      }
 
       (document.getElementById('play_button') as HTMLButtonElement).disabled = false;
       (document.getElementById('stop_button') as HTMLButtonElement).disabled = true;
@@ -306,6 +384,8 @@ export function setupVideoControl(): void {
   document.getElementById('stop_button')!.addEventListener('click', onStopClick);
   document.getElementById('pause_button')!.addEventListener('click', pause);
   document.getElementById('resume_button')!.addEventListener('click', resume);
+  document.getElementById('forward')!.addEventListener('click', forward);
+  document.getElementById('backward')!.addEventListener('click', backward);
   document.getElementById('capture_button')!.addEventListener('click', capture);
   document.getElementById('capture2_button')!.addEventListener('click', capture2);
   (document.getElementById('play_button') as HTMLButtonElement).disabled = true;
@@ -328,5 +408,6 @@ export function setupVideoControl(): void {
   document.getElementById('framedrop')!.addEventListener('change', onchangeframedrop);
   document.getElementById('iframe')!.addEventListener('change', onchangeframedrop);
   document.getElementById('bestshot')!.addEventListener('change', onchangebestshot);
+  document.getElementById('iso_date_time_checkbox')!.addEventListener('change', onchangeisodatetime);
   document.getElementById('renderer_type')!.addEventListener('change', setrenderertype);
 }

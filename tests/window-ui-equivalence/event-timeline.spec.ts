@@ -1,5 +1,5 @@
 // docs/event-timeline-component/TC.md's TC-1..TC-9 -- src/component/
-// event-timeline/'s own behavior (zoom/pan/select/Hide/re-mount), exercised
+// event-timeline/'s own behavior (zoom/pan/select/collapse/re-mount), exercised
 // through src/shared-v2/'s FR-7.6 Playback timeline integration. New-page
 // only (NEW_URL) -- src/shared/'s own timeline is unaffected by this
 // component and still uses vis.Timeline, so there is no old-page equivalent
@@ -19,7 +19,7 @@ async function openNewPageWithTimeline(browser: any): Promise<Page> {
   // session's cumulative Playback-panel additions (Selected Time, Current
   // Time, Rule/Overlapped Id repositioning). Playwright's own click
   // auto-scroll doesn't reliably reach elements below the fold of that
-  // specific nested scroll container -- found live (a Hide-button click
+  // specific nested scroll container -- found live (a button click
   // that dispatched fine via a raw DOM .click() had zero effect through
   // Playwright's own .click(), and elementFromPoint() at several targets'
   // computed centers returned null, i.e. outside the 720px viewport
@@ -178,20 +178,25 @@ test.describe('Event Timeline component (new page only)', () => {
     await page.context().close();
   });
 
-  test('TC-8: a detail row\'s Hide button hides just that row and toggles back on a second click', async ({ browser }) => {
+  test('TC-8: the ALL EVENTS row\'s collapse button hides every detail row (not its own track) and toggles back on a second click', async ({ browser }) => {
     const page = await openNewPageWithTimeline(browser);
 
-    const detailRow = page.locator('#timeline .event-timeline-detail-row').first();
-    const hideBtn = detailRow.locator('.event-timeline-hide-btn');
+    const collapseBtn = page.locator('#timeline .event-timeline-overview-row .event-timeline-collapse-btn');
+    const rows = page.locator('#timeline .event-timeline-rows');
+    const overviewTrack = page.locator('#timeline .event-timeline-overview-track');
 
-    await expect(detailRow).not.toHaveClass(/event-timeline-row-hidden/);
-    await hideBtn.click();
-    await expect(detailRow).toHaveClass(/event-timeline-row-hidden/);
-    await expect(hideBtn).toHaveText('Show');
+    await expect(rows).not.toHaveClass(/event-timeline-rows-collapsed/);
+    await expect(collapseBtn).toHaveAttribute('aria-expanded', 'true');
+    await collapseBtn.click();
+    await expect(rows).toHaveClass(/event-timeline-rows-collapsed/);
+    await expect(collapseBtn).toHaveAttribute('aria-expanded', 'false');
+    // The ALL EVENTS row's own track stays visible -- only the detail rows
+    // below it collapse.
+    await expect(overviewTrack).toBeVisible();
 
-    await hideBtn.click();
-    await expect(detailRow).not.toHaveClass(/event-timeline-row-hidden/);
-    await expect(hideBtn).toHaveText('Hide');
+    await collapseBtn.click();
+    await expect(rows).not.toHaveClass(/event-timeline-rows-collapsed/);
+    await expect(collapseBtn).toHaveAttribute('aria-expanded', 'true');
 
     await page.context().close();
   });

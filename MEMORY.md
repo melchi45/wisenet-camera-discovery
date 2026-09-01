@@ -1910,4 +1910,204 @@ area is easy to get subtly wrong from code alone and worth double-checking again
 understanding of the device/checkbox semantics before changing again. `updateTimestampReadout()`
 also now `console.log`s the resolved marker Date on every move (prefixed `[FR-14]`), per the user's
 own request, so the actual value can be checked live in the browser console against
-`#universaltime_checkbox`'s state.
+`#universaltime_checkbox`'s state. **Removed later the same day**, once that log had done its job
+diagnosing the camera seek bug below (it fires on every timestamp update — many times a second
+during playback — and was pure noise once the real fix landed) — see the next entry and
+`docs/window-ui/SRS.md` FR-7.7 v2.20.
+
+## Camera playback seek silently landed on the wrong position — `useIsoTimeFormat` was never set
+
+Reported directly by the user: dragging the Event Timeline's current-time marker (FR-14) to a new
+position always resulted in playback landing on the same wrong spot, regardless of where the marker
+was dropped — confirmed with two separate drags to two different targets (`16:06:22`, then
+`16:37:27`), both reporting back the exact same actual playback position (`15:43:19.434`).
+
+Root cause lives in the sibling `@melchi45/rtsp-over-websocket` package (a local `file:` dependency
+here, `/mnt/e/workspace/rtsp-over-websocket`), not this repo's own code:
+`RTSPOverWebSocket.ts`'s `seeking()` only updates the actual outgoing `rangeClock` for camera
+devices when `player.useIsoTimeFormat` is truthy —
+
+```ts
+if (this._deviceType === 'camera') {
+  if (this._useIso && this._useIso !== null) {
+    this.info.media.requestInfo.rangeClock = this.seekingTime.replace(...);
+  }
+  // legacy: non-iso camera branch is a no-op (commented out)
+}
+```
+
+— the non-ISO branch is dead code, preserved verbatim from the original legacy implementation.
+Nothing in either `src/shared/` or `src/shared-v2/` ever set `useIsoTimeFormat` (confirmed by grep —
+`#iso_date_time_checkbox` existed in both pages' markup but had no listener in either, one of
+`src/shared-v2/`'s documented "Known dead controls"), so `_useIso` stayed `null` for the entire
+session and every camera playback seek resent whatever stale `rangeClock` value already happened to
+be sitting there instead of the just-requested target.
+
+Diagnosed live, not by reading source alone: the user asked for a `console.log` at the exact
+`rangeClock`-assignment site in `seeking()` first (rather than guessing at a fix), which is what
+surfaced `useIso: null` alongside a `rangeClock` value that decoded to the *previous* actual playback
+position, not the new seek target — proving the branch was a no-op rather than merely computing the
+wrong value. Fixed in `src/shared-v2/modules/videoControl.ts` (`onchangeisodatetime()`, wired to
+`#iso_date_time_checkbox`'s `change` event) by writing `player.useIsoTimeFormat` for real instead of
+defaulting it on automatically — the checkbox still starts unchecked (matching legacy's own markup),
+so camera playback seek requires checking it manually after this fix. See
+`docs/window-ui/DESIGN.md`'s "Deviations from legacy behavior" and `docs/window-ui/SRS.md` FR-7.7.1.
+
+## Stop during Playback sent a real TEARDOWN but never actually stopped the `<video>` tag
+
+Reported directly by the user: clicking Stop while playing back a recording sent a real RTSP
+`TEARDOWN` and received a real response (confirmed at the wire level), but the `<video>` element
+kept looping its last ~2 seconds of already-buffered MSE data forever — new segments stopped
+arriving (MSE wasn't being fed), yet nothing ever paused the tag or tore down its `MediaSource`.
+
+Root-caused live, not by reading source alone: added a console trace across the entire RTSP-close
+call chain (`RtspClient.ts`'s `Disconnect()` -> the `RtspResponseHandler` branch matching the
+TEARDOWN response -> `clearTransport()` -> `connectionCbFunc()` -> `StreamPlayer.close()`'s
+`Disconnect` callback -> `mediaRouter.terminate()` -> `VideoTagPlayer.close()`, all in the sibling
+`@melchi45/rtsp-over-websocket` package) and asked the user to reproduce with it. The trace showed
+`connectionCbFunc()` throwing:
+
+```
+RTSPOverWebSocket Error: invalid input parameter type, check your input parameter type
+    at set startTime (...)
+    at r2.onstatechange (videoControl.ts:215:33)
+    at r2.dispatchEvent (...)
+    ...
+    at oa.connectionCbFunc (...)
+```
+
+`videoControl.ts`'s `onstatechange()` STOPPED branch (added earlier the same day, FR-6.9 v1.26) does
+`player.startTime = null; player.endTime = null;` to reset a finished playback's stale range.
+`endTime`'s setter has always accepted `null` for exactly this reason — but `startTime`'s setter
+(`RTSPOverWebSocket.ts`) never did, an unnoticed asymmetry (`typeof v !== 'string'` threw
+unconditionally for `null`, no `v !== null` escape hatch `endTime`'s check already had). Because
+this assignment happens synchronously inside a `dispatchEvent` chain invoked from deep within
+`connectionCbFunc()` itself, the thrown error unwound all the way back up through it — aborting the
+function *before* it ever reached the `responseDisconnectCallback` firing code near its end, which is
+what `StreamPlayer.close()` awaits before calling `mediaRouter.terminate()` (i.e. the actual
+`<video>`/`MediaSource` cleanup, `VideoTagPlayer.close()`). The RTSP layer had genuinely finished
+(TEARDOWN sent, response received, `currentState` transitioned) — the break was entirely downstream
+of that, in an event-dispatch side effect nobody expected to be able to throw.
+
+Two fixes, one in each repo:
+- `@melchi45/rtsp-over-websocket`'s `startTime` setter now accepts `null` (`_startTime`'s type
+  widened to `string | null | undefined`), matching `endTime`'s existing, correct behavior — see that
+  package's own `MEMORY.md`.
+- `videoControl.ts`'s STOPPED branch now also gates the `startTime`/`endTime` reset on
+  `playType === PLAYBACK` (Live never sets these fields, so there's nothing to reset) and wraps it in
+  its own `try`/`catch` — the exact same defensive pattern this branch's own
+  `#timestamp_date`/`#timestamp_time` `.remove()` calls already use, documented right above it in
+  `docs/window-ui/SRS.md` FR-6.9, for the identical failure class (a throw here aborts every
+  button-state reset that follows it). Belt-and-suspenders: the root cause is fixed upstream, but this
+  branch shouldn't be one throw away from silently breaking Stop again either.
+
+`connectionCbFunc()`'s own `catch {}` (silent, no logging) is what let this go unnoticed for as long
+as it did — upgraded to `console.error` alongside the diagnostic trace, and left that way rather than
+reverted, since a swallowed exception here has real user-visible consequences and deserves to be
+loud. See `docs/window-ui/SRS.md` FR-6.9 v1.27 and `docs/window-ui/DESIGN.md` v1.38.
+
+**Follow-up (same day, v1.28)**: once Stop was fixed to actually stop, the user asked for a small UX
+change on top of it — a subsequent plain Play should resume from where Stop was clicked, not require
+picking a fresh Selected Time/timeline range every time. Their first instinct was to source that
+resume point from the Event Timeline's Selected Time *end* fields (`#selected_end_date`/
+`#selected_end_time`) — worth noting because those track the *originally selected search range's*
+end, not the actual position playback had reached when Stop was clicked; the two can diverge
+significantly (dragging the FR-14 marker around, or simply letting playback run past the searched
+range's own end). They self-corrected to the right source before any code was written:
+`#timestamp_date`/`#timestamp_time`, the live readout `playback.ts`'s `updateTimestampReadout()`
+keeps in sync with the actually-playing position on every `timestamp` event. `onstatechange()`'s
+STOPPED branch now reads those two fields' `.value` *before* removing them (same line that already
+did the removal), and uses `${date}T${time}Z` as the new `startTime` when both are present, `null`
+otherwise (e.g. stopped before the first `timestamp` event ever arrived this session). `endTime`
+stays unconditionally `null` either way, so a resumed Play plays forward indefinitely rather than
+staying bound to whatever range was originally searched for. See `docs/window-ui/SRS.md` FR-6.9
+v1.28 and `docs/window-ui/DESIGN.md` v1.39.
+
+## `#speed` never reflected a device-corrected RTSP `Scale`
+
+Reported directly by the user with a real RTSP transcript: requesting `0.75x` playback speed sent
+`Scale: 0.75` in the `PLAY` request, but the device's `200 OK` response echoed back `Scale: 1` — it
+had clamped/rejected the requested speed and applied a different one instead. Nothing anywhere in
+`@melchi45/rtsp-over-websocket` parsed a `Scale` header off an incoming response at all (confirmed by
+grep — `Scale` only ever appeared in *outgoing* request-building code), so `#speed` kept showing
+`0.75x` and `player.playSpeed` kept reporting `0.75` even though the device was actually playing at
+`1x` — a real, silent UI/device desync with no existing mechanism to correct it.
+
+Fixed entirely in the sibling package (this repo only adds a listener):
+- `RtspClient.ts`'s `parseRtspResponse()` now parses a `Scale` header the same way it already parses
+  `Session`/`Transport`/`RTP-Info` (`RtspResponseData.Scale`), threaded through
+  `RtspClientErrorEvent.scale` into the three `RtspResponseHandler()` branches that represent a real
+  `PLAY`-method response ("RTSP Play Streaming", "RTSP Seek Streaming" — covers seek/speed/forward/
+  backward alike — and "RTSP Resume Streaming"; the `PAUSE`-method branch is untouched).
+  `RTSPOverWebSocket.ts`'s `onRTSPOverWebSocketError()` `'0x0000'` case self-corrects `_playSpeed`
+  from it when present and different from the requested value, then dispatches a new `changespeed`
+  custom element event — matching this class's existing `change<Property>` pattern (`changetimezone`,
+  `changeport`, etc.).
+- The numeric-value -> named-speed-entry lookup previously inline in `set playSpeed(v)` was extracted
+  into a private `resolvePlaySpeedEntry()` (legacy truncation quirks preserved verbatim) so the
+  self-correction path can resolve the device's reported value without going through the public
+  setter, which would re-send the request via `speed()` and just create a request/response loop —
+  the self-correction must be silent from the RTSP layer's perspective, only observable locally.
+- `wisenet-camera-discovery`'s `playback.ts` gained `onchangespeed()`, wired in `playerEvents.ts`
+  next to `changetimezone`/`changeport`, updating `#speed`'s displayed value to match. See
+  `docs/window-ui/SRS.md` FR-7.5 v2.23 and `docs/window-ui/DESIGN.md` v1.40.
+
+## Double-clicking an Event Timeline item during playback seeked to the wrong time, and Selected Time never updated
+
+Reported directly by the user with a console trace: double-clicking a 4-minute event
+(`17:11:51`-`17:15:55`) while playback was already running seeked to `17:18:39` -- outside the
+event's own range entirely -- and `#selected_start_date`/etc. (and `player.startTime`/`endTime`)
+stayed on the previous, unrelated range instead of reflecting the double-clicked event.
+
+Two independent bugs combined to produce this:
+
+- `src/component/event-timeline/event-timeline.ts`'s `handleItemOrTrackActivation()` computed the
+  double-click's `time` from `rowsContainer.getBoundingClientRect()` without subtracting
+  `ROW_HEADER_WIDTH_PX` (150px, each row's label column) first -- every other pixel/ratio
+  conversion in the file does. Since `rowsContainer`'s own bounding rect spans the label column
+  *and* the track, this shifted every computed `time` later within the current zoom window by
+  roughly (header-width / total-width) of its span -- large enough, at real window widths, to land
+  well past a double-clicked item's own end.
+- `src/shared-v2/modules/playback.ts`'s `onSelect` (which sets `startTime`/`endTime`/Selected Time
+  from a clicked item) bails out entirely while `readyState === PLAYING` -- correct for a plain
+  click (Selected Time is a pre-play config panel), but `onDoubleClick` had nothing to compensate:
+  it only ever computed a `seekingTime` from the (buggy) pixel `time`, with no path back to the
+  actually-clicked item at all.
+
+Fixed on both sides:
+
+- `mountEventTimeline()`'s `onDoubleClick` callback gained a second, optional argument -- the
+  matched `EventTimelineItem` when the double-click landed on one -- alongside a corrected `time`
+  computation (subtracts `ROW_HEADER_WIDTH_PX` like everywhere else does).
+- `playback.ts` extracted `onSelect`'s body into `applyItemToSelectedTime(item)`; `onDoubleClick`
+  now calls it too whenever the widget hands back an `item`, and seeks using that item's own
+  `start` instead of the pixel-derived `time`. A double-click on empty track space (no item under
+  the cursor) is unaffected -- still seeks using `time` as before, now just computed correctly.
+
+See `docs/event-timeline-component/SRS.md` FR-8 v2.14/DESIGN.md v2.10 and `docs/window-ui/SRS.md`
+FR-7.6 v2.24/DESIGN.md v1.41.
+
+## Event Timeline's per-row Hide button removed; the overview row's collapse button retargeted a third time
+
+Requested directly by the user, two changes to `src/component/event-timeline/event-timeline.ts`:
+
+- The per-row "Hide"/"Show" toggle button (every row, overview and detail alike, `setRowHidden()`/
+  `hiddenRowIds`) is removed outright -- no replacement, no `EventTimelineController` API added in
+  its place. `.event-timeline-hide-btn`/`.event-timeline-row-hidden` are gone from
+  `event-timeline.css` too.
+- The overview ("ALL EVENTS") row's own `.event-timeline-collapse-btn` no longer collapses that
+  row's own track at all -- it now collapses/expands `.event-timeline-rows` (the detail-rows
+  container), hiding every per-Rule row at once while "ALL EVENTS" itself stays visible either way.
+  The `.event-timeline-overview-collapsed` class/CSS is gone; `.event-timeline-rows-collapsed`
+  (applied to `.event-timeline-rows` itself, not the overview row) replaces it.
+
+Worth remembering: this is the **third** time this exact button's behavior has changed direction
+(see the entry above, "Event Timeline row titles didn't line up..." -- v2.3 kept the overview
+track's highlight visible while collapsed, v2.9 made the whole track fold instead). This time the
+button doesn't touch its own row's track at all any more -- it was reinterpreted as "collapse
+*everything below* ALL EVENTS," not "collapse ALL EVENTS itself." Check `docs/event-timeline-
+component/SRS.md`'s history table (currently v2.15) before assuming any of the earlier behaviors
+still apply.
+
+See `docs/event-timeline-component/SRS.md` FR-3/FR-10 v2.15, DESIGN.md v2.11, TC.md v1.12, and
+PRD.md v2.1.

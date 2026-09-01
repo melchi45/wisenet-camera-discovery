@@ -7,7 +7,7 @@
 import { createEl, changedebug, fastJsonStringfy, changertsp } from './helpers';
 import { state } from './state';
 import { onError, onmeta, onClose, onResize, onstatechange, oncapture, onstatistics, onWaiting } from './videoControl';
-import { ontimestamp } from './playback';
+import { ontimestamp, onchangespeed } from './playback';
 import { onchangemute, onchangevolume } from './audio';
 import { onchangefullscreen } from './screen';
 import { onchangetimezone, onchangeprotocol } from './device';
@@ -137,6 +137,7 @@ export function setupPlayerEvents(): void {
     element.addEventListener('changebestshot', onchangeevent);
     element.addEventListener('changetimezone', onchangetimezone);
     element.addEventListener('changeprotocol', onchangeprotocol);
+    element.addEventListener('changespeed', onchangespeed);
 
     // FR-14.2
     element.loading = true;

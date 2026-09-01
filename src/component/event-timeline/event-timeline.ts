@@ -352,7 +352,6 @@ export function mountEventTimeline(config: MountEventTimelineOptions): EventTime
   let windowStart = dataStart.getTime();
   let windowEnd = dataEnd.getTime();
   let customTime: Date | null = null;
-  const hiddenRowIds = new Set<string>();
 
   // ---- DOM scaffold -----------------------------------------------------
   container.replaceChildren();
@@ -578,7 +577,10 @@ export function mountEventTimeline(config: MountEventTimelineOptions): EventTime
   }
 
   let overviewRefs: RowRefs | null = null;
-  let overviewCollapsed = false;
+  // Gates the *detail rows'* (rowsContainer's) visibility -- clicking the
+  // overview row's collapseBtn below collapses the whole per-Rule row list,
+  // not the overview ("ALL EVENTS") row's own track. See the listener below.
+  let allRowsCollapsed = false;
   let overviewHighlightEl: HTMLElement | null = null;
 
   // Wraps the overview row AND the detail rows together (not just the
@@ -603,18 +605,17 @@ export function mountEventTimeline(config: MountEventTimelineOptions): EventTime
     const label = document.createElement('span');
     label.className = 'event-timeline-row-label event-timeline-overview-label';
     label.textContent = overviewRow.label;
-    const hideBtn = document.createElement('button');
-    hideBtn.type = 'button';
-    hideBtn.className = 'event-timeline-hide-btn';
-    hideBtn.textContent = 'Hide';
-    hideBtn.addEventListener('click', () => setRowHidden(overviewRow.id, rowEl, hideBtn));
+    // Collapses/expands the detail rows (rowsContainer) below -- NOT this
+    // overview row's own track, which stays visible either way. `rowsContainer`
+    // is declared further down this function, but this listener only ever
+    // runs on a later user click, well after mount finishes assigning it.
     collapseBtn.addEventListener('click', () => {
-      overviewCollapsed = !overviewCollapsed;
-      collapseBtn.setAttribute('aria-expanded', String(!overviewCollapsed));
-      collapseBtn.textContent = overviewCollapsed ? '▸' : '▾';
-      rowEl.classList.toggle('event-timeline-overview-collapsed', overviewCollapsed);
+      allRowsCollapsed = !allRowsCollapsed;
+      collapseBtn.setAttribute('aria-expanded', String(!allRowsCollapsed));
+      collapseBtn.textContent = allRowsCollapsed ? '▸' : '▾';
+      rowsContainer.classList.toggle('event-timeline-rows-collapsed', allRowsCollapsed);
     });
-    header.append(collapseBtn, label, hideBtn);
+    header.append(collapseBtn, label);
     rowEl.append(header);
 
     const trackEl = document.createElement('div');
@@ -662,12 +663,7 @@ export function mountEventTimeline(config: MountEventTimelineOptions): EventTime
     const label = document.createElement('span');
     label.className = `event-timeline-row-label ${row.colorClass ?? ''}`;
     label.textContent = row.label;
-    const hideBtn = document.createElement('button');
-    hideBtn.type = 'button';
-    hideBtn.className = 'event-timeline-hide-btn';
-    hideBtn.textContent = 'Hide';
-    hideBtn.addEventListener('click', () => setRowHidden(row.id, rowEl, hideBtn));
-    header.append(collapseSpacer, label, hideBtn);
+    header.append(collapseSpacer, label);
     rowEl.append(header);
 
     const trackEl = document.createElement('div');
@@ -690,17 +686,6 @@ export function mountEventTimeline(config: MountEventTimelineOptions): EventTime
   root.append(axisRow);
 
   container.append(root);
-
-  function setRowHidden(rowId: string, rowEl: HTMLElement, hideBtn: HTMLButtonElement): void {
-    const nowHidden = !hiddenRowIds.has(rowId);
-    if (nowHidden) {
-      hiddenRowIds.add(rowId);
-    } else {
-      hiddenRowIds.delete(rowId);
-    }
-    rowEl.classList.toggle('event-timeline-row-hidden', nowHidden);
-    hideBtn.textContent = nowHidden ? 'Show' : 'Hide';
-  }
 
   // ---- Scale / zoom-window math ------------------------------------------
   function timeToRatio(t: number, start: number, end: number): number {
@@ -764,17 +749,6 @@ export function mountEventTimeline(config: MountEventTimelineOptions): EventTime
 
     el.addEventListener('pointerdown', (event) => {
       if (event.button !== 0) {
-        return;
-      }
-      // Bail out for a real interactive control (currently: a detail row's
-      // own "Hide" button, the only native <button> living inside `el`) --
-      // setPointerCapture() below retargets the eventual native `click`
-      // event to `el` itself (not whatever was actually under the
-      // pointer), which would otherwise silently swallow that control's
-      // own click listener. Found live via Playwright (a Hide-button
-      // click that worked via a raw DOM .click() had zero effect through
-      // real pointer events), not by reading source.
-      if ((event.target as HTMLElement).closest('.event-timeline-hide-btn') !== null) {
         return;
       }
       dragging = false;
@@ -1118,9 +1092,9 @@ export function mountEventTimeline(config: MountEventTimelineOptions): EventTime
   // ratios) that stayed harmless while the marker was purely a display
   // line (`pointer-events: none`) -- but the same unshifted math would
   // have positioned the new *draggable* hit area directly over the row
-  // headers (Hide buttons included) for any customTime near the start of
-  // the data range, intercepting clicks meant for them. Found live via
-  // Playwright, not by reading source.
+  // headers for any customTime near the start of the data range,
+  // intercepting clicks meant for them. Found live via Playwright, not by
+  // reading source.
   function wireCustomTimeDrag(el: HTMLElement): void {
     el.addEventListener('pointerdown', (downEvent) => {
       if (downEvent.button !== 0) {

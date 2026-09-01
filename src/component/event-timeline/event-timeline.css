@@ -225,10 +225,6 @@
   border-bottom: 1px solid var(--border-color);
 }
 
-.event-timeline-row-hidden {
-  display: none;
-}
-
 .event-timeline-row-header {
   display: flex;
   align-items: center;
@@ -286,33 +282,14 @@
 .event-timeline-row-label.evt-unknown { color: var(--evt-unknown-border); }
 .event-timeline-row-label.evt-ai { color: var(--evt-ai-border); }
 
-.event-timeline-hide-btn {
-  font-family: inherit;
-  font-size: 10px;
-  line-height: 1;
-  padding: 2px 7px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--button-border-color);
-  background: var(--button-background-color);
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: background var(--transition), color var(--transition), border-color var(--transition);
-}
-
-.event-timeline-hide-btn:hover {
-  background: var(--button-hover-background);
-  color: var(--font-color);
-}
-
 /* Overview row */
 .event-timeline-overview-row {
   background: var(--surface-sunken);
 }
 
 /* Scaled down to match .event-timeline-overview-track's 25px height --
-   the general .event-timeline-row-header/-label/-collapse-btn/-hide-btn
-   sizes (used by the 30px-tall detail rows) are a bit large for this
-   shorter strip. */
+   the general .event-timeline-row-header/-label/-collapse-btn sizes (used
+   by the 30px-tall detail rows) are a bit large for this shorter strip. */
 .event-timeline-overview-row .event-timeline-row-header {
   padding: 2px 8px 2px 2px;
 }
@@ -323,11 +300,6 @@
 
 .event-timeline-overview-row .event-timeline-row-label {
   font-size: 10px;
-}
-
-.event-timeline-overview-row .event-timeline-hide-btn {
-  font-size: 9px;
-  padding: 1px 6px;
 }
 
 .event-timeline-overview-track {
@@ -342,12 +314,13 @@
   inset: 2px 0;
 }
 
-/* Collapses the whole row down to just its header (matching a `<details>`-
-   style fold, and the collapse button's own aria-expanded semantics) --
-   was previously scoped to just .event-timeline-overview-items, which only
-   cleared the items and left an empty, still full-height track behind, so
-   the row itself never visibly collapsed. Reported directly by the user. */
-.event-timeline-overview-collapsed .event-timeline-overview-track {
+/* The overview ("ALL EVENTS") row's own collapseBtn toggles this on
+   .event-timeline-rows (the detail-rows container), NOT on the overview
+   row's own track -- clicking it hides every per-Rule detail row below,
+   while "ALL EVENTS" itself stays visible. Reported directly by the user:
+   the previous behavior (folding the overview row's own track instead) was
+   read as the wrong target for that button. */
+.event-timeline-rows.event-timeline-rows-collapsed {
   display: none;
 }
 

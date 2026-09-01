@@ -59,6 +59,13 @@
 | 2.16 | 2026-09-01 | Youngho Kim | FR-7.8.1: `#event_rules_language` moves out of `#playback_control_calendar` into the Device panel's `#time_info` row, immediately left of `#is_android` — always visible regardless of Play Type, fetched (`getDeviceInfo()`) as soon as SUNAPI turns On (`device.ts`'s `on_change_use_sunapi_client()` → `playbackCalendar.ts`'s new `fetchDeviceLanguage()`) instead of waiting for this Calendar panel to first show. `initPlaybackCalendarPanel()` reuses that fetch's own settlement as `runMonthSearch()`'s first-call digest-auth-race barrier (see FR-7.8.4) in place of fetching `getDeviceInfo()` itself. FR-7.8.2's Rule fetch is unaffected — it still reads this same select's value once the Calendar panel shows, just a value that's normally already known by then. Requested directly by the user. |
 | 2.17 | 2026-09-01 | Youngho Kim | Two visibility-toggle fixes in `updatePlaybackSunapiUIVisibility()`, both explicit `isPlayback`-driven `style.display` toggles matching `#playback_video_controls`'s existing pattern: (1) the v2.15 layout row (now `id="playback-calendar-timeline"`) is shown for Playback/hidden for Live as a whole, replacing the narrower `if (!isPlayback) { #timeline.style.display='none' }` special case, which only ever hid `#timeline` itself and left the row's own visibility merely implicit. (2) `#video_source_group` ("Video Source (selected channel)") now also hides during Playback and shows for Live — nothing gated it on Play Type before, so it stayed visible during Playback even though profile selection doesn't apply to an already-recorded segment; reported directly by the user with a screenshot. See `docs/window-ui/DESIGN.md` v1.32-v1.34. |
 | 2.18 | 2026-09-01 | Youngho Kim | FR-7.7 fix, described in that section above. |
+| 2.19 | 2026-09-01 | Youngho Kim | Added FR-7.7.1: `#iso_date_time_checkbox` wired to `player.useIsoTimeFormat`, fixing a real camera playback seek bug — removed from § Known dead controls accordingly. Reported directly by the user via a live console trace (`[RTSPOverWebSocket] seeking() rangeClock -> ...`, added at the user's request in `@melchi45/rtsp-over-websocket`'s `seeking()` to diagnose an Event Timeline drag-seek always landing on the same wrong position). See DESIGN.md's "Deviations from legacy behavior". |
+| 2.20 | 2026-09-01 | Youngho Kim | FR-7.7: removed the `[FR-14] event_timeline_custom_time_hit -> ...` console log `updateTimestampReadout()` emitted on every move (added v2.18) — it did its job diagnosing FR-7.7.1's seek bug above; the underlying `@melchi45/rtsp-over-websocket` fix (see MEMORY.md) is what actually fixed the reported behavior, and the log firing many times a second during ordinary playback was pure noise once that landed. Removed directly at the user's request. |
+| 2.21 | 2026-09-01 | Youngho Kim | FR-6.9 v1.27: Stop during Playback no longer silently fails to tear down the `<video>`/MSE state (real regression, `player.startTime = null` throwing and aborting the RTSP client's own connection callback before it reached the video-cleanup step) — `startTime`/`endTime` reset now gated on `playType === PLAYBACK` and wrapped in `try`/`catch`. Root-caused via a live console trace the user asked to have added across the whole RTSP-close call chain in `@melchi45/rtsp-over-websocket`. See DESIGN.md and MEMORY.md. |
+| 2.22 | 2026-09-01 | Youngho Kim | FR-6.9 v1.28: Stop during Playback now resumes-from-stop-point on the next Play — `startTime` is set from `#timestamp_date`/`#timestamp_time`'s last value (the actual last-played position) instead of unconditionally `null`, read before those elements are removed. `endTime` stays always-`null`. Requested directly by the user. |
+| 2.23 | 2026-09-01 | Youngho Kim | FR-7.5: `#speed` now also updates in the reverse direction — a device-corrected RTSP `Scale` (the device rejects/clamps the requested speed and reports back what it actually applied) is reflected in the dropdown via a new `changespeed` player event, `onchangespeed()`. Root cause and fix live entirely in `@melchi45/rtsp-over-websocket` (`Scale` response-header parsing plus a `resolvePlaySpeedEntry()`-based self-correction, no re-send); this repo only adds the listener. Reported directly by the user with a real RTSP transcript. See MEMORY.md. |
+| 2.24 | 2026-09-01 | Youngho Kim | FR-7.6: `onDoubleClick` (line 368) now prefers the double-clicked item's own real `start`/`end` over the pixel-derived `time` whenever the double-click actually landed on an item — extracted the shared `applyItemToSelectedTime()` from `onSelect`'s body so `onDoubleClick` can also apply it (bypassing `onSelect`'s own `readyState === PLAYING` skip, which otherwise left Selected Time/`startTime`/`endTime` on a stale range during a double-click seek). Root cause was two-fold: `docs/event-timeline-component/SRS.md` FR-8 v2.14's pixel-ratio bug in the widget itself (fixed there), and this module's `onSelect`/`onDoubleClick` never coordinating when a double-click landed directly on an item. Reported directly by the user with a console trace: double-clicking a 4-minute event during active playback left `startTime`/`endTime` unchanged and seeked to neither the old range nor the double-clicked event. See `docs/event-timeline-component/DESIGN.md` v2.10/SRS.md v2.14. |
+| 2.25 | 2026-09-01 | Youngho Kim | Added FR-6.11: `#forward`/`#backward` wired to the player's already-implemented `.forward()`/`.backward()` frame-stepping — removed from § Known dead controls accordingly. Reported directly by the user (Pause worked, but Forward/Backward never did anything); code review found the real methods already existed in `@melchi45/rtsp-over-websocket`, just never called from either `src/shared/` or `src/shared-v2/`. Per the user's explicit request, works independent of Pause/Resume, and Play after a subsequent Stop resumes from the stepped-to position via FR-6.9's existing v1.28 logic. See DESIGN.md's "Deviations from legacy behavior". |
 
 ## Conventions
 
@@ -215,11 +222,47 @@
   `STOPPED` removes any injected live-clock fields, resets all button states, disables audio
   controls, honors `#reconnect` (FR-6.5), and clears the player's own `startTime`/`endTime` back to
   `null` (v1.26, `src/shared-v2/` only) so a later plain Play doesn't silently reuse a stale prior
-  playback range; `PAUSED` swaps Pause↔Resume; `STEP` enables Resume/capture.
+  playback range; `PAUSED` swaps Pause↔Resume; `STEP` enables Resume/capture. **v1.27**: the
+  `startTime`/`endTime` reset now only runs when the stopped player's own `playType` is
+  `PLAYBACK` (Live never sets these fields, so there is nothing to reset), and is wrapped in its own
+  `try`/`catch` — matching this same branch's documented `#timestamp_date`/`#timestamp_time`
+  `.remove()` guard above, since a real regression hit the exact same failure class: clicking Stop
+  during Playback sent a real RTSP `TEARDOWN` and got a real response, but the `<video>` element
+  never actually stopped (kept looping its last ~2s of buffered MSE data) — `player.startTime =
+  null` threw (`@melchi45/rtsp-over-websocket`'s `startTime` setter never accepted `null`, unlike
+  `endTime`'s, fixed there too — see that package's `MEMORY.md`), and since that throw happened
+  synchronously inside a `dispatchEvent` chain invoked from deep within the RTSP client's own
+  connection callback, it unwound all the way back up and aborted the callback *before* it ever
+  fired the one responsible for tearing down the local video/MSE state. Found live via a console
+  trace the user asked to have added across that whole chain. Reported directly by the user.
+  **v1.28**: `startTime` is no longer unconditionally nulled — read (before the `#timestamp_date`/
+  `#timestamp_time` elements are removed a few lines above) from those fields' own last value (the
+  last actually-played position, kept live by `updateTimestampReadout()`) and, when present, used to
+  build `startTime` (`${date}T${time}Z`) instead of `null`, so a later plain Play resumes from where
+  Stop was clicked rather than requiring a fresh Selected Time/timeline pick. Falls back to `null`
+  when no timestamp was ever received this session (e.g. stopped immediately after Play, before the
+  first `timestamp` event). `endTime` is still always cleared — resuming plays forward indefinitely
+  from the stop point rather than staying bound to whatever range was originally searched for.
+  Requested directly by the user.
 - **FR-6.10**: The player's `error`/`close`/`meta`/`resize`/`waiting`/`statistics` events: `error`
   appends to `#debug` directly (own `_useDebug` gate, independent of `changedebug()`); `resize`
   additionally applies the reported width/height to the named element; the rest are debug-log-only
   or no-ops (`statistics`'s body is fully commented out).
+- **FR-6.11 (v2.25, real behavior — no longer a "Known dead control")**: `#forward`/`#backward`
+  call the player's `.forward()`/`.backward()` — real frame-level stepping already implemented in
+  `@melchi45/rtsp-over-websocket` (`RTSPOverWebSocket.ts`, backed by the canvas renderer's
+  `StepBufferList`), just never wired to these buttons in either `src/shared/` or `src/shared-v2/`.
+  Both methods only require the player's `playType` to be `PLAYBACK` (checked internally, throws
+  otherwise) — not a particular `readyState` — so stepping works independent of Pause/Resume, per
+  the user's explicit request. Each step's resulting `timestamp` event flows through the existing
+  `ontimestamp()`/`updateTimestampReadout()` pipeline (FR-7.7) exactly like ordinary playback does,
+  keeping `#timestamp_date`/`#timestamp_time` current at the stepped-to position — which is what
+  FR-6.9's v1.28 resume-from-stop-point logic already reads on the next Stop → Play, so no
+  additional plumbing was needed for "Play resumes from where Forward/Backward left off."
+  Frame-accurate stepping itself only works with `#renderer_type` set to `"canvas"` —
+  `VideoTagPlayer.forward()`/`backward()` (the `"video"` renderer, the default) are no-ops in the
+  library, a pre-existing constraint of `@melchi45/rtsp-over-websocket`, not something this app
+  controls.
 
 ## FR-7: Playback
 
@@ -260,7 +303,15 @@
   no longer exist in `src/shared-v2/`; `docs/architecture.md`'s "Playback controls" section documents
   the legacy (pre-v2.0) design these replaced, still accurate for `src/shared/`'s own untouched
   original.
-- **FR-7.5**: `#speed` writes player `.playSpeed`; starts disabled until playback begins.
+- **FR-7.5**: `#speed` writes player `.playSpeed`; starts disabled until playback begins. **v2.23**:
+  the reverse direction also exists now — the player's own `changespeed` event (dispatched by
+  `RTSPOverWebSocket.ts` when a device rejects/clamps a requested RTSP `Scale` and reports back the
+  one it actually applied instead) updates `#speed`'s displayed value to match
+  (`onchangespeed()`, `playback.ts`, wired in `playerEvents.ts`). Without this, `#speed` kept
+  showing the requested speed even when the device was actually playing at a different one — reported
+  directly by the user with a real RTSP transcript (`Scale: 0.75` requested, `Scale: 1` echoed back
+  in the `200 OK`). A corrected value with no matching `<option>` is a normal native `<select>`
+  no-op.
 - **FR-7.6**: `updateTimeline(results)` builds and mounts a custom event-timeline widget
   (`src/component/event-timeline/`'s `mountEventTimeline()`) — **not** `vis.Timeline` as of v1.16;
   see [`docs/event-timeline-component/`](../event-timeline-component/) (MRD/PRD/SRS/DESIGN/TC) for
@@ -378,9 +429,26 @@
   device). An initial version of this fix always appended `'Z'` regardless of this checkbox, which
   the user caught live and had corrected to check `#universaltime_checkbox` explicitly — getting
   this wrong in either direction shifts the reconstructed instant by this machine's own UTC offset
-  relative to how the surrounding items are positioned. Also logs the resolved marker Date to the
-  console on every move (`[FR-14] event_timeline_custom_time_hit -> ...`), per the user's own
-  request, so it can be checked directly against the checkbox's state live in the browser.
+  relative to how the surrounding items are positioned. **v2.20**: the `[FR-14]
+  event_timeline_custom_time_hit -> ...` console log this used to emit on every move (added v2.18,
+  per the user's own request to check the resolved marker Date live against the checkbox's state)
+  is removed — it served its purpose diagnosing the FR-7.7.1 seek bug below and firing on every
+  timestamp update (many times a second during playback) was pure noise once that diagnosis was
+  done. Removed directly at the user's request.
+- **FR-7.7.1 (v2.19, real behavior — no longer a "Known dead control")**: `#iso_date_time_checkbox`'s
+  `change` event now writes `player.useIsoTimeFormat` (`onchangeisodatetime()`, `videoControl.ts`).
+  Root cause of a real seek bug, found via a live console trace the user added at the reporter's
+  request (`RTSPOverWebSocket.ts`'s `seeking()`): for camera devices, playback seek only writes the
+  actual outgoing `rangeClock` when `player.useIsoTimeFormat` is truthy — the non-ISO branch is a
+  no-op (legacy dead code, preserved as-is in the vendored `@melchi45/rtsp-over-websocket`), so with
+  this property never set, every Event Timeline drag-seek (FR-14,
+  `docs/event-timeline-component/SRS.md`) resent whatever stale `rangeClock` value already existed
+  instead of the just-requested target — camera playback seek silently landed on the same wrong
+  position regardless of where the marker was dropped, confirmed live: `useIso: null` in the console
+  trace while `rangeClock` held a leftover value unrelated to the requested seek time. The checkbox
+  stays unchecked by default (matching legacy's own markup, no `checked` attribute) — camera seek
+  requires checking it manually; see DESIGN.md's "Deviations from legacy behavior" for why this
+  wasn't instead defaulted on automatically.
 - **FR-7.8 (new, `src/shared-v2/` only — no equivalent in `src/shared/`): SUNAPI-driven Calendar
   search.** When both `#playback_radio` is selected **and** SUNAPI is On, `#playback_control_calendar`
   replaces `#playback_control` entirely (FR-7.1–FR-7.4's manual buttons/fields); every other state
@@ -655,8 +723,6 @@ must keep every one of these inert (no listener), not wire them up and not liter
 | Control(s) | Current behavior |
 |---|---|
 | `#search_aitimeline`, `#search_three_month_aitimeline` | No click handler at all. |
-| `#forward`, `#backward` | No click handler at all. |
-| `#iso_date_time_checkbox` | No listener. |
 | `#use_bestshotfilter`, `#bestshotfileter` | No listeners; the select stays disabled forever. |
 | `#timestamp_date`, `#timestamp_time` | Written to (FR-7.7, both `live` and `playback` modes as of v2.2), never read back — no action exists to use them. (Formerly two separate pairs — `live` mode's own `#timestamp_date`/`#timestamp_time` plus a `playback`-only `#seeking_date`/`#seeking_time` — unified into this one pair.) |
 | `#talk` | No listener; `.checked` never read. |

@@ -28,6 +28,8 @@
 | 2.11 | 2026-09-01 | Youngho Kim | New FR-15: this component now also owns the "Overlapped Id" select, in the toolbar immediately left of the 1H/6H/1D/1W/1M/1Y preset buttons — the same single-canonical-control move v2.0 already did for Selected Time, replacing `playback.ts`'s/`playbackCalendar.ts`'s own previously-separate `#overlapped_id_area`/`#calendar_overlapped_id_area` DOM-building. Requested directly by the user. |
 | 2.12 | 2026-09-01 | Youngho Kim | New FR-16: this component now also owns the Calendar/SUNAPI flow's "Rule" select, immediately left of Overlapped Id — same move as FR-15, requested again after an earlier attempt that only relocated the static HTML markup regressed on the very next remount (see FR-16's own body). `playbackCalendar.ts` mounts an empty-rows/items "shell" instance of this component (`ensureEventTimelineShell()`) so Rule is interactive before the first search of a panel-visible session, unlike Overlapped Id which stays absent until real data exists. |
 | 2.13 | 2026-09-01 | Youngho Kim | FR-9: the current-time marker's overview ("ALL EVENTS") portion is now a separate element (`customTimeOverviewEl`, inside the overview row's own `.event-timeline-overview-track`) positioned on the overview's own `dataStart`/`dataEnd` basis, instead of one element spanning both rows via a single `left` computed only from the detail rows' `windowStart`/`windowEnd`. Since v2.2, that single `left` put the overview copy at the wrong position once zoomed in, because the overview row's own items are always laid out on the full data extent (same basis `renderOverviewHighlight()` uses), not the current zoom window. The detail-rows marker (`#event_timeline_custom_time`) and its drag hit-target (`#event_timeline_custom_time_hit`, FR-14) are unchanged in behavior, just now appended into `.event-timeline-rows` directly rather than `.event-timeline-rows-wrapper`. Reported directly by the user. |
+| 2.14 | 2026-09-01 | Youngho Kim | FR-8: `onDoubleClick` now also receives the double-clicked `item` when one was hit, and fixes a real ratio-conversion bug in the pixel→time math it already had — the header-column width wasn't subtracted from the double-click listener's own element before computing the click ratio, unlike every other such conversion in this file, so `time` was always shifted later than the actual clicked position. Reported directly by the user: double-clicking inside a 4-minute item during active playback seeked ~3 minutes past that item's own end instead of into it, because `playback.ts`'s `onSelect` (which would normally set `startTime`/`endTime` to the item's real range) also silently no-ops while `PLAYING`. See `docs/window-ui/SRS.md`'s corresponding entry for the caller-side fix. |
+| 2.15 | 2026-09-01 | Youngho Kim | Two changes requested directly by the user: (1) FR-10 (per-row Hide) is removed outright — no row (overview or detail) has its own Hide/Show button any more. (2) FR-3's overview-row collapse button is retargeted: clicking it no longer folds the overview ("ALL EVENTS") row's own track (that stays visible either way) — it now collapses/expands the detail-rows list (`.event-timeline-rows`, every per-Rule row) instead. `.event-timeline-overview-collapsed`/`.event-timeline-hide-btn`/`.event-timeline-row-hidden` are all removed from event-timeline.css; `.event-timeline-rows-collapsed` (applied to `.event-timeline-rows` itself) replaces the former. |
 
 ## Interface
 
@@ -56,7 +58,7 @@ export interface MountEventTimelineOptions {
   formatTick?: (date: Date) => string;
   formatDuration?: (ms: number) => string;
   onSelect?: (item: EventTimelineItem) => void;
-  onDoubleClick?: (time: Date) => void;
+  onDoubleClick?: (time: Date, item?: EventTimelineItem) => void; // v2.14: item set when a real item was double-clicked
   // v2.0 (FR-13): user-driven Selected Time edits -- never fired by
   // setSelectedTime() itself. endDate/endTime both null = open-ended.
   onSelectedTimeChange?: (startDate: string, startTime: string, endDate: string | null, endTime: string | null) => void;
@@ -87,13 +89,13 @@ export function mountEventTimeline(config: MountEventTimelineOptions): EventTime
 
 ## Functional requirements
 
-- **FR-1 (rows/layout)**: the row with `overview: true` renders first, as a collapsible "ALL
-  EVENTS" strip; every other row renders below it, in `rows` array order, as its own detail row.
-  Both kinds share a two-column layout (a fixed-width label/Hide-button header, then a track). **As
-  of v2.9**, every detail row's header also reserves an invisible spacer the same width as the
-  overview row's own collapse button (`▾`), which only the overview row actually has — without it,
-  only the overview row's label was pushed right by that leading button, so the row-title column
-  didn't line up. Reported directly by the user.
+- **FR-1 (rows/layout)**: the row with `overview: true` renders first, as an "ALL EVENTS" strip
+  whose collapse button (see FR-3) folds/unfolds every other row, rendered below it in `rows` array
+  order as its own detail row. Both kinds share a two-column layout (a fixed-width label header,
+  then a track). **As of v2.9**, every detail row's header also reserves an invisible spacer the
+  same width as the overview row's own collapse button (`▾`), which only the overview row actually
+  has — without it, only the overview row's label was pushed right by that leading button, so the
+  row-title column didn't line up. Reported directly by the user.
 - **FR-2 (data extent, v2.8)**: the full data extent (`dataStart`/`dataEnd`) is computed once at
   mount, and never changes for the lifetime of one mounted instance. When `dataRange` is provided, it
   **is** the extent, exactly (not unioned with the item extent — an earlier draft did union them
@@ -114,13 +116,13 @@ export function mountEventTimeline(config: MountEventTimelineOptions): EventTime
   all `pointer-events: none` and the fill translucent — none of them are ever a real click target or
   fully hide the items underneath; panning, resizing, and clicking an item are all detected directly
   on the track itself (resize by proximity to the highlight's current edge, `RESIZE_EDGE_PX`, rather
-  than a separate hit-testable handle element — v2.6). A header button collapses/expands the row's
-  **entire track** (v2.9) — item markers, the highlight rectangle, and its edge-handles all hide
-  together, folding the row down to just its header, matching the collapse button's own
-  `aria-expanded` semantics. (v2.3-v2.8 scoped this to just the item markers, leaving the
-  highlight visible either way "since it's the pan/zoom control, not just a display" — reversed
-  directly by the user: the row visibly not collapsing at all, with an empty-looking track left
-  behind, read as broken rather than as a deliberate always-available pan/zoom control.)
+  than a separate hit-testable handle element — v2.6). This row's own header button (the same
+  `.event-timeline-collapse-btn` FR-1 describes) does **not** collapse this row's own track — as of
+  **v2.15**, clicking it collapses/expands the detail rows below instead (see FR-10). The overview
+  row's track (items, highlight, edge-handles) stays visible regardless of that button's state.
+  (v2.3-v2.9 had this button fold the overview row's own track down to just its header instead —
+  reversed directly by the user: clicking "ALL EVENTS"'s collapse button is meant to hide the
+  detail rows it summarizes, not itself.)
 - **FR-4 (detail rows)**: each non-overview row draws only the items whose `rowId` matches it,
   scaled to the *current zoom window* (so these rows visually zoom/pan together), styled per that
   row's `colorClass`. A bar wide enough (see NFR-2) shows an inline `"<label> <duration>"` text
@@ -147,22 +149,36 @@ export function mountEventTimeline(config: MountEventTimelineOptions): EventTime
   and visually marks it selected (a dedicated CSS class); selecting one item deselects any
   previously-selected one.
 - **FR-8 (double-click seek)**: a double-click anywhere in the detail-rows/axis area invokes
-  `onDoubleClick(time)`, where `time` is the `Date` corresponding to the clicked pixel's position in
-  the *current zoom window* — matching the previous `vis.Timeline`-based design's
-  `doubleClick`/`properties.time` semantics, not necessarily an item's own `start`.
+  `onDoubleClick(time, item)`, where `time` is the `Date` corresponding to the clicked pixel's
+  position in the *current zoom window* — matching the previous `vis.Timeline`-based design's
+  `doubleClick`/`properties.time` semantics, not necessarily an item's own `start`. **v2.14**:
+  `item` (the same `EventTimelineItem` `onSelect` would receive) is additionally passed when the
+  double-click landed on an actual item, so a caller wanting an exact seek onto that event can use
+  `item.start`/`item.end` instead of the pixel-derived `time`. `time` itself is also now computed
+  correctly for this specific caller — the ratio conversion previously used the double-click
+  listener's own element (`rowsContainer`, which spans each row's `ROW_HEADER_WIDTH_PX` label
+  column *and* its track) without subtracting that header width first, unlike every other
+  pixel/ratio conversion in this file, systematically shifting every computed `time` later within
+  the current zoom window by roughly (header width ÷ total width). Reported directly by the user:
+  double-clicking well inside a 4-minute item's own bar seeked ~3 minutes past that item's end.
 - **FR-9 (playhead)**: `setCustomTime(date)` positions a vertical marker line at `date`'s position
   in the current zoom window; the marker is hidden (not clamped/redrawn at an edge) whenever `date`
   falls outside the window. `setCustomTime(null)` (v2.1) hides it outright. As of v2.2, the marker
   spans the overview row ("ALL EVENTS") as well as the detail rows, not the detail rows alone — but
   (v2.13) as two separately-positioned elements, not one: the detail-rows line uses the current zoom
   window (`windowStart`/`windowEnd`) as above, while the overview row's own copy uses the overview's
-  own basis, the full data extent (`dataStart`/`dataEnd`, same as `renderOverviewHighlight()`) --
+  own basis, the full data extent (`dataStart`/`dataEnd`, same as `renderOverviewHighlight()`) —
   each row's copy stays aligned with that row's own items, which use the same two different bases.
-- **FR-10 (per-row Hide)**: every row (overview and detail) has its own "Hide"/"Show" toggle button
-  that hides/shows that entire row, self-contained within the component (not exposed on
-  `EventTimelineController` — nothing outside the component needs to drive this programmatically,
-  matching how the previous `vis.Timeline`-based design's own Hide button was self-contained inside
-  its `groupTemplate()` closure).
+- **FR-10 (collapse all detail rows, v2.15)**: the overview ("ALL EVENTS") row's own
+  `.event-timeline-collapse-btn` toggles the visibility of every detail row at once
+  (`.event-timeline-rows`, the container holding all per-Rule rows) — not this button's own row's
+  track (FR-3). `aria-expanded` on the button reflects the detail rows' current state; the button's
+  glyph flips between `▾` (expanded) and `▸` (collapsed), same as before. Self-contained within the
+  component (not exposed on `EventTimelineController` — nothing outside the component needs to drive
+  this programmatically). **Replaces the previous per-row "Hide"/"Show" toggle button** (every row,
+  overview and detail alike, had its own — carried over from the `vis.Timeline`-based design's
+  `groupTemplate()` closure): removed outright per the user's explicit request, along with the
+  `.event-timeline-hide-btn`/`.event-timeline-row-hidden` CSS it used.
 - **FR-11 (resize-responsive)**: item/highlight/axis positions re-render whenever the mounted
   container's size changes (a `ResizeObserver`), not only on data/zoom/pan changes — the widget sits
   inside a resizable panel (`#right_panel`'s own `resize: horizontal`).

@@ -207,6 +207,26 @@ export function changespeed(): void {
   }
 }
 
+/** FR-7.5: the reverse direction of changespeed() above -- the player's own
+ *  'changespeed' event (RTSPOverWebSocket.ts) fires when a device rejects/
+ *  clamps a requested RTSP Scale and reports back the one it actually
+ *  applied instead (e.g. requesting 0.75x on a camera that only supports
+ *  whole-number speeds gets `Scale: 1` back). Without this, #speed kept
+ *  showing the requested value even though the device was playing at a
+ *  different one. A corrected value with no matching <option> is a normal
+ *  native <select> no-op. Reported directly by the user with a real RTSP
+ *  transcript. */
+export function onchangespeed(event: any): void {
+  try {
+    const speedSelect = document.getElementById('speed') as HTMLSelectElement | null;
+    if (speedSelect !== null) {
+      speedSelect.value = String(event.detail.speed);
+    }
+  } catch (error) {
+    console.error(error);
+  }
+}
+
 // ---------------------------------------------------------------------
 // One "All" row (no more separate Normal/Event rows -- see MEMORY.md for
 // why this was the original merge), rendered by src/component/event-timeline/'s
@@ -835,7 +855,6 @@ function updateTimestampReadout(dateStr: string, timeStr: string, moveTimelineMa
 
   const isUniversalTime = (document.getElementById('universaltime_checkbox') as HTMLInputElement).checked;
   const markerDate = new Date(dateStr + 'T' + timeStr + (isUniversalTime ? 'Z' : ''));
-  console.log('[FR-14] event_timeline_custom_time_hit ->', dateStr, timeStr, 'universaltime_checkbox:', isUniversalTime, '-> marker Date:', markerDate, markerDate.toString());
   state.eventTimeline?.setCustomTime(moveTimelineMarker ? markerDate : null);
 }
 
