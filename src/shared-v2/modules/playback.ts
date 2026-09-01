@@ -577,6 +577,54 @@ export function updateTimeline(
       return moment(date).utcOffset(state.localGmtOffset).format('MM-DD HH:mm:ss');
     }
 
+    // Shared by onSelect and onDoubleClick below. onSelect bails out
+    // entirely while PLAYING (Selected Time is a pre-play config panel, not
+    // meant to be edited live) -- but a double-click landing directly on an
+    // item during active playback still needs Selected Time (and
+    // player.startTime/endTime) to reflect that item; without this, onSelect
+    // silently skipping it left Selected Time/startTime/endTime stuck on
+    // whatever range was previously configured while the double-click seek
+    // (onDoubleClick below) jumped the player somewhere else entirely.
+    // Reported directly by the user with a console trace: double-clicking a
+    // 4-minute event while a different, older range was still playing left
+    // `startTime` unchanged and the actual seek landed on neither the old
+    // range nor the double-clicked event.
+    function applyItemToSelectedTime(item: EventTimelineItem): void {
+      // DEVIATION from legacy behavior (see docs/window-ui/DESIGN.md):
+      // every selected item sets both Start and End Time, Normal-classed
+      // items included. recording.cgi's Timeline response always carries a
+      // real EndTime for every Result row regardless of Type (Normal or
+      // Rule#) -- the legacy `src/shared/window.ts` nonetheless
+      // special-cased 'normal' to null out endTime, with no documented
+      // rationale (see MEMORY.md); reported by the user as unwanted, so not
+      // reproduced here.
+      const player = state.getSelectedPlayer();
+      if (player.device === 'camera') {
+        player.startTime = moment(item.start).utcOffset(state.localGmtOffset).format('YYYY-MM-DD[T]HH:mm:ss') + 'Z';
+      } else {
+        player.startTime = item.start.toISOString();
+      }
+      const startDate = player.startTime.split('T')[0];
+      const startTime = player.startTime.split('T')[1].replace(/Z/gi, '');
+
+      let endDate: string | null = null;
+      let endTime: string | null = null;
+      if (item.end) {
+        if (player.device === 'camera') {
+          player.endTime = moment(item.end).utcOffset(state.localGmtOffset).format('YYYY-MM-DD[T]HH:mm:ss') + 'Z';
+        } else {
+          player.endTime = item.end.toISOString();
+        }
+        endDate = player.endTime.split('T')[0];
+        endTime = player.endTime.split('T')[1].replace(/Z/gi, '');
+      } else {
+        player.endTime = null;
+      }
+
+      lastSelectedTime = { startDate, startTime, endDate, endTime };
+      state.eventTimeline?.setSelectedTime(startDate, startTime, endDate, endTime);
+    }
+
     state.eventTimeline = mountEventTimeline({
       containerId: 'timeline',
       rows,
@@ -593,39 +641,7 @@ export function updateTimeline(
           return;
         }
         try {
-          // DEVIATION from legacy behavior (see docs/window-ui/DESIGN.md):
-          // every selected item sets both Start and End Time, Normal-
-          // classed items included. recording.cgi's Timeline response
-          // always carries a real EndTime for every Result row regardless
-          // of Type (Normal or Rule#) -- the legacy `src/shared/window.ts`
-          // nonetheless special-cased 'normal' to null out endTime, with no
-          // documented rationale (see MEMORY.md); reported by the user as
-          // unwanted, so not reproduced here.
-          const player = state.getSelectedPlayer();
-          if (player.device === 'camera') {
-            player.startTime = moment(item.start).utcOffset(state.localGmtOffset).format('YYYY-MM-DD[T]HH:mm:ss') + 'Z';
-          } else {
-            player.startTime = item.start.toISOString();
-          }
-          const startDate = player.startTime.split('T')[0];
-          const startTime = player.startTime.split('T')[1].replace(/Z/gi, '');
-
-          let endDate: string | null = null;
-          let endTime: string | null = null;
-          if (item.end) {
-            if (player.device === 'camera') {
-              player.endTime = moment(item.end).utcOffset(state.localGmtOffset).format('YYYY-MM-DD[T]HH:mm:ss') + 'Z';
-            } else {
-              player.endTime = item.end.toISOString();
-            }
-            endDate = player.endTime.split('T')[0];
-            endTime = player.endTime.split('T')[1].replace(/Z/gi, '');
-          } else {
-            player.endTime = null;
-          }
-
-          lastSelectedTime = { startDate, startTime, endDate, endTime };
-          state.eventTimeline?.setSelectedTime(startDate, startTime, endDate, endTime);
+          applyItemToSelectedTime(item);
         } catch (error) {
           // Was previously unguarded in the original; a real "start time is
           // empty" (0x0411) report traced back to an unhandled exception
@@ -635,15 +651,33 @@ export function updateTimeline(
           console.error('timeline select error:', error);
         }
       },
-      onDoubleClick: (time) => {
-        if (state.getSelectedPlayer().readyState === RTSPOverWebSocketPlayState.PLAYING) {
+      onDoubleClick: (time, item) => {
+        const player = state.getSelectedPlayer();
+        if (player.readyState !== RTSPOverWebSocketPlayState.PLAYING) {
+          return;
+        }
+        try {
+          // `item` (v2.14, event-timeline.ts) is only provided when the
+          // double-click actually landed on an event item -- prefer its own
+          // exact start over the pixel-derived `time` (an approximation of
+          // where the click landed, previously the only signal available
+          // here) both for the seek target below and for keeping Selected
+          // Time in sync (applyItemToSelectedTime above). A double-click on
+          // empty track space (no item under the cursor) still falls back
+          // to `time`, same as before.
+          if (item !== undefined) {
+            applyItemToSelectedTime(item);
+          }
+          const seekTarget = item !== undefined ? item.start : time;
           if (!(document.getElementById('use_gmt') as HTMLInputElement).checked) {
-            if (state.getSelectedPlayer().device === 'camera') {
-              state.getSelectedPlayer().seekingTime = moment(time).utcOffset(state.localGmtOffset).format('YYYY-MM-DD[T]HH:mm:ss') + 'Z';
+            if (player.device === 'camera') {
+              player.seekingTime = moment(seekTarget).utcOffset(state.localGmtOffset).format('YYYY-MM-DD[T]HH:mm:ss') + 'Z';
             }
           } else {
-            state.getSelectedPlayer().seekingTime = time.toISOString();
+            player.seekingTime = seekTarget.toISOString();
           }
+        } catch (error) {
+          console.error('timeline double-click seek error:', error);
         }
       },
       // FR-14 (docs/event-timeline-component/SRS.md): dragging the

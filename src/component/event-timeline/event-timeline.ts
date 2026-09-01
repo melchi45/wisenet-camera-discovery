@@ -123,8 +123,15 @@ export interface MountEventTimelineOptions {
   /** Fires on a double-click anywhere in the detail-rows/axis area --
    *  `time` is the clicked pixel's corresponding Date in the current zoom
    *  window, matching the original vis.Timeline `doubleClick` handler's
-   *  `properties.time` (not necessarily an item's own start time). */
-  onDoubleClick?: (time: Date) => void;
+   *  `properties.time` (not necessarily an item's own start time). `item` is
+   *  additionally provided (v2.14) when the double-click landed on an actual
+   *  item -- pixel-derived `time` is only ever an approximation of where the
+   *  user clicked (a real, reported miss: `time` landed 3 minutes past the
+   *  end of a 4-minute item the user had double-clicked well inside),
+   *  whereas `item.start`/`item.end` are the event's real, exact boundaries.
+   *  Callers that want an exact seek onto the double-clicked event itself
+   *  should prefer `item` over `time` when it's present. */
+  onDoubleClick?: (time: Date, item?: EventTimelineItem) => void;
   /** Fires when the user edits the Selected Time inputs directly (typing a
    *  new date/time, or toggling "Has End Time") -- NOT fired by
    *  `setSelectedTime()` itself (plain `.value =` assignment doesn't raise
@@ -834,9 +841,11 @@ export function mountEventTimeline(config: MountEventTimelineOptions): EventTime
         }
       }
     }
+    let matchedItem: EventTimelineItem | undefined;
     if (itemEl !== null && itemEl.dataset.itemId !== undefined) {
       const item = itemsById.get(itemEl.dataset.itemId);
       if (item !== undefined) {
+        matchedItem = item;
         if (config.onSelect) {
           config.onSelect(item);
         }
@@ -844,9 +853,24 @@ export function mountEventTimeline(config: MountEventTimelineOptions): EventTime
       }
     }
     if (isDoubleClick && config.onDoubleClick) {
+      // `trackEl` here is `rowsContainer` (the only caller that ever passes
+      // `isDoubleClick: true`, see wireZoomPan below) -- its bounding rect
+      // spans BOTH each row's ROW_HEADER_WIDTH_PX label column AND the
+      // actual time-scaled track, unlike the other ratio/pixel conversions
+      // in this file (renderCustomTime, wireCustomTimeDrag) which all
+      // subtract that header width first. Omitting it here shifted every
+      // computed `time` later by roughly (header-width / total-width) of
+      // the current zoom window's span -- a real, reported miss (double-
+      // clicking inside an item landed the seek several minutes past the
+      // item's own end). `matchedItem` (when present) sidesteps this
+      // entirely by giving the caller the item's own exact boundaries
+      // instead, but `time` itself still needs to be correct for a
+      // double-click on empty track space, where there's no item to fall
+      // back on.
       const rect = trackEl.getBoundingClientRect();
-      const ratio = clamp((clientX - rect.left) / rect.width, 0, 1);
-      config.onDoubleClick(new Date(ratioToTime(ratio, windowStart, windowEnd)));
+      const trackWidthPx = Math.max(rect.width - ROW_HEADER_WIDTH_PX, 0);
+      const ratio = trackWidthPx > 0 ? clamp((clientX - rect.left - ROW_HEADER_WIDTH_PX) / trackWidthPx, 0, 1) : 0;
+      config.onDoubleClick(new Date(ratioToTime(ratio, windowStart, windowEnd)), matchedItem);
     }
   }
 
