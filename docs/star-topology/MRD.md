@@ -15,6 +15,7 @@
 |---|---|---|---|
 | 1.0 | 2026-08-27 | Youngho Kim | Initial MRD for the Star Topology view feature. |
 | 1.1 | 2026-08-28 | Youngho Kim | Added Title/Abstract/Author/Milestone/History metadata. |
+| 1.2 | 2026-09-01 | Youngho Kim | Noted the `ip` grouping's `/8`→`/16`→`/24` hub-chain exception to "hub nodes are deliberately never linked to each other" — see [SRS](SRS.md) FR-7 / [DESIGN](DESIGN.md). |
 
 ## Market context
 
@@ -35,7 +36,7 @@ visually instead.
 | **Table only (status quo)** | Zero additional work, and remains the default view — nothing about this feature removes it. Doesn't scale visually past a modest device count when the task is "understand the shape of what we found," not "look up one device." |
 | **A separate popup/window for the topology view** | Would duplicate the search box, view state, and selection-to-Device-panel wiring the table already has, and adds window-management complexity (open/close/focus) for no real benefit over an inline toggle in the same panel. Rejected in favor of a `<select>` next to the existing search box, consistent with how other view-affecting controls in this panel already work. |
 | **Real network topology** (actual NVR→channel relationships, or ARP/gateway-derived device adjacency) | Would be the more "correct" sense of the word "topology," but SUNAPI UDP discovery replies carry no such relationship — each device (camera or NVR) reports itself once, with no parent/child field (see `docs/architecture.md`). Building this would need new data collection (per-NVR channel enumeration via a SUNAPI call, or ARP/routing-table inspection via the native host) — a materially larger feature. Rejected for this iteration; see [PRD.md](PRD.md)'s Non-Goals. |
-| **Client-side derived grouping by column (this feature)** | Needs no new data collection at all — every grouping key (subnet, model-line prefix, MAC OUI, port, protocol) is computed from fields the discovery table already displays. Chosen as the pragmatic middle ground: visually answers "what shape is this device list" without pretending to show real network wiring (hub nodes are deliberately never linked to each other — see [DESIGN.md](DESIGN.md)). |
+| **Client-side derived grouping by column (this feature)** | Needs no new data collection at all — every grouping key (subnet, model-line prefix, MAC OUI, port, protocol) is computed from fields the discovery table already displays. Chosen as the pragmatic middle ground: visually answers "what shape is this device list" without pretending to show real network wiring (hub nodes are deliberately never linked to each other — except the `ip` grouping's own `/8`→`/16`→`/24` subnet-containment chain, which *is* linked hub-to-hub because subnet containment is a real relationship read off the IP itself, not a fabricated one; see [DESIGN.md](DESIGN.md)). |
 | **A third-party graph library** (e.g. `vis-network`, `cytoscape.js`, `d3-force`) | Unnecessary: `vis` (the old monolithic vis@4.x bundle already a dependency for the playback `Timeline`) already ships a `Network` module in the same package, already fully bundled via `window.ts`'s `import * as vis from 'vis'`. Adding a second graph library would be pure bundle-size waste for no functional gain — see `MEMORY.md`'s "Discovery result 'Star Topology' view" entry. |
 
 ## Why grouping is user-selectable, not fixed to one column

@@ -9,7 +9,7 @@
 // used elsewhere in this suite.
 
 import { test, expect, Page } from '@playwright/test';
-import { NEW_URL } from '../../playwright.config';
+import { NEW_URL, MOCK_SUNAPI_PORT } from '../../playwright.config';
 
 async function openNewPageInPlaybackSunapiMode(browser: any): Promise<Page> {
   const context = await browser.newContext({ ignoreHTTPSErrors: true });
@@ -21,6 +21,18 @@ async function openNewPageInPlaybackSunapiMode(browser: any): Promise<Page> {
   await page.locator('#init').click();
   await page.waitForSelector('#datatable tbody tr:nth-child(1)');
   await page.locator('#datatable tbody tr').first().click();
+  // device.ts's FR-4.10 locks #port to 80/443 (matching this page's own
+  // http:// scheme) whenever a device is selected outside the extension --
+  // correct for a real camera, but this fixture's mock device deliberately
+  // reuses the mock-sunapi-server's own non-standard port (MOCK_SUNAPI_PORT)
+  // rather than simulating a real camera on 80, so every SUNAPI call this
+  // test relies on (getDeviceInfo/getDynamicRules/getCalendarSearch/...)
+  // would otherwise target a port nothing is listening on. Same fix as
+  // event-timeline.spec.ts's openNewPageWithTimeline() -- fill + dispatch
+  // 'change' (not a raw .value= assignment) so changeport() actually runs
+  // and updates the player's real .port, not just the input's own display.
+  await page.locator('#port').fill(String(MOCK_SUNAPI_PORT));
+  await page.locator('#port').dispatchEvent('change');
   await page.locator('#username').fill('admin');
   await page.locator('#username').dispatchEvent('change');
   await page.locator('#password').fill('admin1234');
@@ -28,7 +40,15 @@ async function openNewPageInPlaybackSunapiMode(browser: any): Promise<Page> {
 
   await page.locator('#playback_radio').evaluate((el: HTMLInputElement) => el.click());
   await page.locator('#use_sunapi_client_checkbox').evaluate((el: HTMLInputElement) => el.click());
-  await page.waitForFunction(() => (document.getElementById('event_rules_type') as HTMLSelectElement).options.length > 0);
+  // FR-16: `#event_rules_type` no longer exists in the static page at all --
+  // it's built on demand inside `#timeline` once populateRuleSelect()'s own
+  // getDynamicRules() fetch resolves (event-timeline.ts's renderRuleTypes(),
+  // via playbackCalendar.ts's ensureEventTimelineShell()). `?.` is required,
+  // not just style: page.waitForFunction() rejects immediately (does not
+  // keep polling) the first time its predicate *throws* rather than
+  // returning falsy, and the element is genuinely null on the very first
+  // poll, right after the checkbox click, before that fetch has resolved.
+  await page.waitForFunction(() => ((document.getElementById('event_rules_type') as HTMLSelectElement | null)?.options.length ?? 0) > 0);
 
   return page;
 }
@@ -61,12 +81,15 @@ test.describe('FR-7.8 SUNAPI-driven Calendar search (new page only)', () => {
     await page.locator('#init').click();
     await page.waitForSelector('#datatable tbody tr:nth-child(1)');
     await page.locator('#datatable tbody tr').first().click();
+    // See openNewPageInPlaybackSunapiMode()'s own comment on this step.
+    await page.locator('#port').fill(String(MOCK_SUNAPI_PORT));
+    await page.locator('#port').dispatchEvent('change');
     await page.locator('#username').fill('admin');
     await page.locator('#username').dispatchEvent('change');
     await page.locator('#password').fill('admin1234');
     await page.locator('#password').dispatchEvent('change');
     await page.locator('#use_sunapi_client_checkbox').evaluate((el: HTMLInputElement) => el.click());
-    await page.waitForFunction(() => (document.getElementById('event_rules_type') as HTMLSelectElement).options.length > 0);
+    await page.waitForFunction(() => ((document.getElementById('event_rules_type') as HTMLSelectElement | null)?.options.length ?? 0) > 0);
     await expect(page.locator('#playback_control')).toHaveCSS('display', 'none');
     await expect(page.locator('#playback_control_calendar')).not.toHaveCSS('display', 'none');
 
@@ -138,7 +161,7 @@ test.describe('FR-7.8 SUNAPI-driven Calendar search (new page only)', () => {
     });
     await page.selectOption('#channel', '2');
     await page.waitForFunction(
-      () => (document.getElementById('event_rules_type') as HTMLSelectElement).options[1]?.value === 'Rule3',
+      () => (document.getElementById('event_rules_type') as HTMLSelectElement | null)?.options[1]?.value === 'Rule3',
     );
     expect(dynamicRulesRequests).toBeGreaterThan(0);
 
@@ -155,25 +178,28 @@ test.describe('FR-7.8 SUNAPI-driven Calendar search (new page only)', () => {
     await page.context().close();
   });
 
-  test('TC-31: Calendar mounts, month search highlights recorded days, and reveals the search controls', async ({ browser }) => {
+  test('TC-31: Calendar mounts, month search highlights recorded days, and reveals #timeline (with the Rule shell already inside it)', async ({ browser }) => {
     const page = await openNewPageInPlaybackSunapiMode(browser);
-    await page.waitForFunction(() => (document.getElementById('calendar_search_area') as HTMLElement).style.display !== 'none');
+    await page.waitForFunction(() => (document.getElementById('timeline') as HTMLElement).style.display !== 'none');
 
     await expect(page.locator('#playback_calendar .calendar-grid')).toBeVisible();
     const highlighted = await page.locator('#playback_calendar .calendar-day-has-recording').count();
     expect(highlighted).toBeGreaterThan(0);
-    // Overlapped Id (FR-15) no longer lives inside #calendar_search_area at
-    // all -- it's the shared Event Timeline widget's own toolbar control
-    // (#timeline), not rendered until a day is actually clicked and
-    // #timeline itself mounts (TC-32's job, not this test's).
-    await expect(page.locator('#calendar_search_area')).toBeVisible();
+    // FR-16: Rule renders inside #timeline's own toolbar as soon as the
+    // month search reveals it (an empty-data "shell" mount --
+    // ensureEventTimelineShell()), independently of any day click -- unlike
+    // Overlapped Id (FR-15), which stays absent (no <select> at all, see
+    // event-timeline.ts's renderOverlappedIds()) until a day/preset search
+    // actually returns overlapped sessions (TC-32's job, not this test's).
+    await expect(page.locator('#timeline')).toBeVisible();
+    await expect(page.locator('#event_rules_type')).toBeVisible();
 
     await page.context().close();
   });
 
   test('TC-32: clicking a highlighted day fires Overlapped Id + Timeline searches and renders into #timeline', async ({ browser }) => {
     const page = await openNewPageInPlaybackSunapiMode(browser);
-    await page.waitForFunction(() => (document.getElementById('calendar_search_area') as HTMLElement).style.display !== 'none');
+    await page.waitForFunction(() => (document.getElementById('timeline') as HTMLElement).style.display !== 'none');
 
     // #event_rules_type defaults to 'All' (TC-30) -- explicitly select a
     // specific Rule here so this test's own Type=Rule<N> assertion below
@@ -204,7 +230,7 @@ test.describe('FR-7.8 SUNAPI-driven Calendar search (new page only)', () => {
 
   test('TC-33: Rule dropdown defaults to "All", and clicking a day with it selected sends Type=All', async ({ browser }) => {
     const page = await openNewPageInPlaybackSunapiMode(browser);
-    await page.waitForFunction(() => (document.getElementById('calendar_search_area') as HTMLElement).style.display !== 'none');
+    await page.waitForFunction(() => (document.getElementById('timeline') as HTMLElement).style.display !== 'none');
 
     expect(await page.locator('#event_rules_type').inputValue()).toBe('All');
 

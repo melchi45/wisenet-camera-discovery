@@ -102,6 +102,28 @@
   width: 56px;
 }
 
+/* Rule (docs/event-timeline-component/SRS.md FR-16) -- sits immediately
+   left of .event-timeline-overlapped-id, same "empty hides entirely"
+   behavior (event-timeline.ts's renderRuleTypes()). Wider than Overlapped
+   Id's select since Rule option labels are configured RuleName strings
+   (e.g. "움직임 감지 (CH1)"), not short numeric ids. */
+.event-timeline-rule-type {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.event-timeline-rule-type-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.event-timeline-rule-type select {
+  font-size: 11px;
+  max-width: 140px;
+}
+
 .event-timeline-presets {
   display: flex;
   align-items: center;

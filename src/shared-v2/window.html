@@ -313,41 +313,60 @@
               <!-- FR-7.8 (src/shared-v2/-only, docs/window-ui/SRS.md): shown
                    instead of #playback_control above when SUNAPI is On and
                    Playback mode is selected -- see
-                   updatePlaybackSunapiUIVisibility() (playbackCalendar.ts). -->
-              <div id="playback_control_calendar" class="panel-subgroup" style="display:none;">
-                <p class="subgroup-title">Playback (SUNAPI)</p>
-                <div class="field-row">
-                  <div class="field">
-                    <label for="event_rules_language">Language:</label>
-                    <select id="event_rules_language"></select>
+                   updatePlaybackSunapiUIVisibility() (playbackCalendar.ts).
+                   Wrapped together with #timeline (below) in
+                   .playback-calendar-timeline-row purely for layout -- see
+                   that wrapper's own comment for why #timeline itself still
+                   isn't nested inside this panel. -->
+              <div class="playback-calendar-timeline-row">
+                <div id="playback_control_calendar" class="panel-subgroup" style="display:none;">
+                  <p class="subgroup-title">Playback (SUNAPI)</p>
+                  <div class="field-row">
+                    <div class="field">
+                      <label for="event_rules_language">Language:</label>
+                      <select id="event_rules_language"></select>
+                    </div>
                   </div>
-                </div>
-                <div class="field-row">
-                  <div id="playback_calendar"></div>
-                </div>
-                <!-- Rule: lives here (not in the Language field-row above)
-                     and shows/hides together with Overlapped Id, not
-                     immediately when this panel opens -- it's a Timeline
-                     search filter, not a device-wide setting like Language.
-                     Manual Start/End Time lived here too until the v2.0
-                     Playback search redesign (docs/window-ui/SRS.md
-                     FR-7.8.2/FR-7.8.5/event-timeline-component's FR-11) --
-                     moved into the shared Event Timeline widget as
-                     "Selected Time", used by both this panel and
-                     #playback_control (FR-7.1). Overlapped Id itself
-                     (FR-15) moved the same way, into that same widget's own
-                     toolbar (#timeline, below) -- no longer a field here. -->
-                <div class="field-row" id="calendar_search_area" style="display:none">
-                  <div class="field">
-                    <label for="event_rules_type">Rule:</label>
-                    <select id="event_rules_type"></select>
+                  <div class="field-row">
+                    <div id="playback_calendar"></div>
                   </div>
+                  <!-- Rule used to be a static field here (a "calendar_search_area"
+                       field-row, shown/hidden together with Overlapped Id).
+                       Manual Start/End Time lived here too until the v2.0
+                       Playback search redesign (docs/window-ui/SRS.md
+                       FR-7.8.2/FR-7.8.5/event-timeline-component's FR-11) --
+                       moved into the shared Event Timeline widget as
+                       "Selected Time", used by both this panel and
+                       #playback_control (FR-7.1). Overlapped Id itself
+                       (FR-15) moved the same way, into that same widget's own
+                       toolbar (#timeline, below). Rule (FR-16) followed the
+                       identical move, since it's likewise a Timeline search
+                       filter, not a device-wide setting like Language -- no
+                       longer a field here at all, not even a hidden one:
+                       event-timeline.ts's renderRuleTypes() (playbackCalendar.ts's
+                       ensureEventTimelineShell()/populateRuleSelect()) builds
+                       the actual `#event_rules_type` select on demand, inside
+                       #timeline. -->
                 </div>
+                <!-- Shared by #playback_control (above, OUTSIDE this row) and
+                     #playback_control_calendar (this row's other child) --
+                     updateTimeline(), docs/window-ui/SRS.md FR-7.6 -- still a
+                     SIBLING of #playback_control_calendar, not nested inside
+                     it, so it stays visible/populatable regardless of which
+                     of the two search panels is currently shown (a
+                     display:none ancestor would hide it too, per FR-7.8's
+                     DESIGN.md). This row exists only to place #timeline
+                     beside #playback_control_calendar when the Calendar flow
+                     is active (requested directly by the user); when the
+                     manual flow (#playback_control) is active instead,
+                     #playback_control_calendar is display:none and #timeline
+                     is simply this row's only child, unaffected. -->
+                <div class="field event-timeline-slot" id="timeline"></div>
               </div>
               <!-- Video-playback controls (Forward/Backward/Speed, ISO Type
                    Data Time, Seeking Date/Time, BestshotFilter) -- these
                    control an already-playing stream, they are not part of
-                   either flow's *search* UI, so (like #timeline below) this
+                   either flow's *search* UI, so (like #timeline above) this
                    is a deliberate SIBLING of #playback_control/
                    #playback_control_calendar, gated only on Playback mode
                    itself (isPlayback), not on showManual/showCalendar. This
@@ -413,13 +432,6 @@
                   </div>
                 </div>
               </div>
-              <!-- Shared by #playback_control and #playback_control_calendar
-                   above (updateTimeline(), docs/window-ui/SRS.md FR-7.6) --
-                   deliberately a SIBLING of both, not nested inside either,
-                   so it stays visible/populatable regardless of which panel
-                   is currently shown (a display:none ancestor would hide it
-                   too, per FR-7.8's DESIGN.md). -->
-              <div class="field" id="timeline" style="display: inline; min-width: calc(100% - 5px)"></div>
               <div id="audio">
                 <div class="field-row">
                   <div class="field">

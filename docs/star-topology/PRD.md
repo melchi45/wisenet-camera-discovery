@@ -16,6 +16,7 @@
 |---|---|---|---|
 | 1.0 | 2026-08-27 | Youngho Kim | Initial PRD for the Star Topology view feature. |
 | 1.1 | 2026-08-28 | Youngho Kim | Added Title/Abstract/Author/Milestone/History metadata. |
+| 1.2 | 2026-09-01 | Youngho Kim | `ip` grouping now nests hubs `/8`→`/16`→`/24` by real subnet containment — see the Non-Goals update below and [SRS](SRS.md) FR-7/[DESIGN](DESIGN.md). |
 
 ## Problem
 
@@ -45,8 +46,12 @@ result set at all.
 - **Not real network topology.** Hub groupings are entirely client-side derivations of fields the
   table already shows (IP subnet, Name prefix, MAC OUI, Port, Protocol) — not actual NVR→channel
   relationships, ARP-table adjacency, or gateway/router topology. Hub nodes are never linked to
-  each other. See [MRD.md](MRD.md)'s alternatives table for why a "real" topology was out of scope
-  for this iteration, and what it would need.
+  each other, **except** the `ip` grouping's own `/8`→`/16`→`/24` hub chain — that nesting is real
+  IP-subnet containment computed directly from the key already being grouped on (not a new data
+  source, not a fabricated relationship between otherwise-unrelated groupings), so it's still
+  within this non-goal's spirit even though it does add hub-to-hub edges for that one `groupBy`
+  value. See [MRD.md](MRD.md)'s alternatives table for why a "real" (NVR→channel/ARP/gateway)
+  topology was out of scope for this iteration, and what it would need.
 - **Not a persistence feature.** The selected view type, group-by column, and search text are UI
   state only — nothing is saved to `chrome.storage.local`/the nodejs `/settings` endpoint, and
   nothing survives a page reload.

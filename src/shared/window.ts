@@ -708,10 +708,30 @@ function getTopologyGroupKey(row: string[], groupBy: string): string {
 }
 
 function getTopologyHubLabel(key: string, groupBy: string): string {
-  if (groupBy === 'ip') return key + '.0/24';
+  if (groupBy === 'ip') {
+    var octetCount = key.split('.').length;
+    if (octetCount === 1) return key + '.0.0.0/8';
+    if (octetCount === 2) return key + '.0.0/16';
+    return key + '.0/24';
+  }
   if (groupBy === 'mac') return key + ' (OUI)';
   if (groupBy === 'port') return 'Port ' + key;
   return key; // name / protocol
+}
+
+// ip-only: a /24 group key ("a.b.c") implies real subnet containment in its
+// /16 ("a.b") and /8 ("a") ancestors -- unlike every other groupBy's hub,
+// which stays a single, unlinked node (SRS FR-7), these ARE linked hub-to-hub
+// because /24 ⊂ /16 ⊂ /8 is an actual mathematical relationship read straight
+// off the IP itself, not an arbitrary grouping choice the way e.g. linking a
+// "Port 80" hub to a "MAC OUI" hub would be. See docs/star-topology/DESIGN.md.
+function getIpHubChain(key: string): string[] {
+  var octets = key.split('.');
+  var chain: string[] = [];
+  for (var i = 1; i <= octets.length; i++) {
+    chain.push(octets.slice(0, i).join('.'));
+  }
+  return chain; // "192.168.214" -> ["192", "192.168", "192.168.214"]
 }
 
 function renderDiscoveryTopology() {
@@ -724,7 +744,9 @@ function renderDiscoveryTopology() {
   // meaningful to group by than whichever column
   // #discovery_topology_group_by picks. Hub nodes are deliberately not
   // linked to each other for the same reason (see the comment on
-  // #datatable_topology in window.html).
+  // #datatable_topology in window.html) -- except ip's own /8->/16->/24
+  // chain (getIpHubChain), which is real subnet containment, not a
+  // fabricated cross-group link (see SRS FR-7's ip-only exception).
   //
   // Search reuses the exact same per-row predicate renderDiscoveryTable()
   // uses (any cell contains discoverySearchText) -- see MEMORY.md's
@@ -734,6 +756,7 @@ function renderDiscoveryTopology() {
   // per-groupBy-type matching rule.
   var groupIndex: { [key: string]: number } = {};
   var groupCount = 0;
+  var hubSeen: { [nodeId: string]: boolean } = {};
   var nodes: any[] = [];
   var edges: any[] = [];
 
@@ -746,21 +769,35 @@ function renderDiscoveryTopology() {
 
     var name = row[0], ip = row[1];
     var groupKey = getTopologyGroupKey(row, discoveryTopologyGroupBy);
+    var isIp = discoveryTopologyGroupBy === 'ip';
+    // For ip, color cycles by /8 root (colorKey), not by /24 leaf hub, so
+    // an entire subnet-containment chain (getIpHubChain) reads as one
+    // visual branch -- pre-hierarchy this used to be a new color per /24.
+    var colorKey = isIp ? groupKey.split('.')[0] : groupKey;
 
-    if (!(groupKey in groupIndex)) {
-      groupIndex[groupKey] = groupCount++;
-      var hubColors = TOPOLOGY_GROUP_COLORS[groupIndex[groupKey] % TOPOLOGY_GROUP_COLORS.length];
+    if (!(colorKey in groupIndex)) {
+      groupIndex[colorKey] = groupCount++;
+    }
+    var colors = TOPOLOGY_GROUP_COLORS[groupIndex[colorKey] % TOPOLOGY_GROUP_COLORS.length];
+
+    var hubChain = isIp ? getIpHubChain(groupKey) : [groupKey];
+    hubChain.forEach(function (hubKey, i) {
+      var hubId = 'hub:' + hubKey;
+      if (hubSeen[hubId]) return;
+      hubSeen[hubId] = true;
       nodes.push({
-        id: 'hub:' + groupKey,
-        label: getTopologyHubLabel(groupKey, discoveryTopologyGroupBy),
+        id: hubId,
+        label: getTopologyHubLabel(hubKey, discoveryTopologyGroupBy),
         shape: 'dot',
         size: 16,
-        color: hubColors.hub,
+        color: colors.hub,
         font: { color: '#ffffff' }
       });
-    }
+      if (i > 0) {
+        edges.push({ from: 'hub:' + hubChain[i - 1], to: hubId, color: { color: '#888888' } });
+      }
+    });
 
-    var colors = TOPOLOGY_GROUP_COLORS[groupIndex[groupKey] % TOPOLOGY_GROUP_COLORS.length];
     nodes.push({
       id: ip,
       label: name || ip,

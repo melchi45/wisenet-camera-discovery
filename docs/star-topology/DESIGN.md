@@ -16,6 +16,7 @@
 | 1.0 | 2026-08-27 | Youngho Kim | Initial DESIGN for the Star Topology view feature. |
 | 1.1 | 2026-08-27 | Youngho Kim | Documented disabling `layout.improvedLayout` to stop a repeated console warning. |
 | 1.2 | 2026-08-28 | Youngho Kim | Added Title/Abstract/Author/Milestone/History metadata. |
+| 1.3 | 2026-09-01 | Youngho Kim | Added "The `ip` grouping's hub hierarchy" section: `/8`→`/16`→`/24` hub-to-hub chain, dedup via `hubSeen`, and the per-`/8`-root color-cycling change. |
 
 ## Feasibility finding: `vis.Network` needed zero new dependencies
 
@@ -37,7 +38,55 @@ replies carry no parent/child device field (confirmed against `src/sunapi/respon
 `toLegacyDeviceObject()` — the only NVR-adjacent field, `nMaxChannel`, is a channel *count*, not
 per-channel identity, and isn't even forwarded into `dataSet` today). This is why every grouping
 this feature offers is a client-side derivation of fields already in that flat list, and why hub
-nodes are never linked to each other — there is no real edge to draw between them.
+nodes are never linked to each other — there is no real edge to draw between them. The one
+exception is the `ip` grouping's own `/8`→`/16`→`/24` hub chain (see the next section) — that
+nesting is still computed purely from the flat list (no new data source), but unlike every other
+grouping's hub, it *is* a real relationship (IP-subnet containment), not an arbitrary one, so it's
+drawn as one.
+
+## The `ip` grouping's hub hierarchy: `/8` → `/16` → `/24`, not one flat hub per subnet
+
+Every other `groupBy` value produces exactly one hub level: one hub node per distinct key, never
+linked to another hub. `ip` used to work the same way — one hub per `/24` (`getTopologyGroupKey`'s
+existing 3-dot-segment key), unlinked. That's a strictly *weaker* representation of the data than
+it could be, though: a `/24` key like `"192.168.214"` already contains its own `/16` (`"192.168"`)
+and `/8` (`"192"`) ancestors as literal substrings — nothing needs to be inferred or fetched, the
+containment is right there in the string. `getIpHubChain(key)` makes that explicit:
+
+```
+getIpHubChain("192.168.214") === ["192", "192.168", "192.168.214"]
+```
+
+`renderDiscoveryTopology()` walks this chain once per device (for `groupBy === 'ip'` only; every
+other `groupBy` still gets the old 1-element `[groupKey]` "chain") and, for each entry not already
+built this render (tracked in a `hubSeen: {[nodeId: string]: boolean}` map, keyed by the same
+`'hub:' + key` id scheme every hub already used), pushes one hub node plus one edge from the
+previous chain entry's hub to this one. Two devices sharing a `/16` but differing only in `/24`
+(`192.168.214.10` and `192.168.99.20`) each walk a chain whose first two entries (`"192"`,
+`"192.168"`) are already `hubSeen` by the time the second device is processed — so that shared
+`/16` (and its `/8` parent) gets exactly one node and one inbound edge, not one per device, and the
+two devices' `/24` hubs both end up as children of the same `/16` hub. A device on an unrelated
+`/8` (`10.0.0.5`) walks its own independent `["10", "10.0", "10.0.0"]` chain, sharing nothing with
+the `192.*` branch. The existing hub→leaf edge (`'hub:' + groupKey` → the device's IP) is unchanged
+— it always still points at the finest, `/24`-level hub, exactly as before this hierarchy existed.
+
+**Hub label formatting** (`getTopologyHubLabel`) is keyed off the chain entry's own dot-segment
+count rather than a separate "which level is this" parameter, since that count already fully
+determines it: 1 segment → `"{key}.0.0.0/8"`, 2 → `"{key}.0.0/16"`, 3 → `"{key}.0/24"` (this last
+case is byte-for-byte what the label already was before the hierarchy existed, so pre-existing
+single-`/24`-with-no-siblings graphs render identically to before — the `/8`/`/16` ancestors are
+just two more, previously-absent hub nodes above it).
+
+**Color now cycles by `/8` root, not by `/24` key.** Before this change, `TOPOLOGY_GROUP_COLORS`
+cycled by full group key, so two devices in different `/24`s always got different colors even if
+they shared a `/16`/`/8` — reasonable when `/24` was the only hub level, but confusing once `/16`/
+`/8` hubs exist above them (a `/16` hub with two differently-colored `/24` children, one of which
+matches the `/16`'s own color and one which doesn't, reads as an unrelated third color rather than
+"this `/16` has two child subnets"). `renderDiscoveryTopology()` now computes a separate
+`colorKey` — the chain's first (root) entry for `ip`, the plain group key for every other
+`groupBy` (unchanged there) — and looks the palette entry up by that instead, so every hub and
+leaf in one `/8` branch (however many `/16`s/`/24`s it contains) shares one color family, and only
+a different `/8` (or, for non-`ip` groupings, a different group) gets the next palette entry.
 
 ## Architecture
 
@@ -51,7 +100,8 @@ flowchart TB
   SEARCH --> FILTER
   FILTER --> GROUP["getTopologyGroupKey(row, groupBy)\n+ getTopologyHubLabel(key, groupBy)"]
   GB --> GROUP
-  GROUP --> NODES["nodes[]/edges[]\n(hub per group, leaf per device,\nleaf id = IPAddress always)"]
+  GROUP --> CHAIN["ip only: getIpHubChain(key)\n/8 -> /16 -> /24, deduped via hubSeen"]
+  CHAIN --> NODES["nodes[]/edges[]\n(hub per group [+ ip's chain ancestors],\nleaf per device, leaf id = IPAddress always)"]
   NODES --> DESTROY["visNetwork.destroy() if it exists,\nthen new vis.Network(container, data, options)"]
   DESTROY --> STAB["'stabilizationIterationsDone'\n(physics actually finished)"]
   STAB --> FIT["stopSimulation() + physics:false + fit()"]
@@ -137,8 +187,11 @@ pure noise/wasted-computation fix with no positioning-quality tradeoff for this 
 - **`src/shared/window.ts`**:
   - `getTopologyGroupKey()` / `getTopologyHubLabel()` — the per-`groupBy`-type rules from
     SRS FR-4/FR-5, table-driven via `TOPOLOGY_GROUP_COLUMN`.
-  - `TOPOLOGY_GROUP_COLORS` — a fixed 6-entry hub/leaf color palette, cycling by group index, kept
-    as plain hex strings deliberately (see the "hover" bullet below).
+  - `getIpHubChain()` — `ip`-only: expands a `/24` group key into its `/8`/`/16`/`/24` ancestor
+    chain (SRS FR-4/FR-7); see "The `ip` grouping's hub hierarchy" above.
+  - `TOPOLOGY_GROUP_COLORS` — a fixed 6-entry hub/leaf color palette, cycling by `colorKey` (the
+    chain's root entry for `ip`, the plain group key otherwise — see above), kept as plain hex
+    strings deliberately (see the "hover" bullet below).
   - `renderDiscoveryTopology()` — the pipeline in the diagram above: filter → group → build
     nodes/edges → destroy old `vis.Network` if any → construct a new one → wire `click` and
     `stabilizationIterationsDone`.

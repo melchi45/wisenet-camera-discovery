@@ -38,6 +38,26 @@
 // network calls itself (NFR-1) -- callers populate it via `overlappedIds`/
 // `setOverlappedIds()` with an already-fetched list and read the current
 // selection back via `getOverlappedId()`.
+//
+// Also owns the Calendar/SUNAPI flow's "Rule" select (`#event_rules_type`),
+// immediately left of Overlapped Id -- same move, requested again after an
+// earlier attempt that only relocated the static HTML markup regressed:
+// this component tears down and rebuilds its whole toolbar on every
+// mountEventTimeline() call (file header above), so a plain DOM move
+// without also wiring the value through this component's own mount
+// options/controller (the way Overlapped Id already was) got wiped on the
+// very next remount (any day/preset click). Unlike Overlapped Id, Rule data
+// is meaningful and expected to be interactive *before* the first search of
+// a panel-visible session (playbackCalendar.ts's getDynamicRules() fetch
+// runs independently of any day click) -- playbackCalendar.ts handles this
+// by mounting an empty-rows/items "shell" instance of this widget as soon
+// as Rule data is ready, which a real search later destroys and replaces
+// via updateTimeline() exactly like any other remount (ruleTypes/
+// selectedRuleType thread through that remount the same way overlappedIds/
+// selectedOverlappedId already do). Selecting a Rule fires
+// `onRuleTypeChange` (unlike Overlapped Id, which callers read passively
+// via `getOverlappedId()`) since a Rule change is itself expected to
+// trigger a fresh Timeline query, not just be read back later.
 
 export interface EventTimelineRow {
   id: string;
@@ -150,6 +170,28 @@ export interface MountEventTimelineOptions {
    *  whichever value the user had actually queried with, not silently snap
    *  back to the list's own default. */
   selectedOverlappedId?: string;
+  /** Initial Rule option values, rendered in the toolbar immediately to the
+   *  left of Overlapped Id (docs/event-timeline-component/SRS.md FR-16) --
+   *  omit or pass an empty array to start with no control shown at all,
+   *  matching Overlapped Id's own "absent until there's data" behavior
+   *  (`overlappedIds` above). Calendar/SUNAPI-flow-only (playbackCalendar.ts)
+   *  -- the manual flow (playback.ts) never passes this, so its own
+   *  `updateTimeline()` calls render no Rule control, same as before this
+   *  control existed. `{ value, label }` since the select's value (SUNAPI's
+   *  `Rule<N>` Timeline `Type` param) and its display label (the
+   *  configured RuleName) differ. */
+  ruleTypes?: { value: string; label: string }[];
+  /** Which of `ruleTypes` starts selected -- defaults to the select's
+   *  native default (first option) when omitted or not present in
+   *  `ruleTypes`. Mirrors `selectedOverlappedId` -- lets a remount (e.g. a
+   *  Rule-change re-search) keep showing the value the user actually
+   *  queried with. */
+  selectedRuleType?: string;
+  /** Fires when the user changes the Rule select -- unlike Overlapped Id
+   *  (read passively via `getOverlappedId()`), a Rule change is itself
+   *  expected to trigger a fresh Timeline query, so this is a callback
+   *  rather than a getter. Not fired by `setRuleTypes()` itself. */
+  onRuleTypeChange?: (value: string) => void;
   /** Fires once, on pointer release, when the user drags the current-time
    *  marker (`setCustomTime()`'s line) left/right -- `date` is the Date at
    *  the dropped position in the current zoom window. Not fired during the
@@ -190,6 +232,13 @@ export interface EventTimelineController {
    *  `getTimeline()` call (Rule change, a Selected Time-independent re-
    *  search) instead of querying `#overlapped_id` directly. */
   getOverlappedId(): string | null;
+  /** Repopulates the Rule select (FR-16) -- same add/remove-on-empty
+   *  behavior as `setOverlappedIds()`. `selectedValue` mirrors
+   *  `MountEventTimelineOptions.selectedRuleType`. */
+  setRuleTypes(options: { value: string; label: string }[], selectedValue?: string): void;
+  /** The Rule select's current value, or `null` when the control is empty/
+   *  not rendered. */
+  getRuleType(): string | null;
   /** Detaches all listeners/observers. Callers that re-mount into the same
    *  container on every search (playback.ts) must call this on the
    *  previous instance first. */
@@ -344,6 +393,42 @@ export function mountEventTimeline(config: MountEventTimelineOptions): EventTime
   }
   renderOverlappedIds(config.overlappedIds ?? [], config.selectedOverlappedId);
 
+  // ---- Rule (docs/event-timeline-component/SRS.md FR-16) ----------------
+  // Calendar/SUNAPI-flow-only -- replaces playbackCalendar.ts's own
+  // previously-separate static `#event_rules_type` markup, same move as
+  // Overlapped Id above (see the file-header note on why a plain DOM move
+  // alone doesn't survive a remount). Positioned immediately to the left of
+  // Overlapped Id.
+  const ruleTypeEl = document.createElement('div');
+  ruleTypeEl.className = 'event-timeline-rule-type';
+  let ruleTypeSelect: HTMLSelectElement | null = null;
+
+  function renderRuleTypes(options: { value: string; label: string }[], selectedValue?: string): void {
+    ruleTypeEl.replaceChildren();
+    ruleTypeSelect = null;
+    if (options.length === 0) {
+      return;
+    }
+    const label = document.createElement('span');
+    label.className = 'event-timeline-rule-type-label';
+    label.textContent = 'Rule:';
+    const select = document.createElement('select');
+    select.id = 'event_rules_type';
+    for (const opt of options) {
+      const optionEl = document.createElement('option');
+      optionEl.value = opt.value;
+      optionEl.textContent = opt.label;
+      select.append(optionEl);
+    }
+    if (selectedValue !== undefined && options.some((opt) => opt.value === selectedValue)) {
+      select.value = selectedValue;
+    }
+    select.addEventListener('change', () => config.onRuleTypeChange?.(select.value));
+    ruleTypeEl.append(label, select);
+    ruleTypeSelect = select;
+  }
+  renderRuleTypes(config.ruleTypes ?? [], config.selectedRuleType);
+
   const toolbarLeft = document.createElement('div');
   toolbarLeft.className = 'event-timeline-toolbar-left';
 
@@ -394,7 +479,7 @@ export function mountEventTimeline(config: MountEventTimelineOptions): EventTime
   zoomInBtn.addEventListener('click', () => zoomAroundRatio(0.5, 1 / BUTTON_ZOOM_FACTOR));
   zoomControlsEl.append(zoomOutBtn, zoomReadout, zoomInBtn);
 
-  toolbarLeft.append(overlappedIdEl, presetsEl);
+  toolbarLeft.append(ruleTypeEl, overlappedIdEl, presetsEl);
   toolbar.append(toolbarLeft, zoomControlsEl);
   root.append(toolbar);
 
@@ -1125,6 +1210,12 @@ export function mountEventTimeline(config: MountEventTimelineOptions): EventTime
     },
     getOverlappedId(): string | null {
       return overlappedIdSelect !== null ? overlappedIdSelect.value : null;
+    },
+    setRuleTypes(options: { value: string; label: string }[], selectedValue?: string): void {
+      renderRuleTypes(options, selectedValue);
+    },
+    getRuleType(): string | null {
+      return ruleTypeSelect !== null ? ruleTypeSelect.value : null;
     },
     destroy(): void {
       resizeObserver.disconnect();

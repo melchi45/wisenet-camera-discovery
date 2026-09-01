@@ -398,6 +398,18 @@ export function updateTimeline(
   // snapping back to overlappedIds' own default (event-timeline.ts's
   // `selectedOverlappedId`).
   selectedOverlappedId?: string,
+  // FR-16: the Calendar/SUNAPI flow's Rule options, threaded through to the
+  // widget's own toolbar control (event-timeline.ts's `ruleTypes` mount
+  // option) -- same move/reasoning as overlappedIds above. The manual flow
+  // (runManualTimelineSearch()) never passes these, so its own
+  // updateTimeline() calls render no Rule control (Calendar/SUNAPI-only).
+  ruleTypes?: { value: string; label: string }[],
+  // Which of ruleTypes is currently selected -- mirrors selectedOverlappedId,
+  // so a Rule-change remount keeps showing the value just queried with.
+  selectedRuleType?: string,
+  // Fires when the user changes the Rule select inside the remounted
+  // widget -- playbackCalendar.ts wires this back into its own re-search.
+  onRuleTypeChange?: (value: string) => void,
 ): void {
   // Only the outer envelope being empty (no `results[0]` at all) is a real
   // error worth the popup below -- `results[0].Results` being an empty
@@ -509,6 +521,9 @@ export function updateTimeline(
       dataRange,
       overlappedIds,
       selectedOverlappedId,
+      ruleTypes,
+      selectedRuleType,
+      onRuleTypeChange,
       formatTick,
       onSelect: (item) => {
         if (state.getSelectedPlayer().readyState === RTSPOverWebSocketPlayState.PLAYING) {

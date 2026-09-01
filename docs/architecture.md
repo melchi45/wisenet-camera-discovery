@@ -228,7 +228,11 @@ every interaction (hover/click/drag) to misbehave after a search/group-by re-ren
 is still the single write path; the topology view adds no second data source. `dataSet` stays a
 flat, IP-keyed list (see above) — SUNAPI discovery has no parent/child device field, so the
 topology's hub nodes are always a client-side derivation, not real network topology, and hub nodes
-are never linked to each other for the same reason. See `MEMORY.md`'s "Discovery result 'Star
+are never linked to each other for the same reason — **except** the `ip` grouping's own
+`/8`→`/16`→`/24` hub chain, which *is* linked hub-to-hub because IP-subnet containment is a real
+relationship read directly off the group key, not a fabricated one (see
+`docs/star-topology/DESIGN.md`'s "The `ip` grouping's hub hierarchy" section for the
+`getIpHubChain()`/dedup/color-cycling details). See `MEMORY.md`'s "Discovery result 'Star
 Topology' view" entry for why this needed no new dependency (`vis.Network` ships in the same `vis`
 package already used for the playback `Timeline`, already fully bundled via `window.ts`'s `import
 * as vis from 'vis'`) and what would be needed for a real NVR→channel hierarchy instead. Selecting
@@ -246,7 +250,7 @@ groupBy)` formats the hub's label:
 
 | `groupBy` value | `dataSet` index | key extraction | hub label |
 |---|---|---|---|
-| `ip` (default) | 1 (IPAddress) | first 3 dot-segments (`/24`) | `"{key}.0/24"` |
+| `ip` (default) | 1 (IPAddress) | first 3 dot-segments (`/24`), plus `/16`/`/8` ancestor hubs chained above it | `"{key}.0/24"` (`/16`: `"{key}.0.0/16"`, `/8`: `"{key}.0.0.0/8"`) |
 | `name` | 0 (DeviceName) | substring before the first `-` (whole value if none) | `"{key}"` |
 | `mac` | 2 (MACAddress) | first 3 colon-segments (OUI/vendor prefix) | `"{key} (OUI)"` |
 | `port` | 3 (Port) | exact value | `"Port {key}"` |

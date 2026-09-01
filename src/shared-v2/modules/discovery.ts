@@ -149,10 +149,29 @@ function getTopologyGroupKey(row: string[], groupBy: string): string {
 }
 
 function getTopologyHubLabel(key: string, groupBy: string): string {
-  if (groupBy === 'ip') return key + '.0/24';
+  if (groupBy === 'ip') {
+    const octetCount = key.split('.').length;
+    if (octetCount === 1) return key + '.0.0.0/8';
+    if (octetCount === 2) return key + '.0.0/16';
+    return key + '.0/24';
+  }
   if (groupBy === 'mac') return key + ' (OUI)';
   if (groupBy === 'port') return 'Port ' + key;
   return key;
+}
+
+// ip-only: a /24 group key ("a.b.c") implies real subnet containment in its
+// /16 ("a.b") and /8 ("a") ancestors -- unlike every other groupBy's hub,
+// which stays a single, unlinked node, these ARE linked hub-to-hub because
+// /24 ⊂ /16 ⊂ /8 is a real relationship read off the IP itself, not an
+// arbitrary grouping choice. See docs/star-topology/DESIGN.md.
+function getIpHubChain(key: string): string[] {
+  const octets = key.split('.');
+  const chain: string[] = [];
+  for (let i = 1; i <= octets.length; i++) {
+    chain.push(octets.slice(0, i).join('.'));
+  }
+  return chain; // "192.168.214" -> ["192", "192.168", "192.168.214"]
 }
 
 export function renderDiscoveryTopology(): void {
@@ -161,6 +180,7 @@ export function renderDiscoveryTopology(): void {
 
   const groupIndex: { [key: string]: number } = {};
   let groupCount = 0;
+  const hubSeen: { [nodeId: string]: boolean } = {};
   const nodes: any[] = [];
   const edges: any[] = [];
 
@@ -175,21 +195,35 @@ export function renderDiscoveryTopology(): void {
     const name = row[0];
     const ip = row[1];
     const groupKey = getTopologyGroupKey(row, state.discoveryTopologyGroupBy);
+    const isIp = state.discoveryTopologyGroupBy === 'ip';
+    // For ip, color cycles by /8 root (colorKey), not by /24 leaf hub, so an
+    // entire subnet-containment chain (getIpHubChain) reads as one visual
+    // branch -- pre-hierarchy this used to be a new color per /24.
+    const colorKey = isIp ? groupKey.split('.')[0] : groupKey;
 
-    if (!(groupKey in groupIndex)) {
-      groupIndex[groupKey] = groupCount++;
-      const hubColors = TOPOLOGY_GROUP_COLORS[groupIndex[groupKey] % TOPOLOGY_GROUP_COLORS.length];
+    if (!(colorKey in groupIndex)) {
+      groupIndex[colorKey] = groupCount++;
+    }
+    const colors = TOPOLOGY_GROUP_COLORS[groupIndex[colorKey] % TOPOLOGY_GROUP_COLORS.length];
+
+    const hubChain = isIp ? getIpHubChain(groupKey) : [groupKey];
+    hubChain.forEach((hubKey, i) => {
+      const hubId = 'hub:' + hubKey;
+      if (hubSeen[hubId]) return;
+      hubSeen[hubId] = true;
       nodes.push({
-        id: 'hub:' + groupKey,
-        label: getTopologyHubLabel(groupKey, state.discoveryTopologyGroupBy),
+        id: hubId,
+        label: getTopologyHubLabel(hubKey, state.discoveryTopologyGroupBy),
         shape: 'dot',
         size: 16,
-        color: hubColors.hub,
+        color: colors.hub,
         font: { color: '#ffffff' },
       });
-    }
+      if (i > 0) {
+        edges.push({ from: 'hub:' + hubChain[i - 1], to: hubId, color: { color: '#888888' } });
+      }
+    });
 
-    const colors = TOPOLOGY_GROUP_COLORS[groupIndex[groupKey] % TOPOLOGY_GROUP_COLORS.length];
     nodes.push({
       id: ip,
       label: name || ip,

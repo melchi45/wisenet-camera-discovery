@@ -411,6 +411,32 @@ when several seemingly-different interaction bugs all share one precondition ("o
 patching them one at a time — look for what X actually changes structurally (here: reusing one
 long-lived widget instance across data updates) before trying a fourth narrower fix.
 
+**Third follow-up (2026-09-01): `ip` grouping now nests hubs `/8`→`/16`→`/24` by real subnet
+containment, deliberately breaking the "hub nodes are never linked to each other" rule from the
+original entry above — but only for `ip`.** User request: `192.168.214.x` should visually nest
+under a `192.168/16` hub, which should nest under a `192/8` hub, not sit as an unlinked flat `/24`
+hub the way it always had. The original "never linked" design (see above, and SRS FR-7/PRD's
+Non-Goals) was a deliberate call, not an oversight — its rationale was that grouping is a derived
+convenience, not real topology, so linking hubs would misleadingly imply a real relationship that
+doesn't exist. IP-subnet containment is the one case where that concern doesn't actually apply:
+`/24` ⊂ `/16` ⊂ `/8` is a real, computable relationship read directly off the existing `/24` group
+key (`"192.168.214"`'s first 1/2/3 dot-segments), not a fabricated cross-group link — so hub-to-hub
+edges for *this one grouping* don't undermine the "not real topology" framing everywhere else.
+Implemented as `getIpHubChain(key)` (new, both `src/shared/window.ts` and
+`src/shared-v2/modules/discovery.ts` — this feature predates `shared-v2` and had to be ported by
+hand, not regenerated from a spec, since `docs/star-topology/` has no `shared-v2`-specific section)
+expanding a `/24` key into `["a", "a.b", "a.b.c"]`, walked once per device inside
+`renderDiscoveryTopology()`, deduped via a new `hubSeen` map keyed by the same `'hub:' + key` id
+scheme every hub already used — so a `/16`/`/8` shared by multiple `/24`s (or `/16`s) still gets
+exactly one node, not one per device. Also changed hub *color* to cycle by the chain's root (`/8`)
+entry rather than the full `/24` key, so a `/16` hub and its `/24` children read as one visual
+branch instead of one arbitrary color per `/24` — this was a secondary fix once the hierarchy made
+the old per-`/24` coloring look wrong (a `/16` hub with two differently-colored `/24` children no
+longer visually reads as "these belong together"). Every other `groupBy` (`name`/`mac`/`port`/
+`protocol`) is completely unaffected — they still get the original single unlinked hub per group.
+See `docs/star-topology/DESIGN.md`'s "The `ip` grouping's hub hierarchy" section for the full
+algorithm write-up.
+
 ## Three small copy-paste/wiring bugs in the playback controls, found in one pass
 
 Not one bug with a deep root cause like the entries above — three unrelated, shallow ones that
@@ -1752,3 +1778,31 @@ CSS/TS in isolation:
   is the second time this exact behavior has flipped (v2.3 deliberately chose "keep the highlight
   visible", v2.9 deliberately reversed it) — check history before assuming either direction is
   obviously correct.
+
+## Overlapped Id moved into the Event Timeline widget — remounting on Rule change nearly clobbered a manual pick
+
+Requested directly by the user: move Overlapped Id (previously two separate, near-identical
+`<select>`s DOM-built by `playback.ts`'s manual flow into `#overlapped_id_area` and
+`playbackCalendar.ts`'s Calendar flow into `#calendar_overlapped_id_area`) into the shared Event
+Timeline widget's own toolbar, immediately left of the 1H/6H/1D/1W/1M/1Y preset buttons — the same
+single-canonical-control move `docs/event-timeline-component/SRS.md` v2.0 already made for Selected
+Time. See that doc's FR-15 (v2.11) and `docs/window-ui/SRS.md` v2.14/DESIGN.md v1.28.
+
+The one real design trap: `event-timeline.ts`'s `mountEventTimeline()` is **not** idempotent (FR-12)
+— every `updateTimeline()` call fully destroys and rebuilds the widget, Overlapped Id select
+included. `playbackCalendar.ts`'s Rule dropdown (`#event_rules_type`'s `change` listener,
+`runCalendarTimelineSearch()`) redraws `#timeline` on every Rule change but deliberately does **not**
+re-fetch Overlapped Id (`getOverlappedIdList()` doesn't depend on `Type`) — so a naive port would
+have silently reset a user's manually-picked Overlapped Id back to the list's own default every time
+they changed the Rule filter, since the freshly-remounted select has no memory of what was selected
+before the destroy. Fixed by having `runCalendarTimelineSearch()` compute the query's own
+`overlappedId` from `state.eventTimeline?.getOverlappedId()` (the *live*, pre-remount selection)
+whenever it's still a member of the cached `currentOverlappedIds` list (true for a same-day Rule
+change), falling back to that list's own default only when it isn't (a genuinely fresh day/preset
+fetch just replaced the list) — and threading that same resolved value back into `updateTimeline()`'s
+new `selectedOverlappedId` parameter (`event-timeline.ts`'s `setOverlappedIds(ids, selectedId)`) so
+the remounted select keeps showing it instead of silently snapping to the default. General lesson:
+whenever a stateful control moves into this component, check every caller that redraws `#timeline`
+*without* also re-fetching that control's own data — FR-12's full-remount-every-time design means
+"the control's value" and "the data used for the just-completed query" can silently diverge unless
+the caller deliberately threads the query's actual value back through the next mount.

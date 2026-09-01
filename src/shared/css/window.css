@@ -296,6 +296,46 @@ body {
   color: var(--text-subtle);
 }
 
+/* src/shared-v2/-only: places #timeline beside #playback_control_calendar
+   (the SUNAPI Calendar search panel) instead of stacked below it -- #timeline
+   stays a plain sibling here, not nested inside the panel (see the wrapper's
+   own HTML comment on why), so this is purely visual. When the manual flow
+   (#playback_control) is active instead, #playback_control_calendar is
+   display:none and #timeline is simply this row's only child -- unaffected,
+   wraps to its own full-width line like before this row existed. Requested
+   directly by the user. */
+.playback-calendar-timeline-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.playback-calendar-timeline-row #playback_control_calendar {
+  flex: 0 1 340px;
+  min-width: 260px;
+}
+
+/* #playback_calendar sits inside a plain .field-row (display:flex), where a
+   flex item with no flex-grow/width shrinks to its own content's minimum
+   size instead of filling the row -- calendar.css's .calendar-grid then
+   computes its `1fr` columns against that shrunk width, landing near their
+   28px minimum (~208px total) rather than stretching to fill
+   #playback_control_calendar's full 340px. Invisible before this row
+   existed (nothing sat beside the panel to make the leftover space read as
+   a "gap"); now a wide blank strip between the calendar and #timeline.
+   Reported directly by the user. */
+.playback-calendar-timeline-row #playback_calendar {
+  flex: 1 1 auto;
+  width: 100%;
+}
+
+.playback-calendar-timeline-row .event-timeline-slot {
+  display: block;
+  flex: 1 1 420px;
+  min-width: 380px;
+}
+
 /* A row of fields that wraps naturally instead of relying on float+fixed
    widths — replaces the old .group/.control float layout. */
 .field-row {

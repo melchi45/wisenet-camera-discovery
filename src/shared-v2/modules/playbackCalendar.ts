@@ -13,6 +13,7 @@
 
 import moment from 'moment';
 import { mountCalendar, CalendarController } from '../../component/calendar/calendar';
+import { mountEventTimeline } from '../../component/event-timeline/event-timeline';
 import { state } from './state';
 import { changedebug, fastJsonStringfy, gettimezonestring } from './helpers';
 import { parseRecordedDaysFromCalendarSearch, updateTimeline, clearSelectedTime, updateManualPlaybackPanelVisibility } from './playback';
@@ -141,6 +142,57 @@ function refreshEventRules(): void {
     });
 }
 
+/** FR-16 (docs/event-timeline-component/SRS.md): the Rule select's options
+ *  and current value -- the select itself lives inside the Event Timeline
+ *  widget's own toolbar now (event-timeline.ts), rebuilt on every remount,
+ *  so this module tracks both across remounts the same way
+ *  `currentOverlappedIds` already does for Overlapped Id. `currentRuleTypeValue`
+ *  defaults to 'All', matching getTimeline()'s own default `type` param
+ *  (SunapiManager.ts's buildTimelineUri()) and the pre-move select's native
+ *  default (its first, explicitly-added 'All' option). */
+let currentRuleTypeOptions: { value: string; label: string }[] = [{ value: 'All', label: 'All' }];
+let currentRuleTypeValue = 'All';
+
+/** FR-16's own 'change' handler, threaded into every
+ *  mountEventTimeline()/updateTimeline() call that renders the Rule select
+ *  (ensureEventTimelineShell() below and runCalendarTimelineSearch()'s own
+ *  updateTimeline() call) -- updates the tracked value then re-runs the
+ *  Timeline query for it, same effect the pre-move static
+ *  `#event_rules_type` 'change' listener had (see git history), just
+ *  re-wired per-remount instead of attached once at setup time (a listener
+ *  attached to a since-destroyed, previously-rendered select would never
+ *  fire again after the very next remount). */
+function onRuleTypeChange(value: string): void {
+  currentRuleTypeValue = value;
+  runCalendarTimelineSearch();
+}
+
+/** FR-16: mounts an empty-rows/items "shell" instance of the Event Timeline
+ *  widget the first time this panel's Rule data is ready, so the Rule
+ *  select has somewhere to render into (and is visible/interactive)
+ *  *before* the first day/preset click -- unlike Overlapped Id, Rule data
+ *  (getDynamicRules()) is fetched independently of any search and is meant
+ *  to be usable immediately, but the widget itself is otherwise only ever
+ *  created by updateTimeline() on a real Timeline response. A real search
+ *  later destroys and replaces this shell via updateTimeline() exactly like
+ *  any other remount (currentRuleTypeOptions/currentRuleTypeValue thread
+ *  through that remount the same way currentOverlappedIds does). No-op if a
+ *  widget (shell or real data) already exists -- callers still need to call
+ *  `setRuleTypes()` themselves for that case (see populateRuleSelect()). */
+function ensureEventTimelineShell(): void {
+  if (state.eventTimeline !== null) {
+    return;
+  }
+  state.eventTimeline = mountEventTimeline({
+    containerId: 'timeline',
+    rows: [],
+    items: [],
+    ruleTypes: currentRuleTypeOptions,
+    selectedRuleType: currentRuleTypeValue,
+    onRuleTypeChange,
+  });
+}
+
 /** getDynamicRules() returns each *configured* rule as a whole
  *  (`{Rule: <number>, RuleName: <localized display name>, EventSources:
  *  [{Channel, ...}], ...}`) -- one option per rule whose EventSources
@@ -156,18 +208,11 @@ function refreshEventRules(): void {
  *  getDynamicRulesOptions()/getDynamicRules(), which doesn't match what
  *  the Timeline endpoint's `Type` param actually accepts. */
 function populateRuleSelect(ruleEntries: any[], channel: number): void {
-  const select = document.getElementById('event_rules_type') as HTMLSelectElement;
-  const previousValue = select.value;
-  select.replaceChildren();
-
   // getTimeline()'s own `type` parameter defaults to 'All' when omitted
   // (SunapiManager.ts's buildTimelineUri()) -- offered here explicitly, as
   // the first/default option, so the user can search every event type
   // instead of one specific Rule.
-  const allOption = document.createElement('option');
-  allOption.value = 'All';
-  allOption.textContent = 'All';
-  select.append(allOption);
+  const options: { value: string; label: string }[] = [{ value: 'All', label: 'All' }];
 
   for (const entry of ruleEntries ?? []) {
     if (typeof entry.Rule !== 'number') {
@@ -177,14 +222,18 @@ function populateRuleSelect(ruleEntries: any[], channel: number): void {
     if (!appliesToChannel) {
       continue;
     }
-    const option = document.createElement('option');
-    option.value = 'Rule' + (entry.Rule + 1);
-    option.textContent = typeof entry.RuleName === 'string' ? entry.RuleName : 'Rule ' + (entry.Rule + 1);
-    select.append(option);
+    options.push({
+      value: 'Rule' + (entry.Rule + 1),
+      label: typeof entry.RuleName === 'string' ? entry.RuleName : 'Rule ' + (entry.Rule + 1),
+    });
   }
-  if (Array.from(select.options).some((opt) => opt.value === previousValue)) {
-    select.value = previousValue;
+
+  currentRuleTypeOptions = options;
+  if (!options.some((opt) => opt.value === currentRuleTypeValue)) {
+    currentRuleTypeValue = 'All';
   }
+  ensureEventTimelineShell();
+  state.eventTimeline?.setRuleTypes(currentRuleTypeOptions, currentRuleTypeValue);
 }
 
 /** Called from device.ts's changechannel() -- the Rule list is
@@ -215,19 +264,24 @@ export function refreshRuleSelectForChannelChange(): void {
  *    already hides it on leaving Playback mode entirely.
  *  - Overlapped Id (the Event Timeline's own toolbar select, shared with
  *    FR-7.1's manual flow -- see event-timeline.ts FR-15) resets to its
- *    pre-day-click (empty) state, `currentCalendarSearchRange`
- *    clears (so a stray Rule change before the next day/preset click
- *    silently no-ops rather than reusing the OLD channel's range), and
- *    `#calendar_search_area` (their shared container) hides again. Selected
- *    Time (the Event Timeline's own, shared with FR-7.1's manual flow)
- *    resets via playback.ts's clearSelectedTime().
+ *    pre-day-click (empty) state, and `currentCalendarSearchRange` clears
+ *    (so a stray Rule change before the next day/preset click silently
+ *    no-ops rather than reusing the OLD channel's range). `#timeline`
+ *    itself (their shared container, also Rule's -- FR-16) is already
+ *    hidden by the unconditional step above. Selected Time (the Event
+ *    Timeline's own, shared with FR-7.1's manual flow) resets via
+ *    playback.ts's clearSelectedTime(). Rule's own options/value are left
+ *    untouched here (never were, even before FR-16) -- the separate,
+ *    already-in-flight `refreshRuleSelectForChannelChange()` fetch (called
+ *    just before this function, see device.ts) repopulates them for the new
+ *    channel shortly after.
  *  - Finally, FR-7.8.4's month search re-runs for the currently-displayed
  *    month so the Calendar's highlighted-recorded-days reflect the NEW
  *    channel (same 0-based `ChannelIDList` numbering as FR-7.8.2/FR-7.8.5) --
  *    passing `revealSearchArea: false` so this specific re-fetch does NOT
- *    undo the reset above by re-showing `#calendar_search_area` the way a
- *    normal month navigation does (there's nothing to show yet: no day has
- *    been clicked for the new channel).
+ *    undo the reset above by re-showing `#timeline` the way a normal month
+ *    navigation does (there's nothing to show yet: no day has been clicked
+ *    for the new channel).
  *
  *  The Calendar-specific steps no-op while this panel isn't showing (Live
  *  mode, or Playback with SUNAPI Off) -- same guard as
@@ -255,7 +309,6 @@ export function resetPlaybackSearchStateForChannelChange(): void {
     // removing DOM elements directly.
     currentOverlappedIds = [];
     state.eventTimeline?.setOverlappedIds([]);
-    (document.getElementById('calendar_search_area') as HTMLElement).style.display = 'none';
     calendarController?.setSelectedDay(null);
     state.getSelectedPlayer().overlappedId = 0;
     currentCalendarSearchRange = null;
@@ -270,7 +323,8 @@ export function resetPlaybackSearchStateForChannelChange(): void {
 }
 
 /** FR-7.8.4: getCalendarSearch(YYYY-MM, channel) -> highlight recorded days
- *  -> reveal the Rule / Overlapped Id controls (`#calendar_search_area`).
+ *  -> reveal `#timeline` (the Rule/Overlapped Id controls' shared
+ *  container, FR-16/FR-15).
  *
  *  The very first call each time the panel is shown waits on
  *  `firstShowBarrier` (fetchLanguageAndRules()'s own getDeviceInfo()
@@ -296,12 +350,14 @@ export function resetPlaybackSearchStateForChannelChange(): void {
  *  the investigation this comment is based on).
  *
  *  `revealSearchArea` (default `true`, matching every pre-existing caller:
- *  initial mount and month navigation) re-shows `#calendar_search_area`
- *  once the fetch resolves, regardless of whether any day has recordings --
- *  see this function's own doc comment above. `resetPlaybackSearchStateForChannelChange()`
- *  passes `false` for its own channel-change-triggered re-fetch, since that
- *  function has deliberately just hidden that same area and there's
- *  nothing yet to show for the new channel until a day is clicked again. */
+ *  initial mount and month navigation) shows `#timeline` (ensuring the FR-16
+ *  shell exists first, in case this resolves before populateRuleSelect()'s
+ *  own does) once the fetch resolves, regardless of whether any day has
+ *  recordings -- see this function's own doc comment above.
+ *  `resetPlaybackSearchStateForChannelChange()` passes `false` for its own
+ *  channel-change-triggered re-fetch, since that function has deliberately
+ *  just hidden that same container and there's nothing yet to show for the
+ *  new channel until a day is clicked again. */
 function runMonthSearch(year: number, month: number, revealSearchArea = true): void {
   const barrier = firstShowBarrier;
   firstShowBarrier = null;
@@ -315,7 +371,8 @@ function runMonthSearch(year: number, month: number, revealSearchArea = true): v
           const recordedDays = parseRecordedDaysFromCalendarSearch(calendar);
           calendarController?.setHighlightedDays(recordedDays, year, month);
           if (revealSearchArea) {
-            (document.getElementById('calendar_search_area') as HTMLElement).style.display = '';
+            ensureEventTimelineShell();
+            (document.getElementById('timeline') as HTMLElement).style.display = 'block';
           }
         })
         .catch((error: any) => {
@@ -338,15 +395,16 @@ function runMonthSearch(year: number, month: number, revealSearchArea = true): v
 function onCalendarDayClick(year: number, month: number, day: number): void {
   try {
     // Defensive: a day is clickable (highlighted) independently of
-    // #calendar_search_area's own visibility -- normally already showing
-    // by the time any day is clickable (FR-7.8.4's month search reveals it
-    // before highlighting anything), but resetPlaybackSearchStateForChannelChange()
+    // #timeline's own visibility -- normally already showing by the time
+    // any day is clickable (FR-7.8.4's month search reveals it before
+    // highlighting anything), but resetPlaybackSearchStateForChannelChange()
     // (FR-7.8.6) deliberately leaves it hidden after a channel change until
     // the next month navigation. Without this, a day click right after a
     // channel change (no month nav in between) would populate Rule/
     // Overlapped Id into a still-`display:none` container, invisible to
     // the user.
-    (document.getElementById('calendar_search_area') as HTMLElement).style.display = '';
+    ensureEventTimelineShell();
+    (document.getElementById('timeline') as HTMLElement).style.display = 'block';
 
     calendarController?.setSelectedDay(day);
     const dayStr = year + '-' + String(month).padStart(2, '0') + '-' + String(day).padStart(2, '0');
@@ -449,9 +507,10 @@ function runOverlappedAndTimelineSearch(strSearchStartTime: string, strSearchEnd
   }
 }
 
-/** FR-7.8.2: `#event_rules_type`'s own 'change' listener -- re-fetches just
- *  getTimeline() (not Overlapped Id) for the currently-set date range and
- *  Overlapped Id, with the newly-selected Rule as the query's own `Type`
+/** FR-16: the Rule select's own 'change' handler (`onRuleTypeChange` above,
+ *  threaded through every mount of the widget that renders it) -- re-fetches
+ *  just getTimeline() (not Overlapped Id) for the currently-set date range
+ *  and Overlapped Id, with the newly-selected Rule as the query's own `Type`
  *  param, and redraws `#timeline` from that response. Split out of
  *  runOverlappedAndTimelineSearch() (which still calls this as its own
  *  tail step after a day click) since changing which Rule to filter by
@@ -459,9 +518,11 @@ function runOverlappedAndTimelineSearch(strSearchStartTime: string, strSearchEnd
  *  (Overlapped Id) is selected -- re-fetching that too on every Rule
  *  change would be a wasted request. No-op (silently) if nothing has been
  *  searched yet this panel-visible session (`currentCalendarSearchRange`
- *  still `null`). Also passed as `updateTimeline()`'s `onRangePresetSelect`
- *  by both callers below, since a preset click should always land here
- *  regardless of what triggered the search it's redrawing.
+ *  still `null`) -- reachable now that Rule is interactive before any day
+ *  click (FR-16's shell), not just via the pre-FR-16 static select. Also
+ *  passed as `updateTimeline()`'s `onRangePresetSelect` by both callers
+ *  below, since a preset click should always land here regardless of what
+ *  triggered the search it's redrawing.
  *
  *  FR-15: since Overlapped Id now lives inside the Event Timeline widget's
  *  own toolbar, and `updateTimeline()` fully remounts that widget on every
@@ -477,7 +538,10 @@ function runOverlappedAndTimelineSearch(strSearchStartTime: string, strSearchEnd
  *  the pre-move select box's own highest-index-first default). The result
  *  is also passed back into `updateTimeline()`'s `selectedOverlappedId` so
  *  the remounted select keeps showing this same value instead of silently
- *  snapping to the list's default. */
+ *  snapping to the list's default. `currentRuleTypeValue` (FR-16) needs no
+ *  equivalent live-vs-cache reconciliation -- unlike Overlapped Id it's
+ *  updated synchronously, right here, by `onRuleTypeChange` before this
+ *  function is even called, so it's always already the value just picked. */
 function runCalendarTimelineSearch(): void {
   try {
     if (currentCalendarSearchRange === null) {
@@ -485,7 +549,7 @@ function runCalendarTimelineSearch(): void {
     }
     const { strSearchStartTime, strSearchEndTime } = currentCalendarSearchRange;
     const channel = Number(state.getSelectedPlayer().channel) - 1;
-    const ruleType = (document.getElementById('event_rules_type') as HTMLSelectElement).value;
+    const ruleType = currentRuleTypeValue;
     const liveSelection = state.eventTimeline?.getOverlappedId() ?? null;
     const overlappedId = liveSelection !== null && currentOverlappedIds.includes(liveSelection)
       ? liveSelection
@@ -498,6 +562,7 @@ function runCalendarTimelineSearch(): void {
             timeline.TimeLineSearchResults, onCalendarRangePresetSelect,
             { start: new Date(strSearchStartTime), end: new Date(strSearchEndTime) },
             currentOverlappedIds, overlappedId,
+            currentRuleTypeOptions, currentRuleTypeValue, onRuleTypeChange,
           );
           (document.getElementById('timeline') as HTMLElement).style.display = 'block';
         }
@@ -532,11 +597,12 @@ export function setupPlaybackCalendar(): void {
   }
   languageSelect.addEventListener('change', refreshEventRules);
 
-  // FR-7.8.2: changing which Rule to filter by re-runs just the Timeline
-  // query (not Overlapped Id) for whatever date range is already set --
-  // no-ops silently if no day/preset has been clicked yet (see
-  // currentCalendarSearchRange's own doc comment). Reported directly by the
-  // user: the Rule dropdown previously only took effect on the *next* day
-  // click, not immediately against results already on screen.
-  document.getElementById('event_rules_type')!.addEventListener('change', runCalendarTimelineSearch);
+  // FR-16: unlike #event_rules_language above (a static element that lives
+  // for the page's whole lifetime), the Rule select itself now lives inside
+  // the Event Timeline widget's own toolbar, torn down and rebuilt on every
+  // remount -- a single addEventListener() here would stop firing after the
+  // very first remount, since it'd be attached to an already-destroyed
+  // element. Wired per-mount instead, via `onRuleTypeChange` passed to every
+  // mountEventTimeline()/updateTimeline() call that renders it
+  // (ensureEventTimelineShell(), runCalendarTimelineSearch()).
 }

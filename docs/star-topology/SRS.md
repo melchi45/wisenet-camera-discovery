@@ -15,6 +15,7 @@
 |---|---|---|---|
 | 1.0 | 2026-08-27 | Youngho Kim | Initial SRS for the Star Topology view feature. |
 | 1.1 | 2026-08-28 | Youngho Kim | Added Title/Abstract/Author/Milestone/History metadata. |
+| 1.2 | 2026-09-01 | Youngho Kim | `ip` grouping now builds a real `/8`→`/16`→`/24` subnet-containment hub chain (FR-4/FR-5/FR-7 updated); hub color now cycles per `/8` root instead of per `/24` group. |
 
 ## Functional requirements
 
@@ -39,15 +40,27 @@
   | `port` | 3 | exact value, no truncation |
   | `protocol` | 5 | exact value, no truncation |
 
-- **FR-5**: `getTopologyHubLabel(key, groupBy)` formats the hub node's label: `"{key}.0/24"` for
-  `ip`, `"{key} (OUI)"` for `mac`, `"Port {key}"` for `port`, and `"{key}"` unchanged for `name`/
-  `protocol`.
+  For `ip` specifically, `getIpHubChain(key)` further expands that `/24` key into its `/8` (first
+  1 dot-segment) and `/16` (first 2 dot-segments) ancestor keys — e.g. `"192.168.214"` →
+  `["192", "192.168", "192.168.214"]` — one hub node per chain entry (FR-7).
+- **FR-5**: `getTopologyHubLabel(key, groupBy)` formats the hub node's label. For `ip`, the format
+  depends on the key's dot-segment count: 1 segment → `"{key}.0.0.0/8"`, 2 segments →
+  `"{key}.0.0/16"`, 3 segments → `"{key}.0/24"` (unchanged from before this hierarchy existed).
+  Non-`ip` types are unchanged: `"{key} (OUI)"` for `mac`, `"Port {key}"` for `port`, and `"{key}"`
+  unchanged for `name`/`protocol`.
 - **FR-6**: A leaf node's `id` is always the device's `IPAddress` (`dataSet` row index 1),
   regardless of `groupBy` — the same value `addDiscoveredDeviceRow()` already uses as its dedup
   key. Only which hub a leaf's edge points to changes with `groupBy`; the leaf's own identity does
   not.
 - **FR-7**: Hub nodes are never linked to each other by an edge — see [MRD.md](MRD.md)/
-  [DESIGN.md](DESIGN.md) for why (grouping is a derived convenience, not real topology).
+  [DESIGN.md](DESIGN.md) for why (grouping is a derived convenience, not real topology) —
+  **except** `ip`'s own `/8`→`/16`→`/24` chain from FR-4, whose hubs *are* linked hub-to-hub, one
+  edge per adjacent pair in the chain (`/8`→`/16`, `/16`→`/24`), deduplicated so a `/16`/`/8` hub
+  shared by multiple `/24`s (or multiple `/16`s under one `/8`) gets exactly one node and one
+  inbound edge, not one per device. This is a real IP-subnet-containment relationship read
+  directly off the grouping key itself, not an arbitrary cross-group link — see
+  [DESIGN.md](DESIGN.md) for the rationale and why it doesn't undermine the "not real topology"
+  framing the rest of this FR states.
 - **FR-8**: `renderDiscoveryTopology()` filters which rows become leaves using the exact same
   per-row predicate `renderDiscoveryTable()` already uses for `discoverySearchText` (any cell,
   case-insensitive substring match) — not a second, `groupBy`-specific matching rule. A hub is
