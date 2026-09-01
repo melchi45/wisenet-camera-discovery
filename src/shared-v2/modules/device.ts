@@ -9,7 +9,7 @@ import { createNativeTransportFactory } from '../../shared/scripts/nativeWebSock
 import { state } from './state';
 import { changedebug, checkUserAccount, applySearchByUTCTimeCapability, fastJsonStringfy } from './helpers';
 import { populateChannelSelect, renderVideoProfileInfo, setChannelWidgetMode } from './videoProfile';
-import { updatePlaybackSunapiUIVisibility, refreshRuleSelectForChannelChange, resetPlaybackSearchStateForChannelChange } from './playbackCalendar';
+import { updatePlaybackSunapiUIVisibility, refreshRuleSelectForChannelChange, resetPlaybackSearchStateForChannelChange, fetchDeviceLanguage } from './playbackCalendar';
 
 declare var IS_EXTENSION: boolean;
 declare var SunapiError: any;
@@ -374,6 +374,10 @@ export function on_change_use_sunapi_client(): void {
   } else {
     state.getSelectedPlayer().sunapiClient = null;
     initSunapiManager();
+    // FR-7.8.1 v2 (src/shared-v2/-only): #event_rules_language now lives in
+    // the Device panel (next to Is Android?), fetched as soon as SUNAPI
+    // turns On regardless of Play Type -- requested directly by the user.
+    fetchDeviceLanguage();
   }
   // FR-7.8 (src/shared-v2/-only): switches #playback_control /
   // #playback_control_calendar based on this checkbox + Playback mode.

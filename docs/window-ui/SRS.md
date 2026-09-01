@@ -55,6 +55,8 @@
 | 2.12 | 2026-09-01 | Youngho Kim | FR-7.6: `eventAppliesToChannel()` fixed to check *every* `state.dynamicRuleEntries` entry sharing a Rule number, not just the first one `.find()` happens to land on. Reported directly by the user comparing a real device's raw `recording.cgi` Timeline response against the rendered timeline: when the same numeric Rule is configured separately per channel (the same fact FR-7.6 v1.25's cross-channel-leak fix already relies on), a `.find()` keyed on Rule number alone could match a *different* channel's entry first and wrongly reject a legitimate same-channel event whose own entry sat elsewhere in the array — making the rendered timeline visibly sparser than the camera's actual data. `resolveEventLabel()` (v1.19) already matched Rule number AND channel together in one predicate; `eventAppliesToChannel()` now does the same. |
 | 2.13 | 2026-09-01 | Youngho Kim | Added FR-3.4: `#password` is now `type="password"` (was `type="text"`, plaintext) with a show/hide eye-icon toggle button (`#password_toggle`). New-page-only — `src/shared/`'s own `#password` is untouched (still `type="text"`, no toggle); see DESIGN.md's Deviations list. Requested directly by the user. |
 | 2.14 | 2026-09-01 | Youngho Kim | FR-7.1/FR-7.8.2/FR-7.8.4/FR-7.8.5/FR-7.8.6: Overlapped Id moves out of `#overlapped_id_area`/`#calendar_overlapped_id_area` into the shared Event Timeline widget's own toolbar (`docs/event-timeline-component/SRS.md` FR-15 v2.11), immediately left of the 1H/6H/1D/1W/1M/1Y preset buttons — the same single-canonical-control move v2.0 already did for Selected Time. `playbackCalendar.ts`'s `runCalendarTimelineSearch()` (the Rule-change handler, which doesn't re-fetch Overlapped Id) now reads the query's `overlappedId` from the widget's own live selection when it's still valid for the currently-cached list, falling back to that list's default otherwise, and threads it back into `updateTimeline()` so the remount doesn't silently reset it. Requested directly by the user. |
+| 2.15 | 2026-09-01 | Youngho Kim | FR-7.8.2: `#event_rules_type` (Rule) moves out of `#calendar_search_area` into the shared Event Timeline widget's own toolbar (`docs/event-timeline-component/SRS.md` FR-16 v2.12), immediately left of Overlapped Id — same move as v2.14. `playbackCalendar.ts` mounts an empty-rows/items "shell" instance of the widget (`ensureEventTimelineShell()`) as soon as Rule data is ready so it's interactive before the first day/preset click, unlike Overlapped Id which stays absent until real search data exists; a real search later destroys and replaces the shell via `updateTimeline()` exactly like any other remount. `#playback_control_calendar` and `#timeline` are now laid out side by side (`.playback-calendar-timeline-row`, `src/shared/css/window.css`) instead of stacked, with `#playback_calendar`'s own `.field-row` flex-shrink bug (leaving a wide blank gap between the calendar grid and `#timeline`) fixed alongside it. Requested directly by the user. |
+| 2.16 | 2026-09-01 | Youngho Kim | FR-7.8.1: `#event_rules_language` moves out of `#playback_control_calendar` into the Device panel's `#time_info` row, immediately left of `#is_android` — always visible regardless of Play Type, fetched (`getDeviceInfo()`) as soon as SUNAPI turns On (`device.ts`'s `on_change_use_sunapi_client()` → `playbackCalendar.ts`'s new `fetchDeviceLanguage()`) instead of waiting for this Calendar panel to first show. `initPlaybackCalendarPanel()` reuses that fetch's own settlement as `runMonthSearch()`'s first-call digest-auth-race barrier (see FR-7.8.4) in place of fetching `getDeviceInfo()` itself. FR-7.8.2's Rule fetch is unaffected — it still reads this same select's value once the Calendar panel shows, just a value that's normally already known by then. Requested directly by the user. |
 
 ## Conventions
 
@@ -369,12 +371,19 @@
   correctly on switching to Live but the timeline didn't. Gated specifically on `!isPlayback`, not
   the general "else" branches above, so the manual/calendar sub-panel toggle keeps its existing
   documented behavior.
-  - **FR-7.8.1 — Language**: the first time the new panel becomes visible, `getDeviceInfo()` is
-    called and `#event_rules_language`'s selection is set to its `Language` field. The dropdown's
-    *options* are a static 16-entry list (English, Korean, Chinese, French, Italian, Spanish,
-    German, Japanese, Russian, Portuguese, Czech, Polish, Turkish, Dutch, Hungarian, Greek) — SUNAPI's
-    own documented `attributes.cgi` `Language` parameter enum, not server-fetched (no endpoint
-    returns "which languages does this device support" as a list).
+  - **FR-7.8.1 — Language**: `#event_rules_language` itself lives in the Device panel (next to
+    `#is_android`), not inside `#playback_control_calendar` — `getDeviceInfo()` is called and its
+    selection set to the response's `Language` field as soon as SUNAPI turns On
+    (`device.ts`'s `on_change_use_sunapi_client()` → `playbackCalendar.ts`'s `fetchDeviceLanguage()`),
+    regardless of Play Type, rather than waiting for this Calendar panel to first become visible —
+    moved directly per the user's explicit request. FR-7.8.2's Rule fetch (below) still reads this
+    same select's value once the Calendar panel does show; `initPlaybackCalendarPanel()` reuses
+    `fetchDeviceLanguage()`'s own settlement as `runMonthSearch()`'s first-call barrier in place of
+    fetching `getDeviceInfo()` itself (see that function's comment). The dropdown's *options* are a
+    static 16-entry list (English, Korean, Chinese, French, Italian, Spanish, German, Japanese,
+    Russian, Portuguese, Czech, Polish, Turkish, Dutch, Hungarian, Greek) — SUNAPI's own documented
+    `attributes.cgi` `Language` parameter enum, not server-fetched (no endpoint returns "which
+    languages does this device support" as a list).
   - **FR-7.8.2 — Rule**: `#event_rules_type`'s first, default option is always `"All"` (value
     `"All"`) — `getTimeline()`'s own `type` parameter already defaults to `"All"` when omitted
     (`SunapiManager.ts`'s `buildTimelineUri()`), so this is offered explicitly rather than requiring

@@ -89,10 +89,18 @@ export function updatePlaybackSunapiUIVisibility(): void {
 // there's nothing to wait for), so later month navigation isn't delayed.
 let firstShowBarrier: Promise<unknown> | null = null;
 
-/** FR-7.8.1/FR-7.8.2/FR-7.8.3: fetch language + rules, mount (or re-show)
- *  the Calendar. */
+/** FR-7.8.1/FR-7.8.2/FR-7.8.3: mount (or re-show) the Calendar and fetch
+ *  Rules -- Language itself is no longer fetched here (see
+ *  fetchDeviceLanguage()'s own comment); `languageFetchPromise` is reused as
+ *  runMonthSearch()'s first-call barrier in its place, since by the time
+ *  this panel is shown that fetch has normally already settled (SUNAPI
+ *  turns on well before Playback mode is typically selected), but doesn't
+ *  have to have -- `.finally()` below still sequences correctly either
+ *  way. */
 function initPlaybackCalendarPanel(): void {
-  firstShowBarrier = fetchLanguageAndRules();
+  firstShowBarrier = (languageFetchPromise ?? Promise.resolve()).finally(() => {
+    refreshEventRules();
+  });
 
   if (calendarController === null) {
     calendarController = mountCalendar({
@@ -108,20 +116,29 @@ function initPlaybackCalendarPanel(): void {
   }
 }
 
-/** FR-7.8.1: getDeviceInfo() -> set #event_rules_language's selection,
- *  then FR-7.8.2. Returns its own settlement so initPlaybackCalendarPanel()
- *  can use it as runMonthSearch()'s first-call barrier (see there). */
-function fetchLanguageAndRules(): Promise<unknown> {
-  return state.getSunapiManager().getDeviceInfo()
+/** The settlement of the most recent fetchDeviceLanguage() call -- reused by
+ *  initPlaybackCalendarPanel() as its own runMonthSearch() first-call
+ *  barrier (see there) instead of re-fetching getDeviceInfo() itself. */
+let languageFetchPromise: Promise<unknown> | null = null;
+
+/** FR-7.8.1 v2: getDeviceInfo() -> set #event_rules_language's selection --
+ *  called from device.ts's on_change_use_sunapi_client() as soon as SUNAPI
+ *  turns On, regardless of Play Type (this field moved out of
+ *  #playback_control_calendar into the always-visible Device panel, next to
+ *  Is Android? -- requested directly by the user). Still only meaningfully
+ *  *used* by FR-7.8.2's Rule fetch (refreshEventRules(), which reads this
+ *  select's value) once the Calendar panel actually shows -- this just
+ *  moves *when* the value becomes known, not who reads it. */
+export function fetchDeviceLanguage(): void {
+  languageFetchPromise = state.getSunapiManager().getDeviceInfo()
     .then((info: any) => {
       const languageSelect = document.getElementById('event_rules_language') as HTMLSelectElement;
       if (info && typeof info.Language === 'string' && LANGUAGES.includes(info.Language)) {
         languageSelect.value = info.Language;
       }
-      refreshEventRules();
     })
     .catch((error: any) => {
-      changedebug('getDeviceInfo (playback calendar) error: ' + fastJsonStringfy(error));
+      changedebug('getDeviceInfo (device language) error: ' + fastJsonStringfy(error));
     });
 }
 

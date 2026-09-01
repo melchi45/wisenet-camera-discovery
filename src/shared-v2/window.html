@@ -225,6 +225,20 @@
                       <input id="use_native_tls_proxy_checkbox" type="checkbox">
                       <label for="use_native_tls_proxy_checkbox">Bypass Untrusted Certificate (Native Host)</label>
                     </div>
+                    <!-- src/shared-v2/-only. Used to live inside
+                         #playback_control_calendar (FR-7.8.1), fetched only
+                         once that Calendar panel first showed -- moved here,
+                         fetched as soon as SUNAPI turns On regardless of
+                         Play Type (device.ts's on_change_use_sunapi_client()
+                         -> playbackCalendar.ts's fetchDeviceLanguage()), per
+                         the user's explicit request. Still read by
+                         playbackCalendar.ts's refreshEventRules() (FR-7.8.2)
+                         when the Calendar panel does show -- unchanged, just
+                         populated earlier now. -->
+                    <div class="field">
+                      <label for="event_rules_language">Language:</label>
+                      <select id="event_rules_language"></select>
+                    </div>
                     <div class="field">
                       <label for="is_android">Is Android?</label>
                       <input id="is_android" type="checkbox">
@@ -321,12 +335,8 @@
               <div class="playback-calendar-timeline-row">
                 <div id="playback_control_calendar" class="panel-subgroup" style="display:none;">
                   <p class="subgroup-title">Playback (SUNAPI)</p>
-                  <div class="field-row">
-                    <div class="field">
-                      <label for="event_rules_language">Language:</label>
-                      <select id="event_rules_language"></select>
-                    </div>
-                  </div>
+                  <!-- Language moved to the Device panel's #time_info row
+                       (next to Is Android?) -- see its own comment there. -->
                   <div class="field-row">
                     <div id="playback_calendar"></div>
                   </div>

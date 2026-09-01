@@ -321,6 +321,67 @@ function eventAppliesToChannel(type: string, channel: number): boolean {
   return matchingEntries.some((entry: any) => (entry.EventSources ?? []).some((source: any) => Number(source.Channel) === channel));
 }
 
+/** Collapses runs of overlapping/touching same-`Type` Timeline rows into a
+ *  single [earliest StartTime, latest EndTime] row. A real device's Timeline
+ *  response has been observed returning several "Normal" rows for what is
+ *  really the same still-recording segment -- identical StartTime, each
+ *  subsequent row's EndTime a little further along than the last (Result
+ *  15..20 in the same poll, EndTime growing 00s/03s/07s/11s/15s/18s off the
+ *  same 00s start) -- apparently the device re-indexes the still-open
+ *  recording file on every poll rather than emitting one row once it
+ *  closes. Rendered literally (one EventTimelineItem per raw row), these
+ *  draw as several same-colored bars stacked directly on top of each other
+ *  at the same left edge, reported directly by the user with a live
+ *  example. Sorting by StartTime and merging any row whose StartTime falls
+ *  strictly before the current run's EndTime -- keyed per `Type` so distinct
+ *  event kinds never merge into each other -- fixes this while leaving
+ *  genuinely separate (non-overlapping, or merely back-to-back with zero
+ *  gap) occurrences of the same Type as distinct items, exactly as before
+ *  (tools/mock-sunapi-server/'s fixture data can legitimately produce a
+ *  zero-gap boundary between two consecutive same-Type segments -- that's
+ *  adjacency, not the duplicate-snapshot overlap this exists to collapse,
+ *  so it must NOT merge; see tests/window-ui-equivalence/'s TC-18 exact
+ *  item-count parity check). */
+function mergeOverlappingSameTypeResults(elements: any[]): any[] {
+  const byType = new Map<string, any[]>();
+  for (const element of elements) {
+    const key = element.Type ?? '';
+    const list = byType.get(key);
+    if (list) {
+      list.push(element);
+    } else {
+      byType.set(key, [element]);
+    }
+  }
+
+  const merged: any[] = [];
+  for (const list of byType.values()) {
+    list.sort((a, b) => new Date(a.StartTime).getTime() - new Date(b.StartTime).getTime());
+    let current: any | null = null;
+    for (const element of list) {
+      if (current === null) {
+        current = { ...element };
+        continue;
+      }
+      const elementStart = new Date(element.StartTime).getTime();
+      const currentEnd = new Date(current.EndTime).getTime();
+      if (elementStart < currentEnd) {
+        if (new Date(element.EndTime).getTime() > currentEnd) {
+          current.EndTime = element.EndTime;
+          current.Result = element.Result;
+        }
+      } else {
+        merged.push(current);
+        current = { ...element };
+      }
+    }
+    if (current !== null) {
+      merged.push(current);
+    }
+  }
+  return merged;
+}
+
 function assignEventColorClass(colorAssignments: Map<string, string>, type: string): string {
   const key = (type ?? '').toLowerCase();
   if (key === 'normal') {
@@ -436,7 +497,9 @@ export function updateTimeline(
     // anything below ever sees them, rather than left to render mislabeled
     // (see eventAppliesToChannel()'s own doc comment). Reported directly
     // by the user.
-    const channelResults = (results[0].Results ?? []).filter((timeline_element: any) => eventAppliesToChannel(timeline_element.Type, channel));
+    const channelResults = mergeOverlappingSameTypeResults(
+      (results[0].Results ?? []).filter((timeline_element: any) => eventAppliesToChannel(timeline_element.Type, channel)),
+    );
 
     // "All" stays one combined line -- Normal + every Rule# event together,
     // colored per rule type. Each distinct Rule# additionally gets its own

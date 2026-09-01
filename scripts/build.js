@@ -232,7 +232,16 @@ function copySharedWebAssets(destDir) {
 // FIRST so DIST_EXT/DIST_NODE's non-shared-web files (manifest.json,
 // native-host/, sunapi/, icons/) exist to overwrite onto.
 // Mirrors copySharedWebAssets() above exactly, source directory swapped.
-function buildSharedV2() {
+//
+// `dev` (npm run build:shared-v2:dev, argv 'shared-v2:dev' below) passes
+// `--mode development` through to the `vite build` call, which
+// src/shared-v2/vite.config.ts reads to skip minification for a fully
+// readable window.js — sourcemaps themselves are unconditional (the config
+// always sets `sourcemap: true`), so the plain `build:shared-v2` build is
+// already enough for the browser debugger to step through the original
+// src/shared-v2/modules/*.ts files instead of the bundled window.js. See
+// docs/window-ui/DESIGN.md's "Build wiring" section.
+function buildSharedV2({ dev = false } = {}) {
   const BUILD_SHARED_V2 = path.join(ROOT, 'build', 'shared-v2');
   const DIST_SHARED_V2 = path.join(ROOT, 'dist', 'shared-v2-preview');
 
@@ -242,7 +251,8 @@ function buildSharedV2() {
   console.log('Type-checking shared-v2 window.ts...');
   run('npx', ['tsc', '-p', path.join('src', 'shared-v2', 'tsconfig.window.json')]);
   console.log('Bundling shared-v2 window.ts with Vite...');
-  run('npx', ['vite', 'build', '--config', path.join('src', 'shared-v2', 'vite.config.ts')]);
+  run('npx', ['vite', 'build', '--config', path.join('src', 'shared-v2', 'vite.config.ts'),
+    ...(dev ? ['--mode', 'development'] : [])]);
 
   console.log('Compiling shared socket.ts (reused unmodified from src/shared/)...');
   run('npx', ['tsc', '-p', path.join('src', 'shared', 'tsconfig.socket.json'), '--outDir', BUILD_SHARED_V2]);
@@ -306,6 +316,17 @@ function buildSharedV2() {
     path.join(ROOT, 'node_modules', '@melchi45', 'rtsp-over-websocket', 'dist', 'player', 'rtsp-over-websocket.esm.js'),
     path.join(DIST_SHARED_V2, 'external-lib', 'rtsp-over-websocket', 'rtsp-over-websocket.esm.js')
   );
+  // Sibling sourcemap -- present as of rtsp-over-websocket's own
+  // `sourcemap: true` build config (see that repo's MEMORY.md), absent on
+  // older installed versions that predate it; guarded rather than a plain
+  // copyFile() so this doesn't break the build against an older
+  // node_modules/@melchi45/rtsp-over-websocket. The Worker-chunk sourcemaps
+  // under assets/ are already covered by the copyDir() below (whole
+  // directory, whatever it contains).
+  const rtspEsmMap = path.join(ROOT, 'node_modules', '@melchi45', 'rtsp-over-websocket', 'dist', 'player', 'rtsp-over-websocket.esm.js.map');
+  if (fs.existsSync(rtspEsmMap)) {
+    copyFile(rtspEsmMap, path.join(DIST_SHARED_V2, 'external-lib', 'rtsp-over-websocket', 'rtsp-over-websocket.esm.js.map'));
+  }
   copyDir(
     path.join(ROOT, 'node_modules', '@melchi45', 'rtsp-over-websocket', 'dist', 'player', 'assets'),
     path.join(DIST_SHARED_V2, 'external-lib', 'rtsp-over-websocket', 'assets')
@@ -352,6 +373,10 @@ function buildSharedV2() {
 
 if (process.argv[2] === 'shared-v2') {
   buildSharedV2();
+  process.exit(0);
+}
+if (process.argv[2] === 'shared-v2:dev') {
+  buildSharedV2({ dev: true });
   process.exit(0);
 }
 

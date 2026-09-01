@@ -43,6 +43,8 @@
 | 1.26 | 2026-09-01 | Youngho Kim | `eventAppliesToChannel()` fixed to check every `state.dynamicRuleEntries` entry sharing a Rule number instead of just the first `.find()` match — the same Rule number can be configured separately per channel, so matching on Rule number alone could land on a different channel's entry and wrongly drop a legitimate same-channel event, making the rendered timeline sparser than the camera's actual data. Reported directly by the user comparing a real device's raw Timeline response against the rendered result. See SRS.md FR-7.6 v2.12. |
 | 1.27 | 2026-09-01 | Youngho Kim | Added FR-3.4 (SRS.md v2.13): `#password` show/hide eye-icon toggle, new-page-only. Documented as a Deviation below since `src/shared/`'s own `#password` is untouched. The two SVG icons/`.password-field`/`.password-toggle` CSS live in `src/shared/css/window.css` (the single physical source `css/window.css` reuses for both pages, per this doc's CSS-reuse note) — unused-but-harmless for `src/shared/`'s own page, which has no `.password-field` wrapper in its markup. Requested directly by the user. |
 | 1.28 | 2026-09-01 | Youngho Kim | Added a new section, "Overlapped Id moves into the Event Timeline widget" (SRS.md v2.14) — Overlapped Id moves out of `#overlapped_id_area`/`#calendar_overlapped_id_area` into the shared widget's own toolbar (`docs/event-timeline-component/SRS.md` FR-15 v2.11), the same single-canonical-control move v2.0 already did for Selected Time; corrects the earlier FR-7.8.6 "not shared" analysis, which predates that move. Requested directly by the user. |
+| 1.29 | 2026-09-01 | Youngho Kim | Catch-up entry: `#event_rules_type` (Rule) moves out of `#calendar_search_area` (retired) into the shared Event Timeline widget's own toolbar, immediately left of Overlapped Id (`docs/event-timeline-component/SRS.md` FR-16 v2.12, SRS.md v2.15) — same move as v1.28 did for Overlapped Id. Updates the v1.23/v1.24 notes below, which described the now-retired `#calendar_search_area` placement. `#playback_control_calendar`/`#timeline` also laid out side by side (`.playback-calendar-timeline-row`) instead of stacked, with a `#playback_calendar` flex-shrink width bug fixed alongside it. Requested directly by the user. |
+| 1.30 | 2026-09-01 | Youngho Kim | `#event_rules_language` moves out of `#playback_control_calendar` into the Device panel's `#time_info` row, immediately left of `#is_android` (SRS.md v2.16) — always visible regardless of Play Type, fetched as soon as SUNAPI turns On instead of waiting for this Calendar panel to first show. Requested directly by the user. |
 
 ## `src/shared-v2/` module structure
 
@@ -235,15 +237,17 @@ flowchart TD
 ```
 
 **`#event_rules_type` (Rule) moved into `#calendar_search_area`, positioned before Overlapped Id
-(SRS.md FR-7.8.2 v1.23).** Originally placed in its own field-row alongside `#event_rules_language`,
-both appearing the instant the Calendar panel opens — reasonable for Language (a device-wide
-`attributes.cgi` setting, unrelated to any specific search), but Rule is actually a Timeline search
-*filter*, read at day-click time by `runOverlappedAndTimelineSearch()` exactly like Overlapped Id and
-Manual Start/End Time are. Reported directly by the user: show Rule at the same moment as those
-fields (i.e. once the Calendar has loaded, not immediately on panel open), and position it visually
-right before Overlapped Id. Moving its markup into `#calendar_search_area` (still `#event_rules_type`,
-still populated by the exact same `getDynamicRules()` fetch, unaffected by DOM position) achieves
-both at once: the field now shows/hides on that container's existing timing.
+(SRS.md FR-7.8.2 v1.23).** *Superseded by v1.29/SRS.md v2.15 below — kept for history, but
+`#calendar_search_area` itself has since been retired.* Originally placed in its own field-row
+alongside `#event_rules_language`, both appearing the instant the Calendar panel opens —
+reasonable for Language (a device-wide `attributes.cgi` setting, unrelated to any specific search),
+but Rule is actually a Timeline search *filter*, read at day-click time by
+`runOverlappedAndTimelineSearch()` exactly like Overlapped Id and Manual Start/End Time are.
+Reported directly by the user: show Rule at the same moment as those fields (i.e. once the Calendar
+has loaded, not immediately on panel open), and position it visually right before Overlapped Id.
+Moving its markup into `#calendar_search_area` (still `#event_rules_type`, still populated by the
+exact same `getDynamicRules()` fetch, unaffected by DOM position) achieves both at once: the field
+now shows/hides on that container's existing timing.
 
 This surfaced one real interaction worth calling out: `#calendar_search_area` is hidden by
 FR-7.8.6's channel-change reset until the *next month navigation* re-reveals it (deliberately, so
@@ -254,6 +258,49 @@ Start-End Time into a still-`display:none` container. Fixed by having `onCalenda
 (FR-7.8.5) unconditionally re-show `#calendar_search_area` as its very first step, before anything
 else — cheap and idempotent when the container was already visible, and correct in the one case it
 wasn't.
+
+**`#event_rules_type` (Rule) moved again, into the Event Timeline widget's own toolbar (SRS.md v1.29,
+FR-7.8.2/`docs/event-timeline-component/SRS.md` FR-16 v2.12).** `#calendar_search_area` itself is now
+retired (both paragraphs above describe its now-historical behavior) — Rule sits immediately left of
+Overlapped Id inside `#timeline`, the same single-canonical-control move v1.28 already made for
+Overlapped Id, requested again after an earlier attempt that only moved the static HTML markup
+regressed on the widget's very next remount (it tears down and rebuilds its whole toolbar on every
+`mountEventTimeline()` call). Unlike Overlapped Id, Rule data (`getDynamicRules()`) is meaningful
+*before* any search — `playbackCalendar.ts`'s `ensureEventTimelineShell()` mounts an empty-rows/items
+"shell" instance of the widget as soon as Rule data is ready (at Calendar-panel-show time, same
+trigger as the retired `#calendar_search_area` reveal), which a real day/preset search later
+destroys and replaces via `updateTimeline()` exactly like any other remount. The channel-change
+day-click fix described above (unconditionally re-showing the container first) now targets
+`#timeline` itself instead of `#calendar_search_area`, same reasoning.
+
+`#playback_control_calendar` and `#timeline` are also now laid out side by side
+(`.playback-calendar-timeline-row`, `src/shared/css/window.css`) instead of stacked vertically,
+requested directly by the user — `#timeline` stays a plain sibling of `#playback_control_calendar`,
+not nested inside it (nesting would hide it whenever the manual flow's own panel is active instead,
+since both flows share this one widget instance). Fixing this exposed a second, unrelated layout
+bug: `#playback_calendar` sits inside a plain `.field-row` (`display:flex`), where a flex item with
+no `flex-grow`/explicit width shrinks to its own content's minimum size instead of filling the row —
+`calendar.css`'s `.calendar-grid` (`grid-template-columns: repeat(7, minmax(28px, 1fr))`) then
+computed its columns against that shrunk width, landing near their 28px minimum instead of
+stretching to fill `#playback_control_calendar`'s own flex-basis. Invisible before this row existed
+(nothing sat beside the panel to make the leftover space read as a "gap"); reported directly by the
+user once it did. Fixed with `flex: 1 1 auto; width: 100%` on `#playback_calendar` specifically
+within the new row.
+
+**`#event_rules_language` moved out of `#playback_control_calendar` entirely, into the Device
+panel's `#time_info` row next to `#is_android` (SRS.md v1.30/v2.16).** Requested directly by the
+user. Unlike Rule (a Timeline search filter, tied to a specific search), Language is a device-wide
+`attributes.cgi` setting unrelated to any search — always visible now regardless of Play Type, and
+fetched (`getDeviceInfo()`) as soon as SUNAPI turns On (`device.ts`'s
+`on_change_use_sunapi_client()` → `playbackCalendar.ts`'s new `fetchDeviceLanguage()`) instead of
+waiting for this Calendar panel to first show. `initPlaybackCalendarPanel()` reuses that fetch's own
+settlement (`languageFetchPromise`) as `runMonthSearch()`'s first-call digest-auth-race barrier (see
+below) in place of fetching `getDeviceInfo()` itself — by the time the Calendar panel actually shows,
+SUNAPI has normally already been on for a while and the fetch has already settled, but the barrier
+still sequences correctly even when it hasn't (e.g. SUNAPI turned on and Playback mode selected in
+the same instant). FR-7.8.2's Rule fetch (`refreshEventRules()`) is otherwise unaffected — it still
+reads `#event_rules_language`'s value once the Calendar panel shows, just a value that's normally
+already known by then.
 
 **`#event_rules_type` gained its own `change` listener (SRS.md FR-7.8.2 v1.24).** Immediately after
 the move above, the user pointed out a functional gap it exposed: changing the Rule dropdown had no
@@ -299,6 +346,13 @@ The mitigation lives entirely at the call site instead (`playbackCalendar.ts`'s 
 the very first `getCalendarSearch()` each time the panel is shown now waits for `getDeviceInfo()`'s
 own request to settle first, without delaying the calendar grid's own (synchronous) render or later
 month-navigation searches.
+
+*Updated by SRS.md v2.16 (above)*: `getDeviceInfo()` now normally fires much earlier (as soon as
+SUNAPI turns On, not when this Calendar panel first shows), so in the common case it has already
+settled by the time `getCalendarSearch()` fires and this race window doesn't actually open — but the
+barrier itself is unchanged and still correct for the simultaneous case (SUNAPI turned on and
+Playback mode selected in the same instant), now sourced from `fetchDeviceLanguage()`'s
+`languageFetchPromise` instead of a fresh `getDeviceInfo()` call made here.
 
 **A second occurrence, same root cause (SRS.md v1.12)**: the user then reported the identical
 symptom against `getTimeline()` specifically, on a day click — well after the panel's first show, so

@@ -25,6 +25,7 @@
     "build:extension": "tsc -p tsconfig.extension.json && tsc -p src/shared/tsconfig.socket.json && node scripts/substitute-player-extension-ids.js build/shared/scripts/socket.js && tsc -p src/shared/tsconfig.window.json && vite build --config src/shared/vite.config.ts",
     "build:node": "tsc -p tsconfig.node.json",
     "build:shared-v2": "node scripts/build.js shared-v2",
+    "build:shared-v2:dev": "node scripts/build.js shared-v2:dev",
     "test:equivalence": "playwright test",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true});require('fs').rmSync('build',{recursive:true,force:true})\"",
     "start": "node scripts/build.js node && node scripts/build.js shared-v2 && node dist/nodejs/examples/server.js"

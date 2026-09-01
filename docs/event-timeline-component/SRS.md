@@ -26,6 +26,7 @@
 | 2.9 | 2026-09-01 | Youngho Kim | Three fixes reported directly by the user comparing the rendered timeline against a real device: (1) NFR-5, the Normal row's height differed visibly from every other row — `src/shared/css/table.css`'s own unrelated bare `.normal` rule (reused as-is on the `src/shared-v2/` page) collided with this component's own `normal` color class; every color class is now `evt-`-prefixed. (2) FR-1, detail row labels didn't line up with the overview row's "ALL EVENTS" label, offset by the overview-only collapse button's own width — detail rows now reserve a matching invisible spacer. (3) FR-3, the overview row's collapse button previously only hid its item markers (leaving an empty-looking, still full-height track behind, with the highlight rectangle deliberately left visible per v2.3-v2.8's own design) — reversed: it now hides the entire track (items, highlight, and edge-handles together), actually folding the row down to its header. |
 | 2.10 | 2026-09-01 | Youngho Kim | Requested directly by the user, right after v2.9: `.event-timeline-row`/`.event-timeline-row-track`/`.event-timeline-overview-track` all explicitly set `height: 20px` (previously an un-set/auto row height, a 30px detail track, and a 25px overview track respectively) — every row (overview and detail alike) is now the same fixed height. `src/shared/css/table.css`'s own `.normal` rule (the v2.9/NFR-5 collision source) also had its `height: 40px` declaration removed outright, not just made unreachable by the `evt-` rename — its `border` declaration is untouched, since that part of the rule isn't implicated in the collision. |
 | 2.11 | 2026-09-01 | Youngho Kim | New FR-15: this component now also owns the "Overlapped Id" select, in the toolbar immediately left of the 1H/6H/1D/1W/1M/1Y preset buttons — the same single-canonical-control move v2.0 already did for Selected Time, replacing `playback.ts`'s/`playbackCalendar.ts`'s own previously-separate `#overlapped_id_area`/`#calendar_overlapped_id_area` DOM-building. Requested directly by the user. |
+| 2.12 | 2026-09-01 | Youngho Kim | New FR-16: this component now also owns the Calendar/SUNAPI flow's "Rule" select, immediately left of Overlapped Id — same move as FR-15, requested again after an earlier attempt that only relocated the static HTML markup regressed on the very next remount (see FR-16's own body). `playbackCalendar.ts` mounts an empty-rows/items "shell" instance of this component (`ensureEventTimelineShell()`) so Rule is interactive before the first search of a panel-visible session, unlike Overlapped Id which stays absent until real data exists. |
 
 ## Interface
 
@@ -207,6 +208,30 @@ export function mountEventTimeline(config: MountEventTimelineOptions): EventTime
   DESIGN.md). Requested directly by the user (moved out of `#playback_control`/
   `#playback_control_calendar`, where it lived as two separate, near-identical DOM-building code
   paths, into this shared component instead).
+
+- **FR-16 (Rule, v2.12)**: the component also renders a "Rule" select in the toolbar, immediately to
+  the left of Overlapped Id (`#event_rules_type`, wrapped in `.event-timeline-rule-type`, same
+  `.event-timeline-toolbar-left` group). Same "absent until there's data" behavior as Overlapped Id
+  (empty/omitted `ruleTypes` renders no control), but Calendar/SUNAPI-flow-only — the manual flow
+  (`playback.ts`) never passes `ruleTypes`, so its own timeline never shows this control. Unlike
+  Overlapped Id (read passively via `getOverlappedId()`), selecting a Rule fires `onRuleTypeChange`
+  since a Rule change is itself expected to trigger a fresh Timeline query, not just be read back
+  later. `{ value, label }` options (not a plain string list like `overlappedIds`) since the select's
+  value (the Timeline query's `Type` param, e.g. `Rule2`) and its display label (the device's
+  configured `RuleName`) differ. `selectedRuleType`/`setRuleTypes()`'s own `selectedValue` argument
+  mirror `selectedOverlappedId`/`setOverlappedIds()` exactly.
+
+  Moved directly per the user's request, after an earlier attempt that only relocated the static
+  HTML markup regressed: this component tears down and rebuilds its whole toolbar on every
+  `mountEventTimeline()` call, so a plain DOM move without also wiring the value through this
+  component's own mount options/controller (the way Overlapped Id already was) got wiped on the
+  very next remount (any day/preset click). Unlike Overlapped Id, Rule data
+  (`getDynamicRules()`) is meaningful and expected to be interactive *before* the first search of a
+  panel-visible session — `playbackCalendar.ts` handles this by mounting an empty-rows/items "shell"
+  instance of this component as soon as Rule data is ready (`ensureEventTimelineShell()`), which a
+  real search later destroys and replaces via `updateTimeline()` exactly like any other remount
+  (`ruleTypes`/`selectedRuleType` thread through that remount the same way `overlappedIds`/
+  `selectedOverlappedId` already do).
 
 ## Non-functional requirements
 
