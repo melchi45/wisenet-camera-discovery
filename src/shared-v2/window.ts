@@ -8,6 +8,7 @@ import { createPlayerListSelect, setupSession } from './modules/session';
 import { setupDevice } from './modules/device';
 import { setupVideoControl } from './modules/videoControl';
 import { setupPlayback } from './modules/playback';
+import { setupPlaybackCalendar, updatePlaybackSunapiUIVisibility } from './modules/playbackCalendar';
 import { setupAudio } from './modules/audio';
 import { setupBackup } from './modules/backup';
 import { setupInstantPlayback } from './modules/instantPlayback';
@@ -33,6 +34,11 @@ document.addEventListener('DOMContentLoaded', () => {
   setupDevice();
   setupVideoControl();
   setupPlayback();
+  setupPlaybackCalendar();
+  // Initial state: Live mode, SUNAPI off -- both #playback_control and
+  // #playback_control_calendar start hidden (FR-7.8). Live-mode's own
+  // default doesn't otherwise call this, so set it explicitly once here.
+  updatePlaybackSunapiUIVisibility();
   setupAudio();
   setupBackup();
   setupInstantPlayback();

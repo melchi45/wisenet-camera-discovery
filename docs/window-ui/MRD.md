@@ -14,6 +14,7 @@
 | Version | Date | Author | Description |
 |---|---|---|---|
 | 1.0 | 2026-08-28 | Youngho Kim | Initial MRD. |
+| 1.1 | 2026-08-28 | Youngho Kim | Reversed "Why a parallel implementation, not an in-place rewrite" below: per explicit user instruction, `npm run build:shared-v2` now overwrites `dist/chrome-extension/`/`dist/nodejs/`'s shared web assets after `npm run build` runs — see [PRD.md](PRD.md)'s Non-Goals and `scripts/build.js`'s `buildSharedV2()`. |
 
 ## Market context
 
@@ -42,8 +43,18 @@ reading the entire file end to end.
 ## Why a parallel implementation, not an in-place rewrite
 
 `src/shared/window.html`/`window.ts` is live, shipping code — both `dist/chrome-extension/` and
-`dist/nodejs/` build from it today. Rewriting it in place before the spec/reimplementation had been
-validated against it would risk shipping regressions with no fallback. `src/shared-v2/` (see
-[DESIGN.md](DESIGN.md)) is built and tested entirely alongside the original, wired into neither real
-`dist/` output, so the existing product is never at risk during this work — see [PRD.md](PRD.md)'s
-Non-Goals.
+`dist/nodejs/` build from it today. Rewriting `src/shared/` itself, in place, before the
+spec/reimplementation had been validated against it would have risked shipping regressions with no
+fallback. `src/shared-v2/` (see [DESIGN.md](DESIGN.md)) was therefore built and tested as a
+separate source tree alongside the original, so validating it never put the existing product at
+risk.
+
+**Update (v1.1):** once `src/shared-v2/` reached feature parity plus the new Calendar flow
+(`SRS.md` FR-7.8) and its own equivalence-test coverage, the user explicitly asked for the
+*build output* to converge: `npm run build:shared-v2`, run after `npm run build`, now overwrites
+`dist/chrome-extension/`'s and `dist/nodejs/examples/public/`'s `window.html`/`window.js`/
+`scripts/socket.js` (and adds `css/calendar.css`) with the `src/shared-v2/` build — see
+[PRD.md](PRD.md)'s Non-Goals and `scripts/build.js`'s `buildSharedV2()`. The *source* separation
+above (why `src/shared-v2/` is a distinct tree, not an in-place rewrite of `src/shared/`) still
+holds; only the shipped-output relationship changed, from "never wired in" to "overwrites after a
+successful `npm run build`."

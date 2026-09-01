@@ -6,12 +6,41 @@ declare var socket: any;
 declare var IS_EXTENSION: boolean;
 declare var chrome: any;
 
-/** FR-1.2: shows/hides Start/Stop per the persisted auto-discovery setting. */
+/** FR-1.2: shows/hides Start/Stop per the persisted auto-discovery setting.
+ *
+ *  In the extension, "automatic discovery" is actually driven by
+ *  background.ts's service worker, which runs independently of whether
+ *  window.html is even open -- this toggle's UI here is purely cosmetic
+ *  (Start/Stop disabled because there's nothing for them to do; the
+ *  service worker already has a live `chrome.runtime` connection this
+ *  page's discovery.ts listens to unconditionally).
+ *
+ *  Outside the extension there is no such independent process on the
+ *  client side -- the nodejs example server's own background UDP loop
+ *  (server.ts) keeps running regardless of any open tab, but a given
+ *  browser tab only ever sees results while its own `/discover` WebSocket
+ *  (`socket.start()`) is open. Disabling Start/Stop without ever calling
+ *  `socket.start()` left the toggle's "on" state doing nothing but
+ *  blocking the one control that could open that connection -- the
+ *  discovery table stayed empty until the toggle was turned off again.
+ *  Reported directly by the user (works in the extension, not via the
+ *  nodejs server). Fixed by calling `socket.start()`/`socket.stop()` here
+ *  too, so this page's own WS connection tracks the setting the same way
+ *  the extension's service worker already does. */
 function applyAutoDiscoverySettingUI(enabled: boolean): void {
   (document.getElementById('auto_discovery_toggle') as HTMLInputElement).checked = enabled;
   if (enabled) {
     (document.getElementById('init') as HTMLButtonElement).disabled = true;
     (document.getElementById('disconnect') as HTMLButtonElement).disabled = true;
+    if (!IS_EXTENSION) {
+      socket.start();
+    }
+  } else {
+    (document.getElementById('init') as HTMLButtonElement).removeAttribute('disabled');
+    (document.getElementById('disconnect') as HTMLButtonElement).disabled = true;
+    if (!IS_EXTENSION) {
+      socket.stop();
+    }
   }
 }
 
@@ -71,12 +100,7 @@ export function setupToolbar(): void {
         body: JSON.stringify({ autoDiscoveryEnabled: enabled }),
       }).catch(() => {});
     }
-    if (enabled) {
-      (document.getElementById('init') as HTMLButtonElement).disabled = true;
-      (document.getElementById('disconnect') as HTMLButtonElement).disabled = true;
-    } else {
-      document.getElementById('init')!.removeAttribute('disabled');
-    }
+    applyAutoDiscoverySettingUI(enabled);
   });
 
   // FR-1.3

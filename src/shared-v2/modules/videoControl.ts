@@ -3,6 +3,7 @@
 import { mountSwitch } from '../../component/switch/switch';
 import { state } from './state';
 import { changedebug, fastJsonStringfy, scrollbottom } from './helpers';
+import { updatePlaybackSunapiUIVisibility } from './playbackCalendar';
 
 declare var AuthError: any;
 declare var RTSPOverWebSocketBaseError: any;
@@ -86,13 +87,15 @@ export function onchangeplaytype(): void {
     const playtype = checkedPlayType ? checkedPlayType.value : undefined;
 
     if (playtype && playtype === 'playback') {
-      (document.getElementById('playback_control') as HTMLElement).style.display = 'block';
       state.getSelectedPlayer().playType = RTSPOverWebSocketPlayType.PLAYBACK;
       state.getSelectedPlayer().overlappedId = 0;
     } else {
-      (document.getElementById('playback_control') as HTMLElement).style.display = 'none';
       state.getSelectedPlayer().playType = RTSPOverWebSocketPlayType.LIVE;
     }
+    // FR-7.8 (src/shared-v2/-only): #playback_control's own show/hide is
+    // now owned by this, since it also decides between that panel and
+    // #playback_control_calendar based on SUNAPI state.
+    updatePlaybackSunapiUIVisibility();
   } catch (error) {
     console.error(error);
   }
@@ -177,6 +180,11 @@ export function onstatechange(evt: any): void {
     case RTSPOverWebSocketPlayState.STOPPED: {
       document.getElementById('timestamp_date')?.remove();
       document.getElementById('timestamp_time')?.remove();
+      // FR-14: ontimestamp() (playback.ts) stops firing once playback
+      // isn't PLAYING, so nothing else would ever clear its timeline
+      // marker on stop -- without this it stays frozen at the last
+      // position shown before the stop.
+      state.eventTimeline?.setCustomTime(null);
 
       (document.getElementById('play_button') as HTMLButtonElement).disabled = false;
       (document.getElementById('stop_button') as HTMLButtonElement).disabled = true;
@@ -206,6 +214,10 @@ export function onstatechange(evt: any): void {
       break;
     }
     case RTSPOverWebSocketPlayState.PAUSED: {
+      // FR-14: same reasoning as the STOPPED branch above -- paused also
+      // isn't PLAYING, so ontimestamp() has already stopped updating the
+      // marker by the time this fires.
+      state.eventTimeline?.setCustomTime(null);
       (document.getElementById('play_button') as HTMLButtonElement).disabled = true;
       (document.getElementById('stop_button') as HTMLButtonElement).disabled = false;
       (document.getElementById('pause_button') as HTMLButtonElement).disabled = true;

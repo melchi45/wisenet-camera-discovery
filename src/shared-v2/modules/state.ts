@@ -7,6 +7,7 @@
 // See docs/window-ui/SRS.md FR-15 / DESIGN.md.
 
 import type { SwitchController } from '../../component/switch/switch';
+import type { EventTimelineController } from '../../component/event-timeline/event-timeline';
 import type { NativeSunapiClient } from '../../shared/scripts/nativeSunapiClient';
 
 export interface TopologyColorEntry {
@@ -52,8 +53,15 @@ class State {
     protocol: 'http',
   };
 
-  // FR-7.6
-  visTimeline: any = null;
+  // FR-7.6 (docs/event-timeline-component/)
+  eventTimeline: EventTimelineController | null = null;
+
+  // FR-7.8.2 -- last-fetched getDynamicRules() entries (populated by
+  // playbackCalendar.ts's refreshEventRules()), cached here so
+  // updateTimeline() (playback.ts) can resolve a Timeline result's raw
+  // "Rule<N>" Type string to its configured RuleName without a second
+  // fetch -- see docs/event-timeline-component/.
+  dynamicRuleEntries: any[] = [];
 
   // FR-7.3
   timelineRangeSwitch: SwitchController | null = null;

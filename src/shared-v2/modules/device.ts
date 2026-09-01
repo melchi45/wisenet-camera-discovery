@@ -9,6 +9,7 @@ import { createNativeTransportFactory } from '../../shared/scripts/nativeWebSock
 import { state } from './state';
 import { changedebug, checkUserAccount, applySearchByUTCTimeCapability, fastJsonStringfy } from './helpers';
 import { populateChannelSelect, renderVideoProfileInfo, setChannelWidgetMode } from './videoProfile';
+import { updatePlaybackSunapiUIVisibility, refreshRuleSelectForChannelChange, resetPlaybackSearchStateForChannelChange } from './playbackCalendar';
 
 declare var IS_EXTENSION: boolean;
 declare var SunapiError: any;
@@ -46,7 +47,13 @@ export function changeport(this: HTMLInputElement): void {
 }
 
 /** FR-4.3: writes player .channel, re-renders the profile panel from
- *  cache immediately, then re-fetches if SUNAPI is on. */
+ *  cache immediately, then re-fetches if SUNAPI is on. FR-7.8's own
+ *  channel-change handlers (Rule dropdown refresh, and -- while Play Type
+ *  is Playback -- resetting/re-fetching every piece of channel-scoped
+ *  Playback search state, see resetPlaybackSearchStateForChannelChange()'s
+ *  own doc comment) are unconditional here, same as `refreshRuleSelectForChannelChange()`
+ *  always was: each callee gates itself on its own precondition (Play
+ *  Type, panel visibility) rather than this caller checking first. */
 export function changechannel(this: HTMLInputElement): void {
   try {
     state.getSelectedPlayer().channel = this.value;
@@ -54,6 +61,8 @@ export function changechannel(this: HTMLInputElement): void {
     if ((document.getElementById('use_sunapi_client_checkbox') as HTMLInputElement).checked === true) {
       initSunapiManager();
     }
+    refreshRuleSelectForChannelChange();
+    resetPlaybackSearchStateForChannelChange();
   } catch (error) {
     console.error(error);
   }
@@ -355,6 +364,9 @@ export function on_change_use_sunapi_client(): void {
     state.getSelectedPlayer().sunapiClient = null;
     initSunapiManager();
   }
+  // FR-7.8 (src/shared-v2/-only): switches #playback_control /
+  // #playback_control_calendar based on this checkbox + Playback mode.
+  updatePlaybackSunapiUIVisibility();
 }
 
 export function setupDevice(): void {
@@ -394,5 +406,23 @@ export function setupDevice(): void {
 
   if (!IS_EXTENSION) {
     (document.getElementById('native_tls_proxy_field') as HTMLElement).style.display = 'none';
+
+    // Outside the extension, this page is itself served over http:// or
+    // https:// (the nodejs example server / any plain web host) -- unlike
+    // the extension (a chrome-extension:// page with no scheme of its
+    // own), the camera connection's own HTTP/HTTPS choice here isn't
+    // actually free: an https:// page can't issue http:// XHR/WebSocket
+    // requests at all (mixed-content blocking), and there's no reason to
+    // deliberately downgrade an http:// page to https: either. Locking the
+    // toggle to match `location.protocol` -- rather than leaving it a free
+    // choice that mixed-content blocking would silently break for one of
+    // the two options -- was requested directly by the user.
+    const isHttpsPage = document.location.protocol === 'https:';
+    (document.getElementById('http_radio') as HTMLInputElement).checked = !isHttpsPage;
+    (document.getElementById('https_radio') as HTMLInputElement).checked = isHttpsPage;
+    (document.getElementById('http_radio') as HTMLInputElement).disabled = true;
+    (document.getElementById('https_radio') as HTMLInputElement).disabled = true;
+    changehttptype();
+    onchangehttptype();
   }
 }

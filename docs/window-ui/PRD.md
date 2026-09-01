@@ -15,6 +15,7 @@
 | Version | Date | Author | Description |
 |---|---|---|---|
 | 1.0 | 2026-08-28 | Youngho Kim | Initial PRD. |
+| 1.1 | 2026-08-28 | Youngho Kim | The "wiring in is future work" Non-Goal below happened: `npm run build:shared-v2` now overwrites `dist/chrome-extension/`/`dist/nodejs/`'s shared web assets — see [MRD.md](MRD.md) History and `scripts/build.js`'s `buildSharedV2()`. Flagged the still-untested `IS_EXTENSION`-gated paths as a live risk, not just a Non-Goal, now that they're load-bearing in the shipped extension. |
 
 ## Problem
 
@@ -37,9 +38,14 @@ surfaced real dead controls no prior partial documentation pass had found (see [
 
 - **Not a visual redesign.** Same CSS, same classes; the goal is behavioral equivalence, not new
   styling.
-- **Not an in-place replacement of `src/shared/`.** `src/shared-v2/` is a parallel, independently
-  tested artifact; wiring it into the real `dist/chrome-extension/`/`dist/nodejs/` outputs is future
-  work outside this PRD's scope once (and only once) the Playwright suite is green.
+- **Not an in-place replacement of `src/shared/`.** `src/shared/`'s own source is untouched — this
+  is still a parallel, independently tested source tree, not a rewrite of the original. Its
+  *build output*, however, is no longer isolated: per explicit user instruction, `npm run
+  build:shared-v2` (run after `npm run build`) now overwrites `dist/chrome-extension/`'s and
+  `dist/nodejs/examples/public/`'s shared web assets (`window.html`/`window.js`/`scripts/socket.js`,
+  plus `css/calendar.css`) with the `src/shared-v2/` build — see [MRD.md](MRD.md)'s History and
+  `scripts/build.js`'s `buildSharedV2()`. This happened once (and only once) the Playwright suite
+  was green, matching the original conditional here.
 - **Not a reimplementation of SUNAPI wire parsing, RTSP transport/demuxing, or the discovery UDP
   protocol.** `src/sunapi/`, `socket.ts`, `nativeSunapiClient.ts`/`nativeWebSocketTransport.ts`, and
   the vendored `@melchi45/rtsp-over-websocket` package are reused unmodified — see [MRD.md](MRD.md)'s
@@ -50,7 +56,11 @@ surfaced real dead controls no prior partial documentation pass had found (see [
   — see [TC.md](TC.md)'s explicit boundary list.
 - **Not verified against the Chrome extension target.** Playwright drives the nodejs runtime target
   only (`IS_EXTENSION=false`) — packing/loading-unpacked/native-host installation isn't automatable
-  here. `IS_EXTENSION`-gated code paths are still implemented for spec completeness.
+  here. `IS_EXTENSION`-gated code paths were implemented for spec completeness but never live-tested
+  — **this is now a live risk, not just an out-of-scope note**, since v1.1's build-output overwrite
+  means these paths are load-bearing in the actual shipped `dist/chrome-extension/`. Loading the
+  extension unpacked and manually exercising it (native-host bypass checkbox, `chrome.*` APIs) is
+  recommended before relying on it in production.
 - **Dead controls are not "fixed."** Every currently-nonfunctional control (§ SRS "Known dead
   controls") stays inert in the new implementation too — this PRD is about equivalence, not
   improvement.

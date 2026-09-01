@@ -1,14 +1,18 @@
-// Playback -- SRS FR-7. Manual time range / 1 Day-3 Month toggle:
-// docs/architecture.md's "Playback controls" section is the full narrative
-// spec (this is the direct implementation). Search Overlapped Id / Search
-// Date / the vis.Timeline render are specified here directly (not
-// previously documented elsewhere).
+// Playback -- SRS FR-7. docs/architecture.md's "Playback controls" section
+// documents the legacy (pre-redesign) manual time range / 1 Day-3 Month
+// toggle narrative; docs/window-ui/SRS.md FR-7.1-7.4 documents this
+// module's CURRENT design (v2.0, `src/shared-v2/`-only): as of the
+// Playback search redesign, both this manual flow and playbackCalendar.ts's
+// Calendar flow search via the shared Event Timeline widget's own
+// 1H/6H/1D/1W/1M/1Y preset buttons (anchored to "now") instead of typed
+// `#start_date`/`#end_date` ranges -- see runManualTimelineSearch() below
+// and docs/window-ui/DESIGN.md for the full rationale (reported directly
+// by the user).
 
 import moment from 'moment';
-import * as vis from 'vis';
-import { mountSwitch, SwitchController } from '../../component/switch/switch';
+import { mountEventTimeline, EventTimelineItem, EventTimelineRow } from '../../component/event-timeline/event-timeline';
 import { state } from './state';
-import { changedebug, fastJsonStringfy, gettimezonestring, checkEventSubGroup } from './helpers';
+import { changedebug, fastJsonStringfy, gettimezonestring } from './helpers';
 import { initSunapiManager } from './device';
 
 declare var SunapiError: any;
@@ -16,44 +20,76 @@ declare var RTSPOverWebSocketBaseError: any;
 declare var RTSPOverWebSocketPlayState: any;
 declare var HTTP_STATUS_CODES: any;
 
-let timelineRangeSwitch: SwitchController | null = null;
-
-// Shared, module-level `pad` helper -- only ever ASSIGNED inside
-// search_date() below and READ inside ontimestamp()'s 'playback' branch,
-// exactly matching the original's own fragile "global reassigned by one
-// handler, read by another" pattern (var pad: any; assigned inside
-// search_date). Preserved as-is: in normal usage a timeline search always
-// precedes playback, so ontimestamp's read is not reached first in
-// practice, but this is not defensively fixed here -- see docs/window-ui/
-// DESIGN.md (not listed as an intentional deviation).
-let pad: ((val: any, len?: number) => string) | undefined;
-
 // ---------------------------------------------------------------------
-// FR-7.1
+// FR-7.1: manual-flow search, driven entirely by the Event Timeline
+// widget's own preset buttons (docs/window-ui/SRS.md FR-7.1 v2.0) --
+// `#start_date`/`#end_date`/"Search Overlapped Id"/"Search Date"/"1 Day"/
+// "3 Month"/"Search Timeline" no longer exist; a default "1 day ending
+// now" search auto-fires the first time this panel becomes visible
+// (mirroring FR-7.8.3's Calendar auto-firing its first month search), and
+// clicking a preset re-fires with that preset's own [now-preset, now]
+// range instead.
 // ---------------------------------------------------------------------
-export function search_overlapped_id(): void {
+
+/** Whether the default "1 day ending now" search has already fired for
+ *  this panel-visible session -- reset whenever the panel hides, so a
+ *  fresh default search fires again the next time it's shown (matching
+ *  playbackCalendar.ts's own `panelInitialized` pattern for the Calendar
+ *  panel). No DOM field tracks "what range is currently queried" any more
+ *  (see file header) -- a preset click always just recomputes
+ *  `[now - preset, now]` fresh, it never needs to know the previous range. */
+let manualPanelInitialized = false;
+
+/** GMT-aware, matching every other search's own `moment(...).utcOffset(...)`
+ *  conversion pattern (e.g. playbackCalendar.ts's equivalent) -- `date` is
+ *  interpreted in LOCAL browser time (the same "wall clock" a native
+ *  `<input type="date"|"time">` would show), formatted to SUNAPI's
+ *  `YYYY-MM-DD HH:mm:ss` shape first. */
+function formatManualSearchTime(date: Date): string {
+  const pad2 = (n: number) => String(n).padStart(2, '0');
+  const raw = `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`;
+  if ((document.getElementById('use_gmt') as HTMLInputElement).checked) {
+    const timezone = gettimezonestring((document.getElementById('timezone') as HTMLInputElement).value);
+    return moment(raw).utcOffset(timezone).format('YYYY-MM-DD[T]HH:mm:ss[Z]');
+  }
+  return raw;
+}
+
+/** FR-7.1/FR-7.3 v2.0: getOverlappedIdList() then getTimeline() for
+ *  `[fromDate, toDate]` -- sequenced, not concurrent, for the same reason
+ *  playbackCalendar.ts's runOverlappedAndTimelineSearch() is (a real,
+ *  confirmed digest-auth race in the vendored
+ *  `@melchi45/rtsp-over-websocket` library's SunapiClient when two
+ *  requests both need a fresh challenge at once -- see MEMORY.md). Called
+ *  both for the initial default "1 day ending now" search
+ *  (`updateManualPlaybackPanelVisibility()`) and for every subsequent
+ *  Event Timeline preset-button click (`onManualRangePresetSelect`). */
+function runManualTimelineSearch(fromDate: Date, toDate: Date): void {
   try {
     if (!state.getSelectedPlayer().sunapiClient) {
       initSunapiManager();
     }
 
-    const startDate = (document.getElementById('start_date') as HTMLInputElement).value;
-    const endDate = (document.getElementById('end_date') as HTMLInputElement).value;
+    const fromStr = formatManualSearchTime(fromDate);
+    const toStr = formatManualSearchTime(toDate);
+    const channel = Number(state.getSelectedPlayer().channel) - 1;
 
-    let strSearchStartTime = startDate + ' 00:00:00';
-    let strSearchEndTime = endDate + ' 23:59:59';
-
-    if ((document.getElementById('use_gmt') as HTMLInputElement).checked) {
-      const timezone = gettimezonestring((document.getElementById('timezone') as HTMLInputElement).value);
-      strSearchStartTime = moment(strSearchStartTime).utcOffset(timezone).format('YYYY-MM-DD[T]HH:mm:ss[Z]');
-      strSearchEndTime = moment(strSearchEndTime).utcOffset(timezone).format('YYYY-MM-DD[T]HH:mm:ss[Z]');
-    }
-
+    // `state.deviceInformation.attributes` is populated deep inside
+    // initSunapiManager()'s own async chain (device.ts) -- the call above
+    // is fire-and-forget (no Promise to await), so on this function's
+    // very first, auto-fired invocation (FR-7.1 v2.0's default search,
+    // called synchronously right after that self-init) attributes may not
+    // exist yet at all. Optional chaining treats "not loaded yet" the same
+    // as "not the single-channel special case" (falls through to the
+    // `else` branch below, passing `channel` explicitly) rather than
+    // throwing -- the original `search_overlapped_id()` never hit this
+    // race in practice, since a user only ever clicked it well after
+    // SUNAPI had already finished initializing via the checkbox flow.
     let overlappedIDList: Promise<any>;
-    if (state.getSelectedPlayer().device === 'camera' && Number(state.deviceInformation.attributes.MaxChannel) === 1) {
-      overlappedIDList = state.getSunapiManager().getOverlappedIdList(strSearchStartTime, strSearchEndTime);
+    if (state.getSelectedPlayer().device === 'camera' && Number(state.deviceInformation.attributes?.MaxChannel) === 1) {
+      overlappedIDList = state.getSunapiManager().getOverlappedIdList(fromStr, toStr);
     } else {
-      overlappedIDList = state.getSunapiManager().getOverlappedIdList(strSearchStartTime, strSearchEndTime, Number(state.getSelectedPlayer().channel) - 1);
+      overlappedIDList = state.getSunapiManager().getOverlappedIdList(fromStr, toStr, channel);
     }
 
     overlappedIDList
@@ -64,17 +100,11 @@ export function search_overlapped_id(): void {
         if (typeof overlapped_id_list.OverlappedIDList !== 'undefined' && overlapped_id_list.OverlappedIDList.length > 0) {
           const span = document.createElement('span');
           span.id = 'overlapped_id_span';
-          span.innerHTML = 'Overlapped Id:';
+          span.textContent = 'Overlapped Id:';
           document.getElementById('overlapped_id_area')!.append(span);
 
           const selectbox = document.createElement('select');
           selectbox.id = 'overlapped_id';
-          // Original assigns `.style = "..."` (the CSSOM setter, which
-          // re-serializes/normalizes the string, e.g. "width: 50px; ...")
-          // -- not setAttribute('style', ...) (raw attribute text,
-          // preserved verbatim). `.style.cssText =` is the vanilla
-          // equivalent that goes through the same CSSOM parse/serialize
-          // path, matching the resulting attribute text exactly.
           selectbox.style.cssText = 'width:50px;margin-left: 5px;';
           for (let i = overlapped_id_list.OverlappedIDList.length - 1; i >= 0; i--) {
             const opt = overlapped_id_list.OverlappedIDList[i];
@@ -86,7 +116,6 @@ export function search_overlapped_id(): void {
           document.getElementById('overlapped_id_area')!.append(selectbox);
 
           state.getSelectedPlayer().overlappedId = (document.getElementById('overlapped_id') as HTMLSelectElement).value;
-          (document.getElementById('search_aitimeline') as HTMLButtonElement).disabled = false;
         }
       })
       .catch((error: any) => {
@@ -95,240 +124,90 @@ export function search_overlapped_id(): void {
         } else if (error instanceof RTSPOverWebSocketBaseError) {
           (window as any).popup('<div><h4>getOverlappedIdList error: ' + error.errorCode + '<br>message: ' + error.message + '</h4></div>');
         }
-      });
-  } catch (error) {
-    console.error(error);
-  }
-}
+      })
+      .finally(() => {
+        const overlappedIdEl = document.getElementById('overlapped_id') as HTMLSelectElement | null;
+        const requestPromise = overlappedIdEl !== null
+          ? state.getSunapiManager().getTimeline(fromStr, toStr, channel, overlappedIdEl.value)
+          : state.getSunapiManager().getTimeline(fromStr, toStr, channel);
 
-// ---------------------------------------------------------------------
-// FR-7.2
-// ---------------------------------------------------------------------
-export function search_date(): void {
-  try {
-    if (!state.getSelectedPlayer().sunapiClient) {
-      initSunapiManager();
-    }
-
-    const startDate = (document.getElementById('start_date') as HTMLInputElement).value;
-    const startTime = (document.getElementById('start_time') as HTMLInputElement).value;
-    const endDate = (document.getElementById('end_date') as HTMLInputElement).value;
-    const endTime = (document.getElementById('end_time') as HTMLInputElement).value;
-
-    let strSearchStartTime = startDate + ' ' + startTime;
-    const strSearchEndTime = endDate + ' ' + endTime;
-
-    if ((document.getElementById('use_gmt') as HTMLInputElement).checked) {
-      const timezone = gettimezonestring((document.getElementById('timezone') as HTMLInputElement).value);
-      strSearchStartTime = moment(strSearchStartTime).utcOffset(timezone).format('YYYY-MM-DD[T]HH:mm:ss[Z]');
-      moment(strSearchEndTime).utcOffset(timezone).format('YYYY-MM-DD[T]HH:mm:ss[Z]');
-    }
-
-    let requestPromise: Promise<any>;
-    if (state.getSelectedPlayer().device === 'camera') {
-      if (Number(state.getSelectedPlayer().channel) !== null) {
-        requestPromise = state.getSunapiManager().getCalendarSearch(strSearchStartTime, Number(state.getSelectedPlayer().channel) - 1);
-      } else {
-        requestPromise = state.getSunapiManager().getCalendarSearch(strSearchStartTime);
-      }
-    } else {
-      requestPromise = state.getSunapiManager().getCalendarSearch(strSearchStartTime, Number(state.getSelectedPlayer().channel) - 1);
-    }
-
-    requestPromise
-      .then((calendar: any) => {
-        for (const dates in calendar.CalenderSearchResults) {
-          if (calendar.CalenderSearchResults[dates].Result !== 'undefined') {
-            const recordedDates: number[] = [];
-            const record_dates: any[] = Array.from(calendar.CalenderSearchResults[dates].Result);
-
-            for (let i = 0; i < record_dates.length; i++) {
-              if (parseInt(record_dates[i]) === 1) {
-                recordedDates.push(i + 1);
-              }
-            }
-
-            pad = function (val: any, len?: number): string {
-              val = String(val);
-              len = len || 2;
-              while (val.length < len) val = '0' + val;
-              return val;
-            };
-
-            const startDateValue = (document.getElementById('start_date') as HTMLInputElement).value;
-            const year = pad(new Date(startDateValue).getFullYear(), 4);
-            const month = pad(new Date(startDateValue).getMonth() + 1, 2);
-            let day: string;
-            let min: string | undefined, max: string | undefined;
-
-            if (recordedDates.length < 1) {
-              day = pad(new Date(startDateValue).getDate(), 2);
+        requestPromise
+          .then((timeline: any) => {
+            if (typeof timeline !== 'undefined') {
+              updateTimeline(timeline.TimeLineSearchResults, onManualRangePresetSelect);
+              (document.getElementById('timeline') as HTMLElement).style.display = 'block';
             } else {
-              day = pad(new Date(startDateValue).getDate(), 2);
-              max = pad(Math.max.apply(Math, recordedDates), 2);
-              min = pad(Math.min.apply(Math, recordedDates), 2);
+              throw new Error((timeline as any).Error.Details);
             }
-
-            (document.getElementById('start_date') as HTMLInputElement).value = [year, month, min].join('-');
-            (document.getElementById('end_date') as HTMLInputElement).value = [year, month, max].join('-');
-
-            (document.getElementById('start_date') as HTMLInputElement).min = [year, month, min].join('-');
-            (document.getElementById('start_date') as HTMLInputElement).max = [year, month, max].join('-');
-            (document.getElementById('end_date') as HTMLInputElement).min = [year, month, min].join('-');
-            (document.getElementById('end_date') as HTMLInputElement).max = [year, month, max].join('-');
-
-            (document.getElementById('search_timeline') as HTMLButtonElement).disabled = false;
-          }
-        }
-      })
-      .catch((error: any) => {
-        console.error('getTimeline error: ', fastJsonStringfy(error));
+          })
+          .catch((error: any) => {
+            if (typeof error === 'number') {
+              console.error('Http Error: ' + HTTP_STATUS_CODES[error]);
+            } else {
+              console.error('getTimeline error: ', fastJsonStringfy(error));
+            }
+          });
       });
   } catch (error) {
     console.error(error);
   }
 }
 
-// ---------------------------------------------------------------------
-// FR-7.3
-// ---------------------------------------------------------------------
-function runTimelineSearch(strSearchStartTime: string, strSearchEndTime: string): void {
-  try {
-    if (!state.getSelectedPlayer().sunapiClient) {
-      initSunapiManager();
-    }
+function onManualRangePresetSelect(fromDate: Date, toDate: Date): void {
+  runManualTimelineSearch(fromDate, toDate);
+}
 
-    if (document.getElementById('timeline_picker') !== null) {
-      document.getElementById('timeline_picker')!.remove();
+/** Called from playbackCalendar.ts's updatePlaybackSunapiUIVisibility()
+ *  whenever this manual panel's own visibility is decided (mirrors that
+ *  file's own `panelInitialized`/`initPlaybackCalendarPanel()` pattern for
+ *  the Calendar panel) -- fires the default "1 day ending now" search the
+ *  first time the panel becomes visible, and resets so a fresh default
+ *  fires again the next time (device/channel may have changed meanwhile). */
+export function updateManualPlaybackPanelVisibility(isVisible: boolean): void {
+  if (isVisible) {
+    // Guard against firing before any device has actually been selected --
+    // Play Type can be switched to Playback with no row picked yet in
+    // #datatable (a perfectly normal page state, e.g. a user exploring the
+    // radio buttons first), in which case `hostname` is still empty and
+    // initSunapiManager()/getOverlappedIdList() would run against a blank
+    // device, surfacing real connection-error popups for no reason.
+    const player = state.getSelectedPlayer();
+    if (!manualPanelInitialized && player !== null && player.hostname) {
+      manualPanelInitialized = true;
+      const toDate = new Date();
+      const fromDate = new Date(toDate.getTime() - 24 * 3600_000);
+      runManualTimelineSearch(fromDate, toDate);
     }
-
-    if ((document.getElementById('use_gmt') as HTMLInputElement).checked) {
-      const timezone = gettimezonestring((document.getElementById('timezone') as HTMLInputElement).value);
-      strSearchStartTime = moment(strSearchStartTime).utcOffset(timezone).format('YYYY-MM-DD[T]HH:mm:ss[Z]');
-      strSearchEndTime = moment(strSearchEndTime).utcOffset(timezone).format('YYYY-MM-DD[T]HH:mm:ss[Z]');
-    }
-
-    let requestPromise: Promise<any>;
-    if (state.getSelectedPlayer().device === 'camera') {
-      const overlappedIdEl = document.getElementById('overlapped_id') as HTMLSelectElement | null;
-      if (overlappedIdEl !== null) {
-        requestPromise = state.getSunapiManager().getTimeline(
-          strSearchStartTime, strSearchEndTime, Number(state.getSelectedPlayer().channel) - 1, overlappedIdEl.value,
-        );
-      } else {
-        requestPromise = state.getSunapiManager().getTimeline(
-          strSearchStartTime, strSearchEndTime, Number(state.getSelectedPlayer().channel) - 1,
-        );
-      }
-    } else {
-      requestPromise = state.getSunapiManager().getTimeline(strSearchStartTime, strSearchEndTime);
-    }
-
-    requestPromise
-      .then((timeline: any) => {
-        // FIX (fidelity bug, not a deviation): the real device wraps the
-        // timeline response as {TimeLineSearchResults: [...]} -- the
-        // vendored SDK's getTimeline() has no `extract` option, so the
-        // promise resolves with that wrapper object as-is, not the inner
-        // array directly. An earlier draft of this port passed the
-        // wrapper itself to updateTimeline(), which reads `results.length`
-        // -- undefined on a plain object, so it silently did nothing
-        // against a real device (never reproduced against
-        // tools/mock-sunapi-server/, whose fixture wasn't wrapped either,
-        // so nothing caught this in equivalence testing). Matches the
-        // original's own `timeline.TimeLineSearchResults` access exactly.
-        if (typeof timeline !== 'undefined') {
-          updateTimeline(timeline.TimeLineSearchResults);
-          (document.getElementById('timeline') as HTMLElement).style.display = 'block';
-        } else {
-          throw new Error((timeline as any).Error.Details);
-        }
-      })
-      .catch((error: any) => {
-        if (typeof error === 'number') {
-          console.error('Http Error: ' + HTTP_STATUS_CODES[error]);
-        } else {
-          console.error('getTimeline error: ', fastJsonStringfy(error));
-        }
-      });
-  } catch (error) {
-    console.error(error);
+  } else {
+    manualPanelInitialized = false;
   }
 }
 
-export function search_oneday_timeline(): void {
-  try {
-    const startDate = (document.getElementById('start_date') as HTMLInputElement).value;
-    const startTime = (document.getElementById('start_time') as HTMLInputElement).value;
-    const endDate = (document.getElementById('end_date') as HTMLInputElement).value;
-    const endTime = (document.getElementById('end_time') as HTMLInputElement).value;
-    runTimelineSearch(startDate + ' ' + startTime, endDate + ' ' + endTime);
-  } catch (error) {
-    console.error(error);
+/** FR-7.2/FR-7.8.4: extracts the day-of-month numbers (1-31) that have
+ *  recordings from one `CalenderSearchResults[dateKey]` entry's per-day
+ *  bitmask -- factored out of search_date() above so playbackCalendar.ts's
+ *  month search (docs/window-ui/SRS.md FR-7.8.4) uses the exact same
+ *  parsing logic rather than a second, potentially-drifting copy of it.
+ *  `dateKey` defaults to the object's own single key when the response has
+ *  exactly one (the normal case for a one-month `calendarsearch` query). */
+export function parseRecordedDaysFromCalendarSearch(calendar: any, dateKey?: string): number[] {
+  const key = dateKey ?? Object.keys(calendar.CalenderSearchResults ?? {})[0];
+  if (key === undefined) {
+    return [];
   }
-}
-
-export function search_three_month_timeline(): void {
-  try {
-    const startDate = (document.getElementById('start_date') as HTMLInputElement).value;
-    const startTime = (document.getElementById('start_time') as HTMLInputElement).value;
-    const strSearchStartTime = startDate + ' ' + startTime;
-    const strSearchEndTime = moment(strSearchStartTime).add(3, 'months').format('YYYY-MM-DD HH:mm:ss');
-    runTimelineSearch(strSearchStartTime, strSearchEndTime);
-  } catch (error) {
-    console.error(error);
-  }
-}
-
-export function search_timeline_by_range(): void {
-  try {
-    if (timelineRangeSwitch!.getValue() === 'threemonth') {
-      search_three_month_timeline();
-    } else {
-      search_oneday_timeline();
+  const recordedDates: number[] = [];
+  const record_dates: any[] = Array.from(calendar.CalenderSearchResults[key].Result);
+  for (let i = 0; i < record_dates.length; i++) {
+    if (parseInt(record_dates[i]) === 1) {
+      recordedDates.push(i + 1);
     }
-  } catch (error) {
-    console.error(error);
   }
+  return recordedDates;
 }
 
 // ---------------------------------------------------------------------
-// FR-7.4: Manual Start/End Time.
+// FR-7.5
 // ---------------------------------------------------------------------
-export function onchangestarttime(): void {
-  try {
-    const startDate = (document.getElementById('start_date') as HTMLInputElement).value;
-    const startTime = (document.getElementById('start_time') as HTMLInputElement).value;
-    state.getSelectedPlayer().startTime = startDate + 'T' + startTime + 'Z';
-  } catch (error) {
-    console.error(error);
-  }
-}
-
-export function onchangeendtime(): void {
-  try {
-    const endDate = (document.getElementById('end_date') as HTMLInputElement).value;
-    const endTime = (document.getElementById('end_time') as HTMLInputElement).value;
-    state.getSelectedPlayer().endTime = endDate + 'T' + endTime + 'Z';
-  } catch (error) {
-    console.error(error);
-  }
-}
-
-export function onchangesupportendtime(): void {
-  try {
-    const checked = (document.getElementById('support_end_time') as HTMLInputElement).checked;
-    (document.getElementById('manual_end_time_group') as HTMLElement).style.display = checked ? '' : 'none';
-    if (checked) {
-      onchangeendtime();
-    } else {
-      state.getSelectedPlayer().endTime = null;
-    }
-  } catch (error) {
-    console.error(error);
-  }
-}
-
 export function changespeed(): void {
   try {
     state.getSelectedPlayer().playSpeed = (document.getElementById('speed') as HTMLSelectElement).value;
@@ -338,250 +217,416 @@ export function changespeed(): void {
 }
 
 // ---------------------------------------------------------------------
-// FR-7.6: the vis.Timeline render.
+// One "All" row (no more separate Normal/Event rows -- see MEMORY.md for
+// why), rendered by src/component/event-timeline/'s custom widget (not
+// vis.Timeline -- see docs/window-ui/SRS.md FR-7.6 v1.16/
+// docs/event-timeline-component/ for why this replaced it). Each item's
+// color is assigned dynamically by distinct `Type` string (see
+// assignEventColorClass() below) rather than a fixed enum of known
+// detection-type names -- a real device's Timeline items are labeled by
+// which Rule triggered them (e.g. "Rule1"), not a generic category, so a
+// fixed switch on known names left every real event bucketed into the
+// same "unknown" color.
+const EVENT_COLOR_CLASSES = [
+  'motiondetection', 'audiodetection', 'facedetection', 'audioanalysis',
+  'videoanalysis', 'defocusdetection', 'ai', 'unknown',
+];
+
+/** The same `type` string always gets the same color class, keyed off the
+ *  Rule number embedded in the type itself (e.g. `"Rule3"` -> index 2 ->
+ *  EVENT_COLOR_CLASSES[2]) rather than "whichever distinct type happened
+ *  to be seen first in this render" -- the same physical Rule now keeps
+ *  the same color across separate searches/renders instead of shifting
+ *  depending on event ordering. Falls back to first-seen-order cycling
+ *  only for a type string with no trailing number. `"normal"` always gets
+ *  its own fixed green ('normal' class), never counted against the
+ *  cycling palette. */
+/** Resolves a Timeline result's raw "Rule<N>" Type string (1-based, e.g.
+ *  "Rule3") to its configured RuleName (e.g. "MD 1") from
+ *  state.dynamicRuleEntries -- the same getDynamicRules() entries
+ *  playbackCalendar.ts's populateRuleSelect() uses for the Rule dropdown,
+ *  with the same `Rule<N>` = entry's 0-based `Rule` field + 1 offset (see
+ *  the comment there / MEMORY.md). Also requires the candidate entry's
+ *  EventSources to include `channel` (the same 0-based value sent as the
+ *  Timeline request's own `ChannelIDList` -- see playbackCalendar.ts's
+ *  `channel` computation) -- getDynamicRules() returns every configured
+ *  rule device-wide, not scoped to one channel, and `Rule` numbering is
+ *  not guaranteed unique across channels, so matching on `Rule` alone
+ *  could resolve to a different channel's same-numbered rule. Falls back
+ *  to the raw type string when no matching/named rule for this channel is
+ *  cached (e.g. the calendar panel hasn't been opened yet this session, or
+ *  SUNAPI is Off). "Normal" is not rule-triggered data and is returned
+ *  unchanged, never looked up. */
+function resolveEventLabel(type: string, channel: number): string {
+  const key = (type ?? '').toLowerCase();
+  if (key === '' || key === 'normal') {
+    return type;
+  }
+  const ruleNumber = parseInt(key.match(/^rule(\d+)$/)?.[1] ?? '', 10);
+  if (Number.isNaN(ruleNumber)) {
+    return type;
+  }
+  const entry = state.dynamicRuleEntries.find((candidate: any) => {
+    return Number(candidate?.Rule) === ruleNumber - 1
+      && (candidate.EventSources ?? []).some((source: any) => Number(source.Channel) === channel);
+  });
+  return typeof entry?.RuleName === 'string' && entry.RuleName !== '' ? entry.RuleName : type;
+}
+
+/** Whether a Timeline result's raw Type belongs to the currently-selected
+ *  channel, per state.dynamicRuleEntries -- the same cache/offset
+ *  resolveEventLabel() uses. A real device's Timeline endpoint has been
+ *  observed returning `Results[]` rows for a Rule configured on a
+ *  *different* channel than the one actually requested via `ChannelIDList`
+ *  (reported directly by the user, e.g. Channel 2's Rule5/Rule6/Rule8/
+ *  Rule9 showing up while Channel 1 was selected/queried) -- this filters
+ *  those out client-side before they ever reach updateTimeline()'s
+ *  rows/items, rather than just resolving to a mislabeled/unlabeled entry
+ *  the way resolveEventLabel() alone would. "Normal" (not rule-triggered)
+ *  always belongs to whichever channel was actually queried, so it's never
+ *  filtered. A `Rule<N>` with no matching entry in state.dynamicRuleEntries
+ *  at all (not even for a different channel -- e.g. rules not loaded yet
+ *  this session) is also kept, not filtered: there's nothing to compare
+ *  against, so filtering here could only ever hide data incorrectly,
+ *  never correctly. */
+function eventAppliesToChannel(type: string, channel: number): boolean {
+  const key = (type ?? '').toLowerCase();
+  if (key === '' || key === 'normal') {
+    return true;
+  }
+  const ruleNumber = parseInt(key.match(/^rule(\d+)$/)?.[1] ?? '', 10);
+  if (Number.isNaN(ruleNumber)) {
+    return true;
+  }
+  const entry = state.dynamicRuleEntries.find((candidate: any) => Number(candidate?.Rule) === ruleNumber - 1);
+  if (typeof entry === 'undefined') {
+    return true;
+  }
+  return (entry.EventSources ?? []).some((source: any) => Number(source.Channel) === channel);
+}
+
+function assignEventColorClass(colorAssignments: Map<string, string>, type: string): string {
+  const key = (type ?? '').toLowerCase();
+  if (key === 'normal') {
+    return 'normal';
+  }
+  let colorClass = colorAssignments.get(key);
+  if (typeof colorClass === 'undefined') {
+    const ruleNumber = parseInt(key.match(/(\d+)\s*$/)?.[1] ?? '', 10);
+    const index = Number.isNaN(ruleNumber) ? colorAssignments.size : ruleNumber - 1;
+    const wrapped = ((index % EVENT_COLOR_CLASSES.length) + EVENT_COLOR_CLASSES.length) % EVENT_COLOR_CLASSES.length;
+    colorClass = EVENT_COLOR_CLASSES[wrapped];
+    colorAssignments.set(key, colorClass);
+  }
+  return colorClass;
+}
+
+/** The widget's own "Selected Time" (docs/event-timeline-component/SRS.md
+ *  FR-11) is wiped back to its "now, no end" default on every remount
+ *  (the component has no memory across its own destroy()/mount cycle --
+ *  see event-timeline.ts's file header) -- persisted here instead, and
+ *  re-applied to each freshly-mounted instance below, so a user's chosen
+ *  playback point survives every subsequent timeline refresh (Rule
+ *  change, range-preset click, ...) until they pick a new one or
+ *  playbackCalendar.ts's resetPlaybackSearchStateForChannelChange() clears
+ *  it via clearSelectedTime() on channel change. `null` means "nothing
+ *  selected yet this session" (leave the freshly-mounted default as-is). */
+let lastSelectedTime: { startDate: string; startTime: string; endDate: string | null; endTime: string | null } | null = null;
+
+/** FR-7.8.6/device.ts's changechannel(): the previous channel's Selected
+ *  Time (and the player's startTime/endTime it drove) is meaningless for
+ *  the new channel. Resets the persisted state above and, if a timeline is
+ *  currently mounted, its displayed Selected Time back to the same "now,
+ *  no end" default a fresh mount starts with. */
+export function clearSelectedTime(): void {
+  lastSelectedTime = null;
+  state.getSelectedPlayer().startTime = null;
+  state.getSelectedPlayer().endTime = null;
+  if (state.eventTimeline !== null) {
+    const now = new Date();
+    const pad2 = (n: number) => String(n).padStart(2, '0');
+    const startDate = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
+    const startTime = `${pad2(now.getHours())}:${pad2(now.getMinutes())}:${pad2(now.getSeconds())}`;
+    state.eventTimeline.setSelectedTime(startDate, startTime, null, null);
+  }
+}
+
+// FR-7.6: the event-timeline render. `onRangePresetSelect` is supplied by
+// whichever flow (this module's own runManualTimelineSearch(), or
+// playbackCalendar.ts's Calendar equivalent) actually issued this search --
+// kept as a parameter rather than importing playbackCalendar.ts here, so
+// the existing one-directional import (playbackCalendar.ts -> playback.ts)
+// stays one-directional.
 // ---------------------------------------------------------------------
-function updateTimeline(results: any): void {
+export function updateTimeline(results: any, onRangePresetSelect?: (fromDate: Date, toDate: Date, label: string) => void): void {
   if (results.length > 0 && results[0].Results.length > 0) {
-    (document.getElementById('timeline') as HTMLElement).innerHTML = '';
-    const container = document.getElementById('timeline')!;
+    if (state.eventTimeline !== null) {
+      state.eventTimeline.destroy();
+      state.eventTimeline = null;
+    }
 
-    const groups = new (vis as any).DataSet([
-      { content: 'Normal', id: 'Normal' },
-      {
-        content: 'Event', id: 'Event', value: 2,
-        subgroupVisibility: {
-          motiondetection: true, audiodetection: true, facedetection: true,
-          audioanalysis: true, videoanalysis: true, defocusdetection: true, unknown: true,
-        },
-      },
-    ]);
+    // Same 0-based channel numbering already sent as this search's own
+    // `ChannelIDList` (see playback.ts's/playbackCalendar.ts's `channel`
+    // computation) -- resolveEventLabel()/eventAppliesToChannel() need it
+    // to disambiguate same-numbered Rules configured on different
+    // channels.
+    const channel = Number(state.getSelectedPlayer().channel) - 1;
 
-    const options: any = {
-      moment: (date: any) => {
-        if (!(document.getElementById('use_gmt') as HTMLInputElement).checked) {
-          const timezone = gettimezonestring((document.getElementById('timezone') as HTMLInputElement).value);
-          return (vis as any).moment(date).utcOffset(timezone);
-        } else {
-          return (vis as any).moment(date).utcOffset(state.localGmtOffset);
-        }
-      },
-      groupOrder: (a: any, b: any) => a.value - b.value,
-      groupOrderSwap: (a: any, b: any) => {
-        const v = a.value;
-        a.value = b.value;
-        b.value = v;
-      },
-      groupTemplate: (group: any) => {
-        const container2 = document.createElement('div');
-        container2.className = 'timeline-group-label';
-        const label = document.createElement('span');
-        label.className = 'timeline-group-label-text';
-        label.innerHTML = group.content;
-        container2.insertAdjacentElement('afterbegin', label);
-        const hide = document.createElement('button');
-        hide.className = 'timeline-group-hide-btn';
-        hide.innerHTML = 'Hide';
-        hide.addEventListener('click', () => {
-          groups.update({ id: group.id, visible: false });
-        });
-        container2.insertAdjacentElement('beforeend', hide);
-        return container2;
-      },
-      orientation: 'bottom',
-      editable: { overrideItems: true },
-      groupEditable: true,
-      showCurrentTime: true,
-      selectable: true,
-      multiselect: true,
-      showTooltips: true,
-      stack: false,
-      stackSubgroups: false,
-      margin: { item: 1, axis: 1 },
-      start: new Date().setHours(0, 0, 0, 0),
-      end: new Date().setHours(23, 59, 59, 999),
-      maxHeight: '100px',
-      showMajorLabels: false,
-      showMinorLabels: true,
-    };
-    // Matches the original exactly: passing the plain `options` object
-    // (not an array of items) to `new vis.DataSet(...)` -- vis treats a
-    // non-array first argument as its own constructor options, so this
-    // starts as an empty DataSet; the forEach below populates it via
-    // .add(). Confirmed harmless (not a crash) rather than "fixed" --
-    // see docs/window-ui/DESIGN.md.
-    const items = new (vis as any).DataSet(options);
+    // A real device's Timeline response has been observed including
+    // Results[] rows for Rules configured on a DIFFERENT channel than the
+    // one actually queried via ChannelIDList -- filtered out here, before
+    // anything below ever sees them, rather than left to render mislabeled
+    // (see eventAppliesToChannel()'s own doc comment). Reported directly
+    // by the user.
+    const channelResults = results[0].Results.filter((timeline_element: any) => eventAppliesToChannel(timeline_element.Type, channel));
 
-    results[0].Results.forEach((timeline_element: any) => {
+    // "All" stays one combined line -- Normal + every Rule# event together,
+    // colored per rule type. Each distinct Rule# additionally gets its own
+    // row below "All" (sorted by its trailing rule number) so a channel
+    // with several configured rules can still be told apart without
+    // hunting through the merged row -- see docs/window-ui/SRS.md FR-7.6
+    // v1.16 / docs/event-timeline-component/.
+    const ruleGroupIds: string[] = [];
+    const seenRuleGroups = new Set<string>();
+    channelResults.forEach((timeline_element: any) => {
+      const type = timeline_element.Type;
+      const key = (type ?? '').toLowerCase();
+      if (key !== '' && key !== 'normal' && !seenRuleGroups.has(key)) {
+        seenRuleGroups.add(key);
+        ruleGroupIds.push(type);
+      }
+    });
+    ruleGroupIds.sort((a, b) => {
+      const numA = parseInt(String(a).match(/(\d+)\s*$/)?.[1] ?? '', 10);
+      const numB = parseInt(String(b).match(/(\d+)\s*$/)?.[1] ?? '', 10);
+      if (!Number.isNaN(numA) && !Number.isNaN(numB)) {
+        return numA - numB;
+      }
+      return String(a).localeCompare(String(b));
+    });
+
+    const colorAssignments = new Map<string, string>();
+    const rows: EventTimelineRow[] = [
+      { id: 'All', label: 'ALL EVENTS', overview: true },
+      ...ruleGroupIds.map((type) => ({ id: type, label: resolveEventLabel(type, channel), colorClass: assignEventColorClass(colorAssignments, type) })),
+    ];
+
+    const items: EventTimelineItem[] = [];
+    channelResults.forEach((timeline_element: any) => {
       try {
         const start = new Date(timeline_element.StartTime);
         const end = new Date(timeline_element.EndTime);
-        const type = checkEventSubGroup(timeline_element.Type);
-        const data: any = {
-          id: timeline_element.Result,
-          content: timeline_element.Type,
+        const colorClass = assignEventColorClass(colorAssignments, timeline_element.Type);
+        const item: EventTimelineItem = {
+          id: String(timeline_element.Result),
+          rowId: 'All',
           start,
           end,
-          group: type.group,
+          label: resolveEventLabel(timeline_element.Type, channel),
+          className: colorClass,
+          raw: timeline_element,
         };
-        if (typeof type.subgroup !== 'undefined' && type.subgroup !== null) {
-          data.subgroup = type.subgroup;
+        items.push(item);
+
+        // Rule-triggered (non-Normal) events additionally get a second
+        // copy of the same item in their own Rule# row -- a distinct `id`
+        // since item ids must be unique, but otherwise identical, so
+        // clicking either copy drives the same onSelect behavior below.
+        if (colorClass !== 'normal') {
+          items.push({ ...item, id: item.id + '__group', rowId: timeline_element.Type });
         }
-        if (typeof type.class !== 'undefined' && type.class !== null) {
-          data.className = type.class;
-        }
-        items.add(data);
       } catch (error) {
         console.error(error);
       }
     });
 
-    state.visTimeline = new (vis as any).Timeline(container);
-    state.visTimeline.setOptions(options);
-    state.visTimeline.setGroups(groups);
-    state.visTimeline.setItems(items);
-
-    const itemMin = state.visTimeline.getItemRange().min;
-
-    let today: any;
-    if (!(document.getElementById('use_gmt') as HTMLInputElement).checked) {
-      // #usegmttime has no corresponding element in window.html -- same
-      // pre-existing dead reference as session.ts's guarded use of it.
-      const usegmttimeEl = document.querySelector('select[id="usegmttime"]') as HTMLSelectElement | null;
-      if (usegmttimeEl !== null) {
-        let temp = '';
-        temp += parseFloat(usegmttimeEl.value) > 0 ? '+' : '';
-        temp += pad!(parseFloat(usegmttimeEl.value), 2) + ':00';
-        today = (vis as any).moment(itemMin).utcOffset(temp);
-      } else {
-        today = (vis as any).moment(itemMin);
+    function formatTick(date: Date): string {
+      if (!(document.getElementById('use_gmt') as HTMLInputElement).checked) {
+        const timezone = gettimezonestring((document.getElementById('timezone') as HTMLInputElement).value);
+        return moment(date).utcOffset(timezone).format('MM-DD HH:mm:ss');
       }
-    } else {
-      today = (vis as any).moment(itemMin).utc();
+      return moment(date).utcOffset(state.localGmtOffset).format('MM-DD HH:mm:ss');
     }
 
-    state.visTimeline.addCustomTime(today);
-
-    state.visTimeline.on('click', (properties: any) => {
-      state.visTimeline.setSelection(properties.item);
-    });
-
-    state.visTimeline.on('doubleClick', (properties: any) => {
-      state.visTimeline.setSelection(properties.item);
-      if (state.getSelectedPlayer().readyState === RTSPOverWebSocketPlayState.PLAYING) {
-        if (!(document.getElementById('use_gmt') as HTMLInputElement).checked) {
-          if (state.getSelectedPlayer().device === 'camera') {
-            state.getSelectedPlayer().seekingTime = moment(properties.time).utcOffset(state.localGmtOffset).format('YYYY-MM-DD[T]HH:mm:ss') + 'Z';
-          }
-        } else if ((document.getElementById('use_gmt') as HTMLInputElement).checked) {
-          state.getSelectedPlayer().seekingTime = new Date(properties.time).toISOString();
-        }
-      }
-    });
-
-    state.visTimeline.on('hoverNode', () => {
-      // changedebug-only in the original (and buggy there too -- logs the
-      // global `event`, not its own callback arg; preserved as a no-op
-      // here since it has no observable effect either way).
-    });
-
-    state.visTimeline.on('select', (properties: any) => {
-      try {
+    state.eventTimeline = mountEventTimeline({
+      containerId: 'timeline',
+      rows,
+      items,
+      formatTick,
+      onSelect: (item) => {
         if (state.getSelectedPlayer().readyState === RTSPOverWebSocketPlayState.PLAYING) {
           return;
         }
+        try {
+          // DEVIATION from legacy behavior (see docs/window-ui/DESIGN.md):
+          // every selected item sets both Start and End Time, Normal-
+          // classed items included. recording.cgi's Timeline response
+          // always carries a real EndTime for every Result row regardless
+          // of Type (Normal or Rule#) -- the legacy `src/shared/window.ts`
+          // nonetheless special-cased 'normal' to null out endTime, with no
+          // documented rationale (see MEMORY.md); reported by the user as
+          // unwanted, so not reproduced here.
+          const player = state.getSelectedPlayer();
+          if (player.device === 'camera') {
+            player.startTime = moment(item.start).utcOffset(state.localGmtOffset).format('YYYY-MM-DD[T]HH:mm:ss') + 'Z';
+          } else {
+            player.startTime = item.start.toISOString();
+          }
+          const startDate = player.startTime.split('T')[0];
+          const startTime = player.startTime.split('T')[1].replace(/Z/gi, '');
 
-        const item = items.get(properties.items);
-        if (item.length > 0) {
-          const group = groups.get(item[0].group).id;
-
-          const startDateControl = document.querySelector('input[id="start_date"]') as HTMLInputElement | null;
-          const startTimeControl = document.querySelector('input[id="start_time"]') as HTMLInputElement | null;
-          const endDateControl = document.querySelector('input[id="end_date"]') as HTMLInputElement | null;
-          const endTimeControl = document.querySelector('input[id="end_time"]') as HTMLInputElement | null;
-
-          if (
-            startDateControl !== null && startTimeControl !== null && endDateControl !== null && endTimeControl !== null &&
-            typeof item[0].start !== 'undefined' && typeof item[0].end !== 'undefined' &&
-            item[0].start !== null && item[0].end !== null
-          ) {
-            const player = state.getSelectedPlayer();
-            if (typeof item[0].start === 'string' && typeof item[0].end === 'string') {
-              if (!(document.getElementById('use_gmt') as HTMLInputElement).checked) {
-                const timezoneMs = player.GMT * 3600 * 1000;
-                startDateControl.value = new Date(item[0].start).toISOString().split('T')[0];
-                startTimeControl.value = new Date(item[0].start).toISOString().split('T')[1].replace(/Z/gi, '');
-                player.startTime = new Date(new Date(item[0].start).getTime() + timezoneMs).toISOString();
-
-                if (group.toLowerCase() !== 'normal') {
-                  endDateControl.value = new Date(item[0].end).toISOString().split('T')[0];
-                  endTimeControl.value = new Date(item[0].end).toISOString().split('T')[1].replace(/Z/gi, '');
-                  player.endTime = new Date(new Date(item[0].end).getTime() + timezoneMs).toISOString();
-                  endDateControl.disabled = false;
-                  endTimeControl.disabled = false;
-                } else {
-                  player.endTime = null;
-                  endDateControl.disabled = true;
-                  endTimeControl.disabled = true;
-                }
-              } else {
-                startDateControl.value = new Date(item[0].start).toISOString().split('T')[0];
-                startTimeControl.value = new Date(item[0].start).toISOString().split('T')[1].replace(/Z/gi, '');
-                player.startTime = new Date(item[0].start).toISOString();
-
-                if (group.toLowerCase() !== 'normal') {
-                  endDateControl.value = new Date(item[0].end).toISOString().split('T')[0];
-                  endTimeControl.value = new Date(item[0].end).toISOString().split('T')[1].replace(/Z/gi, '');
-                  player.endTime = new Date(item[0].end).toISOString();
-                  endDateControl.disabled = false;
-                  endTimeControl.disabled = false;
-                } else {
-                  player.endTime = null;
-                  endDateControl.disabled = true;
-                  endTimeControl.disabled = true;
-                }
-              }
+          let endDate: string | null = null;
+          let endTime: string | null = null;
+          if (item.end) {
+            if (player.device === 'camera') {
+              player.endTime = moment(item.end).utcOffset(state.localGmtOffset).format('YYYY-MM-DD[T]HH:mm:ss') + 'Z';
             } else {
-              // item[0].start/end are Date objects (not strings) --
-              // camera vs. non-camera branches, GMT vs. local.
-              const useGmt = (document.getElementById('use_gmt') as HTMLInputElement).checked;
-              if (player.device === 'camera') {
-                player.startTime = moment(item[0].start).utcOffset(state.localGmtOffset).format('YYYY-MM-DD[T]HH:mm:ss') + 'Z';
-              } else {
-                player.startTime = item[0].start.toISOString();
-              }
-              if (group.toLowerCase() !== 'normal') {
-                if (player.device === 'camera') {
-                  player.endTime = moment(item[0].end).utcOffset(state.localGmtOffset).format('YYYY-MM-DD[T]HH:mm:ss') + 'Z';
-                } else {
-                  player.endTime = item[0].end.toISOString();
-                }
-              } else {
-                player.endTime = null;
-                endDateControl.disabled = true;
-                endTimeControl.disabled = true;
-              }
-              startDateControl.value = player.startTime.split('T')[0];
-              startTimeControl.value = player.startTime.split('T')[1].replace(/Z/gi, '');
-              if (player.endTime !== null) {
-                endDateControl.value = player.endTime.split('T')[0];
-                endTimeControl.value = player.endTime.split('T')[1].replace(/Z/gi, '');
-              }
-              void useGmt; // both branches above are identical regardless of useGmt, matching the original
+              player.endTime = item.end.toISOString();
             }
+            endDate = player.endTime.split('T')[0];
+            endTime = player.endTime.split('T')[1].replace(/Z/gi, '');
+          } else {
+            player.endTime = null;
+          }
+
+          lastSelectedTime = { startDate, startTime, endDate, endTime };
+          state.eventTimeline?.setSelectedTime(startDate, startTime, endDate, endTime);
+        } catch (error) {
+          // Was previously unguarded in the original; a real "start time is
+          // empty" (0x0411) report traced back to an unhandled exception
+          // here. Guarded there already -- kept guarded here too (not a
+          // deviation, this fix is already part of the behavior being
+          // matched).
+          console.error('timeline select error:', error);
+        }
+      },
+      onDoubleClick: (time) => {
+        if (state.getSelectedPlayer().readyState === RTSPOverWebSocketPlayState.PLAYING) {
+          if (!(document.getElementById('use_gmt') as HTMLInputElement).checked) {
+            if (state.getSelectedPlayer().device === 'camera') {
+              state.getSelectedPlayer().seekingTime = moment(time).utcOffset(state.localGmtOffset).format('YYYY-MM-DD[T]HH:mm:ss') + 'Z';
+            }
+          } else {
+            state.getSelectedPlayer().seekingTime = time.toISOString();
           }
         }
-      } catch (error) {
-        // Was previously unguarded in the original; a real "start time is
-        // empty" (0x0411) report traced back to an unhandled exception
-        // here. Guarded there already -- kept guarded here too (not a
-        // deviation, this fix is already part of the behavior being
-        // matched).
-        console.error('timeline select error:', error);
-      }
+      },
+      // FR-14 (docs/event-timeline-component/SRS.md): dragging the
+      // current-time marker seeks exactly like onDoubleClick above (same
+      // GMT-aware branching, same readyState guard) -- the difference is
+      // this ALSO updates the shared #timestamp_date/#timestamp_time
+      // readout (Video Control panel, `updateTimestampReadout()` above,
+      // same fields 'live' mode uses) immediately, rather than waiting for
+      // the player's own next `timestamp` event to report the new
+      // position. Reported directly by the user: Current Time/its display
+      // stays exactly where it already was (Video Control); only the
+      // timeline's own line becomes interactive.
+      onCustomTimeSeek: (time) => {
+        try {
+          const player = state.getSelectedPlayer();
+          if (player.readyState !== RTSPOverWebSocketPlayState.PLAYING) {
+            return;
+          }
+          let seekingTime: string | null = null;
+          if (!(document.getElementById('use_gmt') as HTMLInputElement).checked) {
+            if (player.device === 'camera') {
+              seekingTime = moment(time).utcOffset(state.localGmtOffset).format('YYYY-MM-DD[T]HH:mm:ss') + 'Z';
+            }
+          } else {
+            seekingTime = time.toISOString();
+          }
+          if (seekingTime === null) {
+            return;
+          }
+          // Reported directly by the user: dragging the marker backward
+          // (to an earlier point) and resuming played the stream in
+          // reverse instead of forward from the new position. The most
+          // likely cause is a stale negative value left over in the Speed
+          // dropdown/`playSpeed` from earlier reverse-playback testing
+          // (`#speed` has "-0.25x".."-256x" options) persisting across an
+          // unrelated seek -- forcing normal forward speed on every
+          // drag-seek keeps this interaction predictable regardless of
+          // whatever speed was last selected. Scoped to this drag-seek
+          // path only (not onDoubleClick above) since that's what was
+          // reported; not verified against real hardware.
+          (document.getElementById('speed') as HTMLSelectElement).value = '1';
+          player.playSpeed = '1';
+          player.seekingTime = seekingTime;
+          updateTimestampReadout(seekingTime.split('T')[0], seekingTime.split('T')[1].replace(/Z/gi, ''));
+        } catch (error) {
+          console.error('custom time seek error:', error);
+        }
+      },
+      onSelectedTimeChange: (startDate, startTime, endDate, endTime) => {
+        // Fires only on a user-driven edit of the Selected Time inputs
+        // (typing a new value, or toggling "Has End Time") -- never for
+        // the setSelectedTime() calls this function makes itself (see
+        // event-timeline.ts's own doc comment on why that's safe).
+        try {
+          const player = state.getSelectedPlayer();
+          player.startTime = startDate + 'T' + startTime + 'Z';
+          player.endTime = endDate !== null && endTime !== null ? endDate + 'T' + endTime + 'Z' : null;
+          lastSelectedTime = { startDate, startTime, endDate, endTime };
+        } catch (error) {
+          console.error('selected time change error:', error);
+        }
+      },
+      onRangePresetSelect,
     });
+
+    // Persist the previous Selected Time (if any) across this remount --
+    // see lastSelectedTime's own doc comment above.
+    if (lastSelectedTime !== null) {
+      state.eventTimeline.setSelectedTime(lastSelectedTime.startDate, lastSelectedTime.startTime, lastSelectedTime.endDate, lastSelectedTime.endTime);
+    }
+
+    if (items.length > 0) {
+      const itemMin = Math.min(...items.map((item) => item.start.getTime()));
+      state.eventTimeline.setCustomTime(new Date(itemMin));
+    }
   } else {
     (window as any).popup('Result is empty' + fastJsonStringfy(results));
   }
+}
+
+/** Shared by `ontimestamp()`'s 'live' AND 'playback' cases (unified per the
+ *  user's explicit request -- previously 'playback' wrote to a separate,
+ *  static `#seeking_date`/`#seeking_time` pair; now both modes share this
+ *  one dynamically-created readout in the Video Control panel's
+ *  `#live_control`, created on first use exactly like the original
+ *  'live'-only behavior did). */
+function updateTimestampReadout(dateStr: string, timeStr: string): void {
+  if (document.getElementById('timestamp_date') === null) {
+    const dateInput = document.createElement('input');
+    dateInput.id = 'timestamp_date';
+    dateInput.type = 'date';
+    // Same reasoning as #timestamp_time below: legacy's 100px was too
+    // narrow to render the full "2026-09-01" (10 chars) in a disabled
+    // native date input -- the last digit got clipped, visually leaving a
+    // trailing "-" as the last thing shown. Reported directly by the user.
+    dateInput.setAttribute('style', 'min-width: 140px;width: 140px !important;');
+    document.getElementById('live_control')!.append(dateInput);
+
+    const timeInput = document.createElement('input');
+    timeInput.id = 'timestamp_time';
+    timeInput.type = 'time';
+    timeInput.step = '0.001';
+    timeInput.min = '00:00:00.000';
+    timeInput.max = '23:59:59.999';
+    // Legacy's own "min-width: 130px;width: 100px !important;" was
+    // self-contradictory and too narrow to render the full
+    // "00:00:00.000" (step=0.001 adds a milliseconds field the native
+    // time picker needs real room for) -- widened per the user's explicit
+    // request, a deliberate deviation from legacy's sizing (not a port).
+    timeInput.setAttribute('style', 'min-width: 160px;width: 160px !important;');
+    document.getElementById('live_control')!.append(timeInput);
+
+    (document.getElementById('timestamp_date') as HTMLInputElement).disabled = true;
+    (document.getElementById('timestamp_time') as HTMLInputElement).disabled = true;
+  }
+
+  (document.getElementById('timestamp_date') as HTMLInputElement).value = dateStr;
+  (document.getElementById('timestamp_time') as HTMLInputElement).value = timeStr;
 }
 
 /** FR-7.7. */
@@ -590,60 +635,58 @@ export function ontimestamp(timestamp: any): void {
   try {
     switch (timestamp.detail.mode) {
       case 'live': {
-        if (document.getElementById('timestamp_date') === null) {
-          const dateInput = document.createElement('input');
-          dateInput.id = 'timestamp_date';
-          dateInput.type = 'date';
-          dateInput.setAttribute('style', 'min-width: 100px;width: 100px !important;');
-          document.getElementById('live_control')!.append(dateInput);
-
-          const timeInput = document.createElement('input');
-          timeInput.id = 'timestamp_time';
-          timeInput.type = 'time';
-          timeInput.step = '0.001';
-          timeInput.min = '00:00:00.000';
-          timeInput.max = '23:59:59.999';
-          timeInput.setAttribute('style', 'min-width: 130px;width: 100px !important;');
-          document.getElementById('live_control')!.append(timeInput);
-
-          (document.getElementById('timestamp_date') as HTMLInputElement).disabled = true;
-          (document.getElementById('timestamp_time') as HTMLInputElement).disabled = true;
-        }
-
         if (timestamp.detail.local !== undefined && timestamp.detail.local !== null) {
-          (document.getElementById('timestamp_date') as HTMLInputElement).value = new Date(timestamp.detail.local).toISOString().split('T')[0];
-          (document.getElementById('timestamp_time') as HTMLInputElement).value = new Date(timestamp.detail.local).toISOString().split('T')[1].replace(/Z/gi, '');
+          updateTimestampReadout(
+            new Date(timestamp.detail.local).toISOString().split('T')[0],
+            new Date(timestamp.detail.local).toISOString().split('T')[1].replace(/Z/gi, ''),
+          );
         } else {
-          (document.getElementById('timestamp_date') as HTMLInputElement).value = new Date(timestamp.detail.timestamp).toISOString().split('T')[0];
-          (document.getElementById('timestamp_time') as HTMLInputElement).value = new Date(timestamp.detail.timestamp).toISOString().split('T')[1].replace(/Z/gi, '');
+          updateTimestampReadout(
+            new Date(timestamp.detail.timestamp).toISOString().split('T')[0],
+            new Date(timestamp.detail.timestamp).toISOString().split('T')[1].replace(/Z/gi, ''),
+          );
         }
         break;
       }
       case 'playback': {
         if (timestamp.detail.local !== undefined && timestamp.detail.local !== null) {
-          (document.getElementById('seeking_date') as HTMLInputElement).value = new Date(timestamp.detail.local).toISOString().split('T')[0];
-          (document.getElementById('seeking_time') as HTMLInputElement).value = new Date(timestamp.detail.local).toISOString().split('T')[1].replace(/Z/gi, '');
+          updateTimestampReadout(
+            new Date(timestamp.detail.local).toISOString().split('T')[0],
+            new Date(timestamp.detail.local).toISOString().split('T')[1].replace(/Z/gi, ''),
+          );
         } else {
-          (document.getElementById('seeking_date') as HTMLInputElement).value = new Date(timestamp.detail.timestamp).toISOString().split('T')[0];
-          (document.getElementById('seeking_time') as HTMLInputElement).value = new Date(timestamp.detail.timestamp).toISOString().split('T')[1].replace(/Z/gi, '');
+          updateTimestampReadout(
+            new Date(timestamp.detail.timestamp).toISOString().split('T')[0],
+            new Date(timestamp.detail.timestamp).toISOString().split('T')[1].replace(/Z/gi, ''),
+          );
         }
 
-        let currentTimeBar: any;
+        let currentTimeBar: moment.Moment;
         if ((document.getElementById('use_gmt') as HTMLInputElement).checked) {
           let temp = '';
           temp += timestamp.detail.timezone > 0 ? '+' : '';
-          temp += pad!(timestamp.detail.timezone / 60, 2) + ':00';
-          currentTimeBar = (vis as any).moment(timestamp.detail.timestamp).utcOffset(temp);
+          temp += String(timestamp.detail.timezone / 60).padStart(2, '0') + ':00';
+          currentTimeBar = moment(timestamp.detail.timestamp).utcOffset(temp);
         } else {
           if (elementPlayer.device === 'camera') {
-            currentTimeBar = (vis as any).moment(timestamp.detail.local).utc();
+            currentTimeBar = moment(timestamp.detail.local).utc();
           } else {
-            currentTimeBar = (vis as any).moment(timestamp.detail.timestamp).utc();
+            currentTimeBar = moment(timestamp.detail.timestamp).utc();
           }
         }
 
-        if (typeof state.visTimeline !== 'undefined' && state.visTimeline !== null) {
-          state.visTimeline.setCustomTime(currentTimeBar);
+        // FR-14: the marker only reflects an actually-playing position --
+        // when paused/stopped, ontimestamp() stops firing new frames
+        // entirely, which would otherwise leave a stale line frozen at the
+        // last position forever; onstatechange() (videoControl.ts) is what
+        // actually clears it on PAUSED/STOPPED, this guard just keeps a
+        // late-arriving in-flight timestamp from re-drawing it in between.
+        if (state.eventTimeline !== null) {
+          if (elementPlayer.readyState === RTSPOverWebSocketPlayState.PLAYING) {
+            state.eventTimeline.setCustomTime(currentTimeBar.toDate());
+          } else {
+            state.eventTimeline.setCustomTime(null);
+          }
         }
         break;
       }
@@ -654,38 +697,19 @@ export function ontimestamp(timestamp: any): void {
 }
 
 export function setupPlayback(): void {
-  // FR-15's original startup block (window.ts ~L380-414): #start_date/
-  // #end_date/#seeking_date default to today's date, overriding the
-  // static "2019-09-07"/"2018-07-22" HTML placeholders.
-  const today = new Date();
-  const todayStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
-  (document.getElementById('start_date') as HTMLInputElement).value = todayStr;
-  (document.getElementById('end_date') as HTMLInputElement).value = todayStr;
-  (document.getElementById('seeking_date') as HTMLInputElement).value = todayStr;
-  // #search_aitimeline is a known dead control (SRS "Known dead controls")
-  // -- stays disabled forever, same as the original.
+  // FR-15's original startup block (window.ts ~L380-414) used to default
+  // #seeking_date to today's date here. #seeking_date/#seeking_time no
+  // longer exist as static markup -- unified into #timestamp_date/
+  // #timestamp_time (updateTimestampReadout() above), which -- like 'live'
+  // mode already did -- is created on demand by the first `timestamp`
+  // event rather than needing a startup default. #start_date/#end_date
+  // also no longer exist as of the v2.0 Playback search redesign
+  // (docs/window-ui/SRS.md FR-7.1-7.4) -- Selected Time
+  // (src/component/event-timeline/) defaults to "now" itself, on mount.
+  // #search_aitimeline/#search_three_month_aitimeline are known dead
+  // controls (SRS "Known dead controls") -- stay disabled/unwired forever,
+  // same as the original; unaffected by the search redesign.
   (document.getElementById('search_aitimeline') as HTMLButtonElement).disabled = true;
-
-  document.getElementById('search_overlapped_id')!.addEventListener('click', search_overlapped_id);
-  document.getElementById('search_date')!.addEventListener('click', search_date);
-
-  timelineRangeSwitch = mountSwitch({
-    containerId: 'search_timeline_range_toggle',
-    variant: 'segmented',
-    options: [{ value: 'oneday', label: '1 Day' }, { value: 'threemonth', label: '3 Month' }],
-  });
-  document.getElementById('search_timeline')!.addEventListener('click', search_timeline_by_range);
-  (document.getElementById('search_timeline') as HTMLButtonElement).disabled = true;
-
-  document.getElementById('start_apply')!.addEventListener('click', onchangestarttime);
-  document.getElementById('start_date')!.addEventListener('change', onchangestarttime);
-  document.getElementById('start_time')!.addEventListener('change', onchangestarttime);
-
-  document.getElementById('end_apply')!.addEventListener('click', onchangeendtime);
-  document.getElementById('end_date')!.addEventListener('change', onchangeendtime);
-  document.getElementById('end_time')!.addEventListener('change', onchangeendtime);
-
-  document.getElementById('support_end_time')!.addEventListener('change', onchangesupportendtime);
 
   document.getElementById('speed')!.addEventListener('change', changespeed);
   (document.getElementById('speed') as HTMLSelectElement).disabled = true;

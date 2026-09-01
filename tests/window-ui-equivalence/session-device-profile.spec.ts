@@ -133,16 +133,23 @@ test.describe('FR-4.5/FR-5 Device SUNAPI bootstrap + Video Profile List (mock SU
     // sunapiInitInFlight comment and session.ts's username/password
     // handlers): a re-entrancy flag for genuinely-overlapping calls, and
     // a same-value check for this specific stale-blur case.
-    await pages.newPage.locator('#playback_radio').evaluate((el: HTMLInputElement) => el.click());
-
+    //
+    // Uses #hostname's own 'change' handler (unconditional re-init when
+    // the SUNAPI checkbox is checked, same as the original -- only
+    // #username/#password got the same-value fix, since that's the one
+    // real-world trigger this was found from) as the second trigger,
+    // deliberately NOT #playback_radio/#search_date -- FR-7.8 (added
+    // after this test) hides #playback_control whenever SUNAPI is also
+    // checked while in Playback mode, so those controls aren't a usable
+    // trigger here anymore.
     let attributesRequests = 0;
     pages.newPage.on('request', (req) => {
       if (req.url().includes('attributes.cgi')) attributesRequests += 1;
     });
 
     await pages.newPage.locator('#use_sunapi_client_checkbox').evaluate((el: HTMLInputElement) => el.click());
-    await pages.newPage.locator('#search_date').click();
-    await pages.newPage.waitForFunction(() => !(document.getElementById('search_timeline') as HTMLButtonElement).disabled);
+    await pages.newPage.locator('#hostname').dispatchEvent('change');
+    await pages.newPage.waitForTimeout(1000);
 
     expect(attributesRequests).toBe(1);
   });
