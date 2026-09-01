@@ -47,6 +47,19 @@
 //                                    loop. Mirrors chrome.storage.local's
 //                                    role for the extension's own toggle
 //                                    (see background.ts there).
+//
+//   GET  /shared-v2/, /shared-v2/**  Local dev convenience only (see
+//                                    docs/window-ui/): src/shared-v2/'s own
+//                                    preview build (dist/shared-v2-preview/,
+//                                    `npm run build:shared-v2`), served
+//                                    under this prefix so `npm run start`
+//                                    alone can reach it. Its WS /discover
+//                                    connects to this same server's root
+//                                    (not /shared-v2/discover), so it
+//                                    transparently reuses the real
+//                                    UDP-backed discovery above — no mock
+//                                    server needed to test it against a
+//                                    real device.
 
 'use strict';
 
@@ -77,6 +90,22 @@ const WINDOW_HTML_PATH = path.join(PUBLIC_DIR, 'window.html');
 const CERT_DIR = path.join(__dirname, '..', 'certs');
 const CERT_KEY_PATH = path.join(CERT_DIR, 'dev-server.key');
 const CERT_CRT_PATH = path.join(CERT_DIR, 'dev-server.crt');
+
+// dist/shared-v2-preview/ -- src/shared-v2/'s own preview build (see
+// docs/window-ui/, CLAUDE.md). Served here under /shared-v2/ purely as a
+// local dev convenience so `npm run start` alone can reach it (this file
+// is the example dev server, not a shipped artifact -- dist/shared-v2-preview/
+// still isn't linked from dist/chrome-extension/ or the published
+// @melchi45/wisenet-udp-discovery package, so PRD.md's "never wired into
+// the real shipped outputs" non-goal still holds). Relative asset paths in
+// its window.html (css/window.css, scripts/socket.js, etc.) resolve
+// correctly against the /shared-v2/ base automatically; its own socket.ts
+// connects to ws://<host>/discover at the root (not /shared-v2/discover),
+// so it transparently reuses this same server's real UDP-backed
+// WS /discover handler below -- no separate mock/fixture server needed to
+// exercise discovery against a real device.
+const SHARED_V2_PUBLIC_DIR = path.join(__dirname, '..', '..', 'shared-v2-preview');
+const SHARED_V2_WINDOW_HTML_PATH = path.join(SHARED_V2_PUBLIC_DIR, 'window.html');
 
 /** Generates certs/dev-server.{key,crt} via openssl if they don't already exist. */
 function ensureSelfSignedCert() {
@@ -183,11 +212,11 @@ const CONTENT_TYPES = {
   '.json': 'application/json',
 };
 
-/** Serves a file under PUBLIC_DIR (window.js, css/*, scripts/*, external-lib/**). */
-function serveStaticFile(res, urlPathname) {
-  const filePath = path.join(PUBLIC_DIR, urlPathname);
-  // Reject anything that escapes PUBLIC_DIR (e.g. "/../../etc/passwd").
-  if (filePath !== PUBLIC_DIR && !filePath.startsWith(PUBLIC_DIR + path.sep)) {
+/** Serves a file under `baseDir` (window.js, css/*, scripts/*, external-lib/**). */
+function serveStaticFileFrom(baseDir, res, urlPathname) {
+  const filePath = path.join(baseDir, urlPathname);
+  // Reject anything that escapes baseDir (e.g. "/../../etc/passwd").
+  if (filePath !== baseDir && !filePath.startsWith(baseDir + path.sep)) {
     res.writeHead(403, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'forbidden' }));
     return;
@@ -202,6 +231,11 @@ function serveStaticFile(res, urlPathname) {
     res.writeHead(200, { 'Content-Type': contentType });
     res.end(body);
   });
+}
+
+/** Serves a file under PUBLIC_DIR (window.js, css/*, scripts/*, external-lib/**). */
+function serveStaticFile(res, urlPathname) {
+  serveStaticFileFrom(PUBLIC_DIR, res, urlPathname);
 }
 
 function readJsonBody(req): Promise<any> {
@@ -221,6 +255,24 @@ function readJsonBody(req): Promise<any> {
 
 function handleRequest(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
+
+  if (req.method === 'GET' && (url.pathname === '/shared-v2' || url.pathname === '/shared-v2/')) {
+    fs.readFile(SHARED_V2_WINDOW_HTML_PATH, (err, body) => {
+      if (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'dist/shared-v2-preview/ not built -- run `npm run build:shared-v2` first: ' + err.message }));
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(body);
+    });
+    return;
+  }
+
+  if (req.method === 'GET' && url.pathname.startsWith('/shared-v2/')) {
+    serveStaticFileFrom(SHARED_V2_PUBLIC_DIR, res, url.pathname.slice('/shared-v2'.length));
+    return;
+  }
 
   if (req.method === 'GET' && url.pathname === '/') {
     fs.readFile(WINDOW_HTML_PATH, (err, body) => {

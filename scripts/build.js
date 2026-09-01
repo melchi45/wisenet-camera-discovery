@@ -219,12 +219,18 @@ function copySharedWebAssets(destDir) {
 }
 
 // docs/window-ui/ — a from-scratch, independently-tested reimplementation
-// of src/shared/, built alongside it (never replacing it) purely to prove
+// of src/shared/, originally built alongside it purely to prove
 // docs/window-ui/SRS.md's completeness via Playwright equivalence tests
-// (see docs/window-ui/PRD.md's Success Criteria). Deliberately a SEPARATE
-// build target ('shared-v2', not part of 'all'/'extension'/'node') so a
-// problem in this new/experimental code can never affect the real product
-// build — see docs/window-ui/MRD.md's "parallel, not in-place" reasoning.
+// (see docs/window-ui/PRD.md's Success Criteria). Still its own build
+// target ('shared-v2', not part of 'all'/'extension'/'node') so a problem
+// in this code never affects the *compile* step for the real product, but
+// per explicit user instruction it now ALSO overwrites the real product's
+// window.html/window.js/socket.js (and adds calendar.css) at the bottom of
+// this function — see the loop after "Build complete:" below and
+// docs/window-ui/MRD.md's History for the "parallel, not in-place" call
+// being reversed. Run `npm run build` (or `build:extension`/`build:node`)
+// FIRST so DIST_EXT/DIST_NODE's non-shared-web files (manifest.json,
+// native-host/, sunapi/, icons/) exist to overwrite onto.
 // Mirrors copySharedWebAssets() above exactly, source directory swapped.
 function buildSharedV2() {
   const BUILD_SHARED_V2 = path.join(ROOT, 'build', 'shared-v2');
@@ -270,6 +276,24 @@ function buildSharedV2() {
     path.join(ROOT, 'src', 'component', 'disclosure', 'disclosure.css'),
     path.join(DIST_SHARED_V2, 'css', 'disclosure.css')
   );
+  // src/shared-v2/-only (FR-7.8, docs/calendar-component/) -- not copied by
+  // copySharedWebAssets() above, since src/shared/ never references it.
+  copyFile(
+    path.join(ROOT, 'src', 'component', 'calendar', 'calendar.css'),
+    path.join(DIST_SHARED_V2, 'css', 'calendar.css')
+  );
+  // src/shared-v2/-only (FR-7.6 v1.16, docs/event-timeline-component/) --
+  // replaces src/shared/css/timeline.css (still copied above by the
+  // copyDir() call, but no longer referenced by src/shared-v2/window.html)
+  // for src/shared-v2/'s own custom event-timeline widget.
+  copyFile(
+    path.join(ROOT, 'src', 'component', 'event-timeline', 'event-timeline.css'),
+    path.join(DIST_SHARED_V2, 'css', 'event-timeline.css')
+  );
+  // node_modules/vis is still needed here -- src/shared-v2/'s Star Topology
+  // view (renderDiscoveryTopology(), docs/star-topology/) uses vis.Network,
+  // a separate part of the same vendored package; only the Playback
+  // timeline (vis.Timeline) was replaced by the component above.
   copyFile(
     path.join(ROOT, 'node_modules', 'vis', 'dist', 'vis.css'),
     path.join(DIST_SHARED_V2, 'external-lib', 'vis', 'vis.css')
@@ -295,6 +319,35 @@ function buildSharedV2() {
 
   console.log('Build complete:');
   console.log(`  ${path.relative(ROOT, DIST_SHARED_V2)}/`);
+
+  // Per explicit user instruction: if dist/chrome-extension/ and/or
+  // dist/nodejs/examples/public/ already exist (i.e. `npm run build` ran
+  // first), overwrite their window.html/window.js/scripts/socket.js/
+  // css/calendar.css/css/event-timeline.css with this shared-v2 build too --
+  // so the actual shipped Chrome extension and nodejs example server both
+  // get FR-7.8's Calendar-driven Playback UI and FR-7.6 v1.16's custom
+  // event-timeline widget, not just dist/shared-v2-preview/. Every OTHER
+  // file the real build produced (manifest.json, native-host/, sunapi/,
+  // icons/, css/window.css, css/switch.css, css/disclosure.css,
+  // css/timeline.css, external-lib/) is untouched -- those are identical
+  // between src/shared/ and src/shared-v2/ already (PRD.md's Non-Goals: not
+  // a visual redesign) or, for css/timeline.css specifically, simply
+  // unreferenced by src/shared-v2/window.html now (harmless leftover, still
+  // needed by src/shared/'s own untouched page) -- so nothing needs
+  // re-copying there. Silently skipped (not an error) if a target dir
+  // doesn't exist yet, so `npm run build:shared-v2` alone (no prior `npm
+  // run build`) still just produces dist/shared-v2-preview/ as before.
+  for (const realTargetDir of [DIST_EXT, path.join(DIST_NODE, 'examples', 'public')]) {
+    if (!fs.existsSync(realTargetDir)) {
+      continue;
+    }
+    console.log(`Overwriting ${path.relative(ROOT, realTargetDir)}/ with the shared-v2 build...`);
+    copyFile(path.join(DIST_SHARED_V2, 'window.html'), path.join(realTargetDir, 'window.html'));
+    copyFile(path.join(DIST_SHARED_V2, 'window.js'), path.join(realTargetDir, 'window.js'));
+    copyFile(path.join(DIST_SHARED_V2, 'scripts', 'socket.js'), path.join(realTargetDir, 'scripts', 'socket.js'));
+    copyFile(path.join(DIST_SHARED_V2, 'css', 'calendar.css'), path.join(realTargetDir, 'css', 'calendar.css'));
+    copyFile(path.join(DIST_SHARED_V2, 'css', 'event-timeline.css'), path.join(realTargetDir, 'css', 'event-timeline.css'));
+  }
 }
 
 if (process.argv[2] === 'shared-v2') {
