@@ -27,6 +27,7 @@
 | 2.10 | 2026-09-01 | Youngho Kim | Requested directly by the user, right after v2.9: `.event-timeline-row`/`.event-timeline-row-track`/`.event-timeline-overview-track` all explicitly set `height: 20px` (previously an un-set/auto row height, a 30px detail track, and a 25px overview track respectively) — every row (overview and detail alike) is now the same fixed height. `src/shared/css/table.css`'s own `.normal` rule (the v2.9/NFR-5 collision source) also had its `height: 40px` declaration removed outright, not just made unreachable by the `evt-` rename — its `border` declaration is untouched, since that part of the rule isn't implicated in the collision. |
 | 2.11 | 2026-09-01 | Youngho Kim | New FR-15: this component now also owns the "Overlapped Id" select, in the toolbar immediately left of the 1H/6H/1D/1W/1M/1Y preset buttons — the same single-canonical-control move v2.0 already did for Selected Time, replacing `playback.ts`'s/`playbackCalendar.ts`'s own previously-separate `#overlapped_id_area`/`#calendar_overlapped_id_area` DOM-building. Requested directly by the user. |
 | 2.12 | 2026-09-01 | Youngho Kim | New FR-16: this component now also owns the Calendar/SUNAPI flow's "Rule" select, immediately left of Overlapped Id — same move as FR-15, requested again after an earlier attempt that only relocated the static HTML markup regressed on the very next remount (see FR-16's own body). `playbackCalendar.ts` mounts an empty-rows/items "shell" instance of this component (`ensureEventTimelineShell()`) so Rule is interactive before the first search of a panel-visible session, unlike Overlapped Id which stays absent until real data exists. |
+| 2.13 | 2026-09-01 | Youngho Kim | FR-9: the current-time marker's overview ("ALL EVENTS") portion is now a separate element (`customTimeOverviewEl`, inside the overview row's own `.event-timeline-overview-track`) positioned on the overview's own `dataStart`/`dataEnd` basis, instead of one element spanning both rows via a single `left` computed only from the detail rows' `windowStart`/`windowEnd`. Since v2.2, that single `left` put the overview copy at the wrong position once zoomed in, because the overview row's own items are always laid out on the full data extent (same basis `renderOverviewHighlight()` uses), not the current zoom window. The detail-rows marker (`#event_timeline_custom_time`) and its drag hit-target (`#event_timeline_custom_time_hit`, FR-14) are unchanged in behavior, just now appended into `.event-timeline-rows` directly rather than `.event-timeline-rows-wrapper`. Reported directly by the user. |
 
 ## Interface
 
@@ -152,7 +153,11 @@ export function mountEventTimeline(config: MountEventTimelineOptions): EventTime
 - **FR-9 (playhead)**: `setCustomTime(date)` positions a vertical marker line at `date`'s position
   in the current zoom window; the marker is hidden (not clamped/redrawn at an edge) whenever `date`
   falls outside the window. `setCustomTime(null)` (v2.1) hides it outright. As of v2.2, the marker
-  spans the overview row ("ALL EVENTS") as well as the detail rows, not the detail rows alone.
+  spans the overview row ("ALL EVENTS") as well as the detail rows, not the detail rows alone — but
+  (v2.13) as two separately-positioned elements, not one: the detail-rows line uses the current zoom
+  window (`windowStart`/`windowEnd`) as above, while the overview row's own copy uses the overview's
+  own basis, the full data extent (`dataStart`/`dataEnd`, same as `renderOverviewHighlight()`) --
+  each row's copy stays aligned with that row's own items, which use the same two different bases.
 - **FR-10 (per-row Hide)**: every row (overview and detail) has its own "Hide"/"Show" toggle button
   that hides/shows that entire row, self-contained within the component (not exposed on
   `EventTimelineController` — nothing outside the component needs to drive this programmatically,

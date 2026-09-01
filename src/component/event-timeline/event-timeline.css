@@ -395,9 +395,11 @@
 .event-timeline-viewport-handle-left { left: -3px; }
 .event-timeline-viewport-handle-right { right: -3px; }
 
-/* Wraps the overview row + detail rows together (FR-14) -- the
-   current-time marker is positioned relative to this, not just
-   .event-timeline-rows, so it visually spans "ALL EVENTS" too. */
+/* Wraps the overview row + detail rows together. The current-time marker
+   no longer positions relative to this wrapper -- it's two separate
+   elements now, one inside .event-timeline-rows and one inside the
+   overview row's own .event-timeline-overview-track, each using that row's
+   own range basis (see .event-timeline-custom-time above). */
 .event-timeline-rows-wrapper {
   position: relative;
 }
@@ -481,7 +483,16 @@
   pointer-events: none;
 }
 
-/* "Now"/playhead marker */
+/* "Now"/playhead marker -- two separate elements share this class, each
+   confined to (and positioned relative to) its own row's own range basis:
+   `customTimeEl` inside `.event-timeline-rows` (detail rows, `windowStart`/
+   `windowEnd`) and `customTimeOverviewEl` inside the overview row's own
+   `.event-timeline-overview-track` (`dataStart`/`dataEnd`, same basis
+   `renderOverviewHighlight()` uses). A single element spanning both rows
+   via one `left` computed from only one of those two bases put the
+   overview copy at the wrong position once zoomed in -- its own items are
+   laid out on the full data extent, not the current zoom window. Reported
+   directly by the user; see event-timeline.ts's `customTimeOverviewEl`. */
 .event-timeline-custom-time {
   position: absolute;
   top: 0;
@@ -497,12 +508,11 @@
    above, centered on the same position via negative margin so its own
    `left` still targets the exact playhead position while giving the
    pointer more than 2px to grab. Appended into `.event-timeline-rows`
-   (detail rows only), NOT `.event-timeline-rows-wrapper` (overview +
-   detail) like the always-visible line -- so this `pointer-events: auto`
-   box only ever covers the detail rows' height, never the overview ("ALL
-   EVENTS") row's, where it would otherwise sit on top of -- and block
-   clicks on -- whatever item happens to start at the same time (in
-   practice, near-guaranteed to be the earliest Normal item). See
+   (detail rows only), alongside `customTimeEl` there -- never the overview
+   ("ALL EVENTS") row's `customTimeOverviewEl`, where a `pointer-events:
+   auto` hit box would otherwise sit on top of -- and block clicks on --
+   whatever item happens to start at the same time (in practice,
+   near-guaranteed to be the earliest Normal item). See
    event-timeline.ts's `customTimeHitEl` for the full rationale. */
 .event-timeline-custom-time-hit {
   position: absolute;

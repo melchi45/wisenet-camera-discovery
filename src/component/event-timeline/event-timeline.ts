@@ -1041,6 +1041,18 @@ export function mountEventTimeline(config: MountEventTimelineOptions): EventTime
   }
 
   let customTimeEl: HTMLElement | null = null;
+  // Overview ("ALL EVENTS") row's own copy of the marker line -- separate
+  // element from `customTimeEl` because the two rows use different range
+  // bases: detail rows show `windowStart`/`windowEnd` (the current zoom
+  // window) while the overview row always shows the full `dataStart`/
+  // `dataEnd` extent (same as `renderOverviewHighlight()`). A single `left`
+  // computed from one basis and applied to both was visually wrong on
+  // whichever row didn't share that basis -- most visible once zoomed in,
+  // where the overview copy no longer lined up with its own items.
+  // Reported directly by the user. `pointer-events: none`, purely visual,
+  // like `customTimeEl` -- FR-14's draggable hit area stays detail-rows-only
+  // regardless (see `customTimeHitEl` below).
+  let customTimeOverviewEl: HTMLElement | null = null;
   // Separate from `customTimeEl` -- only created when `onCustomTimeSeek` is
   // provided, and appended into `rowsContainer` (the detail-rows-only
   // wrapper) rather than `rowsWrapper` (overview + detail rows), so its
@@ -1135,27 +1147,42 @@ export function mountEventTimeline(config: MountEventTimelineOptions): EventTime
       if (customTimeHitEl !== null) {
         customTimeHitEl.style.display = 'none';
       }
+      if (customTimeOverviewEl !== null) {
+        customTimeOverviewEl.style.display = 'none';
+      }
       return;
     }
     if (customTimeEl === null) {
       customTimeEl = document.createElement('div');
       customTimeEl.id = 'event_timeline_custom_time';
       customTimeEl.className = 'event-timeline-custom-time';
-      rowsWrapper.style.position = 'relative';
-      rowsWrapper.append(customTimeEl);
+      rowsContainer.style.position = 'relative';
+      rowsContainer.append(customTimeEl);
       if (config.onCustomTimeSeek) {
         customTimeHitEl = document.createElement('div');
         customTimeHitEl.id = 'event_timeline_custom_time_hit';
         customTimeHitEl.className = 'event-timeline-custom-time-hit';
-        rowsContainer.style.position = 'relative';
         rowsContainer.append(customTimeHitEl);
         wireCustomTimeDrag(customTimeHitEl);
       }
+      if (overviewRefs !== null) {
+        customTimeOverviewEl = document.createElement('div');
+        customTimeOverviewEl.className = 'event-timeline-custom-time';
+        overviewRefs.trackEl.style.position = 'relative';
+        overviewRefs.trackEl.append(customTimeOverviewEl);
+      }
+    }
+    if (overviewRefs !== null && customTimeOverviewEl !== null) {
+      const overviewWidthPx = overviewRefs.trackEl.clientWidth;
+      const overviewRatio = timeToRatio(customTime.getTime(), dataStart.getTime(), dataEnd.getTime());
+      const overviewVisible = overviewRatio >= 0 && overviewRatio <= 1;
+      customTimeOverviewEl.style.left = `${clamp(overviewRatio, 0, 1) * overviewWidthPx}px`;
+      customTimeOverviewEl.style.display = overviewVisible ? '' : 'none';
     }
     if (isDraggingCustomTime) {
       return;
     }
-    const trackWidthPx = Math.max(rowsWrapper.clientWidth - ROW_HEADER_WIDTH_PX, 0);
+    const trackWidthPx = Math.max(rowsContainer.clientWidth - ROW_HEADER_WIDTH_PX, 0);
     const ratio = clamp(timeToRatio(customTime.getTime(), windowStart, windowEnd), 0, 1);
     const visible = ratio >= 0 && ratio <= 1;
     const left = `${ROW_HEADER_WIDTH_PX + ratio * trackWidthPx}px`;
