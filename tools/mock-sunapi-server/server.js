@@ -23,6 +23,115 @@ const PORT = Number(process.argv[2]) || 9301;
 
 const ATTRIBUTES = { Initialized: true, IsAndroid: false, SearchByUTCTime: true, MaxChannel: 1 };
 
+// getDeviceInfo (FR-7.8.1) -- exact shape the user supplied, `Language`
+// included since that's the field FR-7.8.1's language-dropdown default
+// reads.
+const DEVICE_INFO = {
+  Model: 'TNM-C2712TDR',
+  SerialNumber: 'ZV0970GW90018CD',
+  FirmwareVersion: '3.09.99_20260828',
+  BuildDate: '2026.08.28',
+  WebURL: 'https://www.hanwhavision.com/',
+  DeviceType: 'NWC',
+  ConnectedMACAddress: '00:09:18:EC:07:F0',
+  ISPVersion: '1.01_260825',
+  CGIVersion: '2.6.9',
+  ONVIFVersion: '22.12',
+  DeviceName: 'Camera',
+  DeviceLocation: 'Location',
+  DeviceDescription: 'Description',
+  Memo: 'Memo',
+  Language: 'English',
+  PasswordStrength: 'Strong',
+  OpenSDKVersion: '5.00_250318',
+  FirmwareGroup: '',
+  AIModelDetectionVersion: '2.1_v1.1_20260319b_earlyfire_2c',
+};
+
+// getDynamicRulesOptions (FR-7.8.2) -- exact shape the user supplied
+// (channel-0/1 entries only, enough to exercise the Rule-dropdown merge).
+const DYNAMIC_RULES_OPTIONS = {
+  DynamicRulesOptions: [
+    {
+      Channel: 0,
+      EventSources: [
+        {
+          Type: 'AlarmInput.1', Status: 'Active', Policy: 'Property', Type_English: 'Alarm input 1',
+          ActionTypes: ['AlarmOutput.1', 'SMTP', 'FTP', 'Record', 'AudioClip', 'Handover', 'MQTTPublication', 'LightAlarm'],
+        },
+        {
+          Type: 'EarlyFireDetection', Status: 'Active', Policy: 'Property',
+          Rule: [{ Rule: 1, Name: 'Name1', Policy: 'Property' }, { Rule: 2, Name: 'Name2', Policy: 'Property' }],
+          Type_English: 'Early fire detection',
+          ActionTypes: ['AlarmOutput.1', 'SMTP', 'FTP', 'Record', 'AudioClip', 'Handover', 'MQTTPublication', 'LightAlarm'],
+        },
+        {
+          Type: 'MotionDetection', Status: 'Active', Policy: 'Property',
+          Rule: [{ Rule: 1, Name: 'MotionRule-1', Policy: 'Property' }, { Rule: 2, Name: 'MotionRule-2', Policy: 'Property' }],
+          Type_English: 'Motion detection',
+          ActionTypes: ['AlarmOutput.1', 'SMTP', 'FTP', 'Record', 'AudioClip', 'Handover', 'MQTTPublication', 'LightAlarm'],
+        },
+      ],
+      AppEventSources: [],
+    },
+    {
+      Channel: 1,
+      EventSources: [
+        {
+          Type: 'BoxTemperatureDetection', Status: 'Active', Policy: 'Property',
+          Rule: [{ Rule: 1, Name: 'A', Policy: 'Property' }, { Rule: 2, Name: 'B', Policy: 'Property' }],
+          Type_English: 'Temperature detection',
+          ActionTypes: ['AlarmOutput.1', 'SMTP', 'FTP', 'Record', 'AudioClip', 'Handover', 'MQTTPublication', 'LightAlarm'],
+        },
+        {
+          Type: 'MotionDetection', Status: 'Active', Policy: 'Property',
+          Rule: [{ Rule: 1, Name: 'MotionRule-1', Policy: 'Property' }],
+          Type_English: 'Motion detection',
+          ActionTypes: ['AlarmOutput.1', 'SMTP', 'FTP', 'Record', 'AudioClip', 'Handover', 'MQTTPublication', 'LightAlarm'],
+        },
+        {
+          Type: 'TemperatureDifference', Status: 'Active', Policy: 'Property',
+          Rule: [{ Rule: 1, Name: 'test1', Policy: 'Property' }, { Rule: 2, Name: 'test2', Policy: 'Property' }],
+          Type_English: 'Temperature difference',
+          ActionTypes: ['AlarmOutput.1', 'SMTP', 'FTP', 'Record', 'AudioClip', 'Handover', 'MQTTPublication', 'LightAlarm'],
+        },
+      ],
+      AppEventSources: [],
+    },
+  ],
+};
+
+// getDynamicRules (FR-7.8.2) -- exact shape the user supplied.
+const DYNAMIC_RULES = {
+  Rules: [
+    {
+      Rule: 0, RuleName: '움직임 감지 (CH1)', ScheduleName: 'Always', Duration: 60, Enable: true, Status: 'Available',
+      EventSources: [{ EventSource: 0, Type: 'MotionDetection', EventName_Korean: '움직임 감지', RuleIndexType: 'Specific', RuleIndex: 1, Channel: 0, State: true }],
+      EventActions: [{ EventAction: 0, Type: 'Record' }],
+    },
+    {
+      Rule: 1, RuleName: '화재 조기 감지 (CH1)', ScheduleName: 'Always', Duration: 60, Enable: true, Status: 'Available',
+      EventSources: [{ EventSource: 0, Type: 'EarlyFireDetection', EventName_Korean: '화재 조기 감지', RuleIndexType: 'Specific', RuleIndex: 1, Channel: 0, State: true }],
+      EventActions: [{ EventAction: 0, Type: 'Record' }],
+    },
+    {
+      Rule: 2, RuleName: '온도감지 (CH2)', ScheduleName: 'Always', Duration: 60, Enable: true, Status: 'Available',
+      EventSources: [{ EventSource: 0, Type: 'BoxTemperatureDetection', EventName_Korean: '온도 감지', RuleIndexType: 'Specific', RuleIndex: 1, Channel: 1, State: true }],
+      EventActions: [{ EventAction: 0, Type: 'Record' }],
+    },
+    {
+      Rule: 3, RuleName: '움직임 감지 (CH2)', ScheduleName: 'Always', Duration: 60, Enable: true, Status: 'Available',
+      EventSources: [{ EventSource: 0, Type: 'MotionDetection', EventName_Korean: '움직임 감지', RuleIndexType: 'Specific', RuleIndex: 1, Channel: 1, State: true }],
+      EventActions: [{ EventAction: 0, Type: 'Record' }],
+    },
+    {
+      Rule: 4, RuleName: '온도 차이 (CH2)', ScheduleName: 'Always', Duration: 60, Enable: true, Status: 'Available',
+      EventSources: [{ EventSource: 0, Type: 'TemperatureDifference', EventName_Korean: '온도 차이', RuleIndexType: 'Specific', RuleIndex: 1, Channel: 1, State: true }],
+      EventActions: [{ EventAction: 0, Type: 'Record' }],
+    },
+  ],
+};
+
 const VIDEO_SOURCES = {
   VideoSources: [
     { Channel: 0, VideoSourceToken: 'VideoSourceToken_0', SensorCaptureFrameRate: 30 },
@@ -154,7 +263,18 @@ const server = http.createServer((req, res) => {
       return;
     }
     if (msubmenu === 'deviceinfo') {
-      json(res, 200, { DeviceType: 'camera', Model: 'MOCK-CAM-01' });
+      json(res, 200, DEVICE_INFO);
+      return;
+    }
+  }
+
+  if (pathname === '/stw-cgi/eventrules.cgi') {
+    if (msubmenu === 'dynamicrulesoptions') {
+      json(res, 200, DYNAMIC_RULES_OPTIONS);
+      return;
+    }
+    if (msubmenu === 'dynamicrules') {
+      json(res, 200, DYNAMIC_RULES);
       return;
     }
   }

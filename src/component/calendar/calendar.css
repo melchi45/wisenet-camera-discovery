@@ -1,0 +1,80 @@
+/* Month-view calendar component styles -- see docs/calendar-component/
+   (MRD/PRD/SRS/DESIGN/TC) for the full spec. Reuses window.css's --accent/
+   --success/--border-color/etc. custom properties, same as switch.css/
+   disclosure.css, so the calendar matches the page's current light/dark
+   theme. src/shared-v2/-only -- never loaded by src/shared/. */
+
+.calendar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.calendar-nav-button {
+  background: var(--button-background-color);
+  color: var(--button-color);
+  border: 1px solid var(--button-border-color);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  padding: 2px 10px;
+  line-height: 1.4;
+}
+
+.calendar-nav-button:hover {
+  background: var(--button-hover-background);
+}
+
+.calendar-month-label {
+  font-weight: 600;
+  color: var(--font-color);
+}
+
+.calendar-weekday-row,
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(28px, 1fr));
+  gap: 2px;
+}
+
+.calendar-weekday-cell {
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  padding: 2px 0;
+}
+
+.calendar-day-cell {
+  text-align: center;
+  padding: 4px 0;
+  border-radius: var(--radius-sm);
+  color: var(--font-color);
+  background: var(--surface-alt);
+  border: 1px solid transparent;
+}
+
+.calendar-day-blank {
+  background: transparent;
+}
+
+/* "different color" per the feature request -- a distinct, theme-aware
+   accent (--success, already used elsewhere for positive/available state)
+   rather than reusing --accent, which window.css already uses heavily for
+   focus/selection elsewhere. */
+.calendar-day-has-recording {
+  background: var(--success);
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.calendar-day-has-recording:hover,
+.calendar-day-has-recording:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.calendar-day-selected {
+  border-color: var(--accent);
+  border-width: 2px;
+}
