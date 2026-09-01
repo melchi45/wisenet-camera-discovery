@@ -8,7 +8,7 @@
 import { defineConfig } from '@playwright/test';
 import path from 'path';
 
-const MOCK_SUNAPI_PORT = 9301;
+export const MOCK_SUNAPI_PORT = 9301;
 export const OLD_PORT = 9101;
 export const NEW_PORT = 9102;
 export const MOCK_SUNAPI_URL = `http://127.0.0.1:${MOCK_SUNAPI_PORT}`;

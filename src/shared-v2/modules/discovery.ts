@@ -32,16 +32,36 @@ export function applyDiscoveredDeviceSelection(row_data: string[]): void {
 
   (document.getElementById('hostname') as HTMLInputElement).value = row_data[1];
   player.hostname = row_data[1];
-  (document.getElementById('port') as HTMLInputElement).value = row_data[3];
-  player.port = row_data[3];
+  // In the extension, the selected device's own advertised port
+  // (row_data[3]) is the default -- unchanged. Outside it, FR-4.10 locks
+  // the connection scheme to document.location.protocol, so the port
+  // needs the same lock: default to 80/443 for that locked scheme instead
+  // of whatever port the device itself advertises (a device on a
+  // non-standard HTTPS port would otherwise leave `player.port` set to
+  // that port while the scheme is forced to HTTP, or vice versa).
+  // Requested directly by the user.
+  const lockedPort = !IS_EXTENSION ? (document.location.protocol === 'https:' ? '443' : '80') : row_data[3];
+  (document.getElementById('port') as HTMLInputElement).value = lockedPort;
+  player.port = lockedPort;
 
   // row_data[5] is the discovered device's Protocol ("http"/"https"). Set
   // directly (not via .click()) so changehttptype()'s 80/443 default-port
   // side effect doesn't immediately overwrite the real discovered port set
   // just above.
+  //
+  // Outside the extension, device.ts's setupDevice() locks (and disables)
+  // these same two radios to document.location.protocol -- `disabled`
+  // only blocks user clicks, not a scripted `.checked` assignment, so
+  // without this guard selecting any discovered device silently flipped
+  // the "locked" toggle to whatever that device happened to advertise,
+  // defeating the lock (and looking like it was backwards, since a device
+  // advertising the opposite scheme from the page's own would flip it the
+  // instant a row was clicked). Reported directly by the user.
   const isHttps = row_data[5] === 'https';
-  (document.getElementById('https_radio') as HTMLInputElement).checked = isHttps;
-  (document.getElementById('http_radio') as HTMLInputElement).checked = !isHttps;
+  if (IS_EXTENSION) {
+    (document.getElementById('https_radio') as HTMLInputElement).checked = isHttps;
+    (document.getElementById('http_radio') as HTMLInputElement).checked = !isHttps;
+  }
   (document.getElementById('use_native_tls_proxy_checkbox') as HTMLInputElement).checked = isHttps;
 
   (document.getElementById('webviewer') as any).src = row_data[4];

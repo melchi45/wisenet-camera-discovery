@@ -185,6 +185,13 @@ export function onstatechange(evt: any): void {
       // marker on stop -- without this it stays frozen at the last
       // position shown before the stop.
       state.eventTimeline?.setCustomTime(null);
+      // FR-6.9: a stopped player's startTime/endTime are stale once
+      // playback has actually ended -- without clearing them, the next
+      // plain Play (not preceded by a new Selected Time/timeline pick)
+      // would silently reuse the previous playback's range instead of
+      // starting fresh. Requested directly by the user.
+      state.getSelectedPlayer().startTime = null;
+      state.getSelectedPlayer().endTime = null;
 
       (document.getElementById('play_button') as HTMLButtonElement).disabled = false;
       (document.getElementById('stop_button') as HTMLButtonElement).disabled = true;

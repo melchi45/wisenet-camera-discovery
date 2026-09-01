@@ -50,6 +50,26 @@ test.describe('FR-3 Session', () => {
     const newStats = await pages.newPage.evaluate(() => (document.querySelector('rtsp-over-websocket') as any).statistics);
     expect(newStats).toBe(oldStats);
   });
+
+  test('TC-39: #password show/hide toggle (new page only)', async () => {
+    await pages.newPage.locator('#password').fill('admin1234');
+
+    const passwordInput = pages.newPage.locator('#password');
+    const toggleButton = pages.newPage.locator('#password_toggle');
+
+    await expect(passwordInput).toHaveAttribute('type', 'password');
+    await expect(toggleButton).toHaveAttribute('aria-pressed', 'false');
+
+    await toggleButton.click();
+    await expect(passwordInput).toHaveAttribute('type', 'text');
+    await expect(toggleButton).toHaveAttribute('aria-pressed', 'true');
+    await expect(passwordInput).toHaveValue('admin1234');
+
+    await toggleButton.click();
+    await expect(passwordInput).toHaveAttribute('type', 'password');
+    await expect(toggleButton).toHaveAttribute('aria-pressed', 'false');
+    await expect(passwordInput).toHaveValue('admin1234');
+  });
 });
 
 test.describe('FR-4 Device (client-side only)', () => {

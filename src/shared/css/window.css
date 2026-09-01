@@ -455,6 +455,68 @@ textarea:focus {
   border-color: var(--accent);
 }
 
+/* Password show/hide toggle -- src/shared-v2/window.html only (#password
+   there is type="password"); harmless unused rules for src/shared/'s own
+   window.html, which has no .password-field wrapper and stays type="text". */
+.password-field {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-grow: 2;
+  min-width: 0;
+}
+
+.password-field input {
+  flex-grow: 1;
+  min-width: 0;
+  width: 100%;
+  padding-right: 28px;
+}
+
+.password-toggle {
+  position: absolute;
+  right: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  margin: 0;
+  min-height: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.password-toggle:hover:not(:disabled) {
+  background: transparent;
+  border-color: transparent;
+  color: var(--font-color);
+}
+
+.password-toggle svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
+/* Only one icon shows at a time -- keyed off aria-pressed (set by
+   setupPasswordToggle() in session.ts) rather than the icons' own `hidden`
+   attribute, so the state has one source of truth. */
+.password-toggle .icon-eye-off {
+  display: none;
+}
+
+.password-toggle[aria-pressed="true"] .icon-eye {
+  display: none;
+}
+
+.password-toggle[aria-pressed="true"] .icon-eye-off {
+  display: inline;
+}
+
 select {
   flex-grow: 2;
   padding-right: 20px;

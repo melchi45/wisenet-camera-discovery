@@ -182,9 +182,52 @@ const OVERLAPPED_ID_LIST = { OverlappedIDList: ['1'] };
 // rendering performance problems against real (not mock) data -- a 3-item
 // fixture never exercised that volume. One in ~12 is "MotionDetection" so
 // both timeline groups (Normal/Event) get populated, like the real report.
+//
+// Anchored to `Date.now()` (computed once, at server startup -- TIMELINE
+// below is a top-level const), not the fixed MOCK_DATE calendar day used
+// above for CALENDAR_SEARCH_RESULTS: src/shared-v2/'s FR-7.1 default search
+// requests "1 day ending now" and expects the widget's own display window
+// to cover that exact range (docs/event-timeline-component/SRS.md FR-2)
+// regardless of what this always-static fixture actually contains -- with
+// items anchored to a real historical date (2026-01-15) that's months away
+// from any real test run's "now", every item fell completely outside that
+// window, compressing (or, after a later fix, entirely hiding) them rather
+// than landing at realistic, clickable, non-overlapping positions. 20 hours
+// back leaves margin on both ends of a 24-hour "1 day" window for the
+// ~10-11 hour span this loop actually produces. Found live via Playwright
+// (TC-6/TC-7/TC-8 failures right after the FR-2 `dataRange` fix landed).
+// `StartTime`/`EndTime` are plain "YYYY-MM-DD HH:mm:ss" strings with no
+// timezone suffix at all (matching a real device's own response format,
+// confirmed against one, not guessed) -- the app's own `new Date(string)`
+// calls on these (e.g. playback.ts's updateTimeline()) parse a bare,
+// unsuffixed string like this as LOCAL time, not UTC (standard JS Date
+// parsing behavior). Formatting via toISOString() (always UTC) and just
+// stripping the 'Z' produces a string that LOOKS timezone-less but still
+// carries UTC-valued digits -- reparsing it as local time silently shifts
+// the actual Date by this machine's UTC offset (9h on this one), which
+// only became visible once the widget's `dataStart`/`dataEnd` stopped
+// being purely item-derived (`docs/event-timeline-component/SRS.md` FR-2):
+// dataRange comes from a real `new Date()` (already correctly local), so
+// the two ended up on inconsistent bases -- items anchored `Date.now()`
+// but re-interpreted 9h earlier once round-tripped through this string,
+// landing some of them before dataRange.start and rendering with a
+// negative `left`, overlapping the row header. Formatting with local
+// getters instead of toISOString() makes the string self-consistent with
+// how the rest of the app already treats it, eliminating the skew
+// entirely (not a timezone "fix" -- SUNAPI's own wire format has no
+// timezone field for these regardless; this only fixes internal
+// consistency within this codebase's existing string<->Date convention,
+// same pattern playback.ts's own formatManualSearchTime() already uses).
+// Found live via Playwright (TC-6/TC-7/TC-8 failures right after the
+// dataRange fix landed).
+function formatLocalSunapiTime(date) {
+  const pad2 = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`;
+}
+
 function buildMockTimelineResults() {
   const results = [];
-  let cursor = new Date(MOCK_DATE + 'T00:00:00Z').getTime();
+  let cursor = Date.now() - 20 * 3600_000;
   for (let i = 1; i <= 150; i += 1) {
     const durationMs = (4 * 60 + (i % 7)) * 1000; // ~4 minutes, slightly jittered
     const start = new Date(cursor);
@@ -192,8 +235,8 @@ function buildMockTimelineResults() {
     results.push({
       Result: i,
       Type: i % 12 === 0 ? 'MotionDetection' : 'Normal',
-      StartTime: start.toISOString().replace('T', ' ').replace(/\.\d+Z$/, ''),
-      EndTime: end.toISOString().replace('T', ' ').replace(/\.\d+Z$/, ''),
+      StartTime: formatLocalSunapiTime(start),
+      EndTime: formatLocalSunapiTime(end),
     });
     cursor = end.getTime() + (i % 5) * 1000; // small gap between segments
   }

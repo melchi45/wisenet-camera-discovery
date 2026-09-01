@@ -74,6 +74,34 @@
   flex-wrap: wrap;
 }
 
+.event-timeline-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* Overlapped Id (docs/event-timeline-component/SRS.md FR-15) -- sits
+   immediately left of .event-timeline-presets inside .event-timeline-
+   toolbar-left. Empty (no select rendered) hides entirely -- see
+   event-timeline.ts's renderOverlappedIds(). */
+.event-timeline-overlapped-id {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.event-timeline-overlapped-id-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.event-timeline-overlapped-id select {
+  font-size: 11px;
+  width: 56px;
+}
+
 .event-timeline-presets {
   display: flex;
   align-items: center;
@@ -171,6 +199,7 @@
   display: grid;
   grid-template-columns: 150px 1fr;
   align-items: stretch;
+  height: 20px;
   border-bottom: 1px solid var(--border-color);
 }
 
@@ -193,6 +222,20 @@
   cursor: pointer;
   font-size: 10px;
   padding: 0 2px;
+  width: 14px;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  text-align: center;
+}
+
+/* Same footprint as .event-timeline-collapse-btn above, invisible -- every
+   detail row gets one of these (only the overview row has a real button)
+   so every row's own label starts at the same x position instead of the
+   overview row's "ALL EVENTS" being indented past the detail rows' own
+   labels. Reported directly by the user. */
+.event-timeline-collapse-btn-spacer {
+  width: 14px;
+  flex-shrink: 0;
 }
 
 .event-timeline-row-label {
@@ -211,15 +254,15 @@
   color: var(--text-muted);
 }
 
-.event-timeline-row-label.normal { color: var(--evt-normal-border); }
-.event-timeline-row-label.motiondetection { color: var(--evt-motiondetection-border); }
-.event-timeline-row-label.audiodetection { color: var(--evt-audiodetection-border); }
-.event-timeline-row-label.facedetection { color: var(--evt-facedetection-border); }
-.event-timeline-row-label.audioanalysis { color: var(--evt-audioanalysis-border); }
-.event-timeline-row-label.videoanalysis { color: var(--evt-videoanalysis-border); }
-.event-timeline-row-label.defocusdetection { color: var(--evt-defocusdetection-border); }
-.event-timeline-row-label.unknown { color: var(--evt-unknown-border); }
-.event-timeline-row-label.ai { color: var(--evt-ai-border); }
+.event-timeline-row-label.evt-normal { color: var(--evt-normal-border); }
+.event-timeline-row-label.evt-motiondetection { color: var(--evt-motiondetection-border); }
+.event-timeline-row-label.evt-audiodetection { color: var(--evt-audiodetection-border); }
+.event-timeline-row-label.evt-facedetection { color: var(--evt-facedetection-border); }
+.event-timeline-row-label.evt-audioanalysis { color: var(--evt-audioanalysis-border); }
+.event-timeline-row-label.evt-videoanalysis { color: var(--evt-videoanalysis-border); }
+.event-timeline-row-label.evt-defocusdetection { color: var(--evt-defocusdetection-border); }
+.event-timeline-row-label.evt-unknown { color: var(--evt-unknown-border); }
+.event-timeline-row-label.evt-ai { color: var(--evt-ai-border); }
 
 .event-timeline-hide-btn {
   font-family: inherit;
@@ -267,7 +310,7 @@
 
 .event-timeline-overview-track {
   position: relative;
-  height: 25px;
+  height: 20px;
   overflow: hidden;
   cursor: grab;
 }
@@ -277,7 +320,12 @@
   inset: 2px 0;
 }
 
-.event-timeline-overview-collapsed .event-timeline-overview-items {
+/* Collapses the whole row down to just its header (matching a `<details>`-
+   style fold, and the collapse button's own aria-expanded semantics) --
+   was previously scoped to just .event-timeline-overview-items, which only
+   cleared the items and left an empty, still full-height track behind, so
+   the row itself never visibly collapsed. Reported directly by the user. */
+.event-timeline-overview-collapsed .event-timeline-overview-track {
   display: none;
 }
 
@@ -339,7 +387,7 @@
 
 .event-timeline-row-track {
   position: relative;
-  height: 30px;
+  height: 20px;
   overflow: hidden;
   cursor: grab;
 }
@@ -379,15 +427,15 @@
   z-index: 4;
 }
 
-.event-timeline-item.normal { border-color: var(--evt-normal-border); background: var(--evt-normal-bg); }
-.event-timeline-item.motiondetection { border-color: var(--evt-motiondetection-border); background: var(--evt-motiondetection-bg); }
-.event-timeline-item.audiodetection { border-color: var(--evt-audiodetection-border); background: var(--evt-audiodetection-bg); }
-.event-timeline-item.facedetection { border-color: var(--evt-facedetection-border); background: var(--evt-facedetection-bg); }
-.event-timeline-item.audioanalysis { border-color: var(--evt-audioanalysis-border); background: var(--evt-audioanalysis-bg); }
-.event-timeline-item.videoanalysis { border-color: var(--evt-videoanalysis-border); background: var(--evt-videoanalysis-bg); }
-.event-timeline-item.defocusdetection { border-color: var(--evt-defocusdetection-border); background: var(--evt-defocusdetection-bg); }
-.event-timeline-item.unknown { border-color: var(--evt-unknown-border); background: var(--evt-unknown-bg); }
-.event-timeline-item.ai { border-color: var(--evt-ai-border); background: var(--evt-ai-bg); }
+.event-timeline-item.evt-normal { border-color: var(--evt-normal-border); background: var(--evt-normal-bg); }
+.event-timeline-item.evt-motiondetection { border-color: var(--evt-motiondetection-border); background: var(--evt-motiondetection-bg); }
+.event-timeline-item.evt-audiodetection { border-color: var(--evt-audiodetection-border); background: var(--evt-audiodetection-bg); }
+.event-timeline-item.evt-facedetection { border-color: var(--evt-facedetection-border); background: var(--evt-facedetection-bg); }
+.event-timeline-item.evt-audioanalysis { border-color: var(--evt-audioanalysis-border); background: var(--evt-audioanalysis-bg); }
+.event-timeline-item.evt-videoanalysis { border-color: var(--evt-videoanalysis-border); background: var(--evt-videoanalysis-bg); }
+.event-timeline-item.evt-defocusdetection { border-color: var(--evt-defocusdetection-border); background: var(--evt-defocusdetection-bg); }
+.event-timeline-item.evt-unknown { border-color: var(--evt-unknown-border); background: var(--evt-unknown-bg); }
+.event-timeline-item.evt-ai { border-color: var(--evt-ai-border); background: var(--evt-ai-bg); }
 
 .event-timeline-item-point {
   width: 10px !important;

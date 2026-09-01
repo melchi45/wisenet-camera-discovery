@@ -162,4 +162,23 @@ export function setupSession(): void {
   document.getElementById('statistics')!.addEventListener('change', function (this: HTMLInputElement) {
     state.getSelectedPlayer().statistics = this.checked;
   });
+
+  setupPasswordToggle();
+}
+
+// #password starts masked (type="password"); this eye/eye-off button just
+// flips it to type="text" and back -- doesn't touch state.player.password.
+// Which icon shows is driven entirely by CSS off aria-pressed (see
+// .password-toggle[aria-pressed="true"] in window.css) -- one source of
+// truth, no separate hidden/class bookkeeping here.
+function setupPasswordToggle(): void {
+  const passwordInput = document.getElementById('password') as HTMLInputElement;
+  const toggleButton = document.getElementById('password_toggle') as HTMLButtonElement;
+
+  toggleButton.addEventListener('click', () => {
+    const reveal = passwordInput.type === 'password';
+    passwordInput.type = reveal ? 'text' : 'password';
+    toggleButton.setAttribute('aria-pressed', String(reveal));
+    toggleButton.setAttribute('aria-label', reveal ? 'Hide password' : 'Show password');
+  });
 }

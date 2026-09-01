@@ -113,7 +113,17 @@
                     <label for="username">User:</label>
                     <input type="text" id="username" value="admin">
                     <label for="password">Password:</label>
-                    <input type="text" id="password" value="password">
+                    <div class="password-field">
+                      <input type="password" id="password" value="password">
+                      <button type="button" id="password_toggle" class="password-toggle" aria-label="Show password" aria-pressed="false">
+                        <svg class="icon-eye" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">
+                          <path d="M12 5C7 5 2.73 8.11 1 12c1.73 3.89 6 7 11 7s9.27-3.11 11-7c-1.73-3.89-6-7-11-7zm0 12a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-8a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"/>
+                        </svg>
+                        <svg class="icon-eye-off" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">
+                          <path d="M2 4.27 3.28 3 21 20.72 19.73 22l-3.06-3.06A11.6 11.6 0 0 1 12 19c-5 0-9.27-3.11-11-7a12.4 12.4 0 0 1 4.11-5.14L2 4.27zM12 7c5 0 9.27 3.11 11 7a12.4 12.4 0 0 1-3.16 4.15l-2.2-2.2A5 5 0 0 0 12 8c-.36 0-.71.03-1.05.09L8.9 6.04A11.6 11.6 0 0 1 12 7zm-3.47 2.53L12 13a3 3 0 0 1-3.47-3.47z"/>
+                        </svg>
+                      </button>
+                    </div>
                   </div>
                   <div class="field">
                     <label for="statistics">Show Statistics:
@@ -287,14 +297,12 @@
                      1H/6H/1D/1W/1M/1Y preset buttons (a default "1 day
                      ending now" search auto-fires the first time this
                      panel becomes visible) -- there is no typed date-range
-                     input here any more. #overlapped_id_area is still a
-                     plain, auto-populated display (same as the Calendar
-                     panel's own #calendar_overlapped_id_area). -->
+                     input here any more. Overlapped Id (FR-15,
+                     event-timeline-component's SRS) now lives inside that
+                     same widget's own toolbar (#timeline, below), not a
+                     standalone field here -- shared with the Calendar
+                     panel's equivalent flow, same as Selected Time. -->
                 <div class="field-row">
-                  <div class="field">
-                    <label class="switch">Overlapped Id:</label>
-                    <span id="overlapped_id_area"></span>
-                  </div>
                   <div class="field">
                     <label class="switch">AI Search:</label>
                     <button id="search_aitimeline">Search AI Timeline</button>
@@ -326,15 +334,13 @@
                      FR-7.8.2/FR-7.8.5/event-timeline-component's FR-11) --
                      moved into the shared Event Timeline widget as
                      "Selected Time", used by both this panel and
-                     #playback_control (FR-7.1). -->
+                     #playback_control (FR-7.1). Overlapped Id itself
+                     (FR-15) moved the same way, into that same widget's own
+                     toolbar (#timeline, below) -- no longer a field here. -->
                 <div class="field-row" id="calendar_search_area" style="display:none">
                   <div class="field">
                     <label for="event_rules_type">Rule:</label>
                     <select id="event_rules_type"></select>
-                  </div>
-                  <div class="field">
-                    <label class="switch">Overlapped Id:</label>
-                    <span id="calendar_overlapped_id_area"></span>
                   </div>
                 </div>
               </div>

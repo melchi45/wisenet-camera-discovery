@@ -51,11 +51,10 @@ test.describe('FR-7.8 SUNAPI-driven Calendar search (new page only)', () => {
     await expect(page.locator('#playback_control_calendar')).toHaveCSS('display', 'none');
     // #search_overlapped_id no longer exists (v2.0 Playback search
     // redesign, docs/window-ui/SRS.md FR-7.1) -- #search_aitimeline is
-    // this manual panel's own remaining, always-rendered control
-    // (#overlapped_id_area is an empty <span> at this point, which
-    // Playwright's toBeVisible() would treat as hidden regardless of its
-    // own display, per TC-31's own note on the Calendar panel's
-    // equivalent).
+    // this manual panel's own remaining, always-rendered control.
+    // Overlapped Id (FR-15, event-timeline-component's SRS) no longer lives
+    // in this panel's own markup at all any more -- moved into the shared
+    // Event Timeline widget's own toolbar (#timeline).
     await expect(page.locator('#search_aitimeline')).toBeVisible();
 
     // Playback + SUNAPI On: new panel only.
@@ -78,11 +77,10 @@ test.describe('FR-7.8 SUNAPI-driven Calendar search (new page only)', () => {
     await expect(page.locator('#playback_control_calendar')).toHaveCSS('display', 'none');
     // #search_overlapped_id no longer exists (v2.0 Playback search
     // redesign, docs/window-ui/SRS.md FR-7.1) -- #search_aitimeline is
-    // this manual panel's own remaining, always-rendered control
-    // (#overlapped_id_area is an empty <span> at this point, which
-    // Playwright's toBeVisible() would treat as hidden regardless of its
-    // own display, per TC-31's own note on the Calendar panel's
-    // equivalent).
+    // this manual panel's own remaining, always-rendered control.
+    // Overlapped Id (FR-15, event-timeline-component's SRS) no longer lives
+    // in this panel's own markup at all any more -- moved into the shared
+    // Event Timeline widget's own toolbar (#timeline).
     await expect(page.locator('#search_aitimeline')).toBeVisible();
 
     await context.close();
@@ -164,11 +162,10 @@ test.describe('FR-7.8 SUNAPI-driven Calendar search (new page only)', () => {
     await expect(page.locator('#playback_calendar .calendar-grid')).toBeVisible();
     const highlighted = await page.locator('#playback_calendar .calendar-day-has-recording').count();
     expect(highlighted).toBeGreaterThan(0);
-    // #calendar_overlapped_id_area itself stays an empty, zero-size <span>
-    // until a day is actually clicked (TC-32's job, not this test's) --
-    // Playwright's toBeVisible() considers an empty element with no
-    // rendered box "hidden" even though its own display isn't none, so
-    // check the wrapping #calendar_search_area's own display instead.
+    // Overlapped Id (FR-15) no longer lives inside #calendar_search_area at
+    // all -- it's the shared Event Timeline widget's own toolbar control
+    // (#timeline), not rendered until a day is actually clicked and
+    // #timeline itself mounts (TC-32's job, not this test's).
     await expect(page.locator('#calendar_search_area')).toBeVisible();
 
     await page.context().close();
@@ -196,7 +193,10 @@ test.describe('FR-7.8 SUNAPI-driven Calendar search (new page only)', () => {
     // real-device-unverified design used, and not the un-offset
     // getDynamicRules() 'Rule' field either. See MEMORY.md.
     expect(requestedUrls.some((u) => u.includes('msubmenu=timeline') && /[?&]Type=Rule\d+/.test(u))).toBe(true);
-    expect(await page.locator('#calendar_overlapped_id_area').innerHTML()).toContain('select');
+    // FR-15: Overlapped Id renders inside the Event Timeline widget's own
+    // toolbar now, not #calendar_overlapped_id_area (moved directly per the
+    // user's request).
+    expect(await page.locator('#timeline .event-timeline-overlapped-id').innerHTML()).toContain('select');
     expect(await page.locator('#timeline .event-timeline-item').count()).toBeGreaterThan(0);
 
     await page.context().close();

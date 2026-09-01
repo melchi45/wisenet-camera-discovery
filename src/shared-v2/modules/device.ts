@@ -110,9 +110,20 @@ function onchangehttptype(): void {
 
 /** Player's own 'changeprotocol' event -- syncs the radio .checked directly,
  *  bypassing changehttptype()/onchangehttptype() (same pattern as
- *  applyDiscoveredDeviceSelection). */
+ *  applyDiscoveredDeviceSelection).
+ *
+ *  Outside the extension, FR-4.10 locks these radios to
+ *  `document.location.protocol` -- skipped here too (the primary fix for
+ *  the reported "toggle flips on device select" bug is in
+ *  playerEvents.ts's onchangeport(), which is what was actually causing
+ *  this event to fire with the wrong value in the first place; this is
+ *  defense-in-depth for any other path that ends up dispatching
+ *  'changeprotocol'). */
 export function onchangeprotocol(event: any): void {
   try {
+    if (!IS_EXTENSION) {
+      return;
+    }
     (document.getElementById('https_radio') as HTMLInputElement).checked = !!event.detail.https;
     (document.getElementById('http_radio') as HTMLInputElement).checked = !event.detail.https;
   } catch (error) {

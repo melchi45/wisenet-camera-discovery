@@ -40,6 +40,9 @@
 | 1.24 | 2026-08-31 | Youngho Kim | Added a new note: `#event_rules_type` now has its own `change` listener, immediately re-fetching `getTimeline()`/redrawing `#timeline` with the newly-selected Rule instead of waiting for the next day click. `buildCalendarSearchTimeRange()`/`runCalendarTimelineSearch()` factored out of `runOverlappedAndTimelineSearch()` so this doesn't also re-fetch Overlapped Id, which doesn't depend on `Type`. Reported directly by the user. See SRS.md FR-7.8.2 v1.24. |
 | 2.0 | 2026-08-31 | Youngho Kim | Added a new section, "v2.0 Playback search redesign" — FR-7.1-7.3's manual search UI (`#search_overlapped_id`/`#search_date`/etc.) and FR-7.4's Manual Start/End Time are retired; search now runs off the Event Timeline's own preset buttons (default "1 day ending now", `[now-preset, now]` on click, real re-fetch not local re-zoom) for both Playback UIs, and "Selected Time" (the renamed Manual Start/End Time) moved into that widget, fixing a latent bug where `onSelect` always wrote to the manual flow's fields even while the Calendar flow was active. Reported directly by the user, with a significant scope-clarifying follow-up mid-implementation. See SRS.md v2.0/`docs/event-timeline-component/` v2.0/`MEMORY.md`. |
 | 1.25 | 2026-08-31 | Youngho Kim | `updateTimeline()` now filters `Results[]` by `eventAppliesToChannel()` before building rows/items — a real device's Timeline response included a different channel's Rule events mixed into the queried channel's results, reported directly by the user with a screenshot. See SRS.md FR-7.6 v1.25. |
+| 1.26 | 2026-09-01 | Youngho Kim | `eventAppliesToChannel()` fixed to check every `state.dynamicRuleEntries` entry sharing a Rule number instead of just the first `.find()` match — the same Rule number can be configured separately per channel, so matching on Rule number alone could land on a different channel's entry and wrongly drop a legitimate same-channel event, making the rendered timeline sparser than the camera's actual data. Reported directly by the user comparing a real device's raw Timeline response against the rendered result. See SRS.md FR-7.6 v2.12. |
+| 1.27 | 2026-09-01 | Youngho Kim | Added FR-3.4 (SRS.md v2.13): `#password` show/hide eye-icon toggle, new-page-only. Documented as a Deviation below since `src/shared/`'s own `#password` is untouched. The two SVG icons/`.password-field`/`.password-toggle` CSS live in `src/shared/css/window.css` (the single physical source `css/window.css` reuses for both pages, per this doc's CSS-reuse note) — unused-but-harmless for `src/shared/`'s own page, which has no `.password-field` wrapper in its markup. Requested directly by the user. |
+| 1.28 | 2026-09-01 | Youngho Kim | Added a new section, "Overlapped Id moves into the Event Timeline widget" (SRS.md v2.14) — Overlapped Id moves out of `#overlapped_id_area`/`#calendar_overlapped_id_area` into the shared widget's own toolbar (`docs/event-timeline-component/SRS.md` FR-15 v2.11), the same single-canonical-control move v2.0 already did for Selected Time; corrects the earlier FR-7.8.6 "not shared" analysis, which predates that move. Requested directly by the user. |
 
 ## `src/shared-v2/` module structure
 
@@ -194,6 +197,12 @@ mechanism to reset in the first place:
   user never asked for, so (3)/(4) apply only when this Calendar panel is actually visible (SUNAPI
   On) — the manual flow's own Overlapped Id/Start-End Time fields are left exactly as they were.
 
+  > **Superseded.** Both (4) (Manual Start/End Time, by the v2.0 redesign) and (3) (Overlapped Id, by
+  > FR-15) have since become the widget's own single, shared controls — see "v2.0 Playback search
+  > redesign" and "Overlapped Id moves into the Event Timeline widget" further below. The bullet and
+  > diagram here are kept as the historical record of why `resetPlaybackSearchStateForChannelChange()`
+  > was originally scoped the way it was, not as the current behavior.
+
 Implemented as one new function, `resetPlaybackSearchStateForChannelChange()` (`playbackCalendar.ts`),
 **replacing** v1.21's narrower `refreshCalendarSearchForChannelChange()` (same call site in
 `device.ts`'s `changechannel()`, same "gate itself, caller doesn't check" convention as
@@ -344,9 +353,12 @@ just a local re-zoom, via a new `onRangePresetSelect` callback the component now
 `search_overlapped_id()`/`search_date()`/`search_oneday_timeline()`/`search_three_month_timeline()`/
 `search_timeline_by_range()`/`onchangestarttime()`/`onchangeendtime()`/`onchangesupportendtime()`
 and their markup (`#search_overlapped_id`/`#search_date`/the 1 Day-3 Month toggle/`#search_timeline`/
-`#manual_time_area`/`#support_end_time`/`#manual_end_time_group`) are all retired; `#overlapped_id_area`
-survives as a plain, auto-populated container (no button next to it any more), matching the Calendar
-panel's own `#calendar_overlapped_id_area` pattern.
+`#manual_time_area`/`#support_end_time`/`#manual_end_time_group`) are all retired; Overlapped Id
+itself survives as a plain, auto-populated `<select>` (no button next to it any more). **As of FR-15**
+(`docs/event-timeline-component/SRS.md` v2.11), it moved a second time — out of the standalone
+`#overlapped_id_area`/`#calendar_overlapped_id_area` containers each flow used to build separately,
+into the Event Timeline widget's own toolbar as a single shared control, the same move this section's
+Selected Time already got. See the "Overlapped Id moves into the Event Timeline widget" section below.
 
 `playback.ts`'s `updateManualPlaybackPanelVisibility(isVisible)` mirrors
 `playbackCalendar.ts`'s existing `panelInitialized`/`initPlaybackCalendarPanel()` pattern for the
@@ -387,6 +399,48 @@ inside `initSunapiManager()`'s own chain — fixed by gating the auto-fire on
 `player !== null && player.hostname`. Neither was reachable when this logic was behind a button,
 since nobody clicks "Search Overlapped Id" before selecting a device or before SUNAPI has already
 initialized once.
+
+**Overlapped Id moves into the Event Timeline widget (FR-15,
+`docs/event-timeline-component/SRS.md` v2.11).** Requested directly by the user: move Overlapped Id
+into the shared Event Timeline widget's own toolbar, positioned immediately left of the 1H/6H/1D/1W/
+1M/1Y preset buttons. This retires the two standalone containers each Playback flow built separately
+(`#overlapped_id_area` in `#playback_control`, `#calendar_overlapped_id_area` in
+`#playback_control_calendar`'s `#calendar_search_area`) in favor of one control inside `#timeline`
+itself (`#overlapped_id`) — the same single-canonical-control move the v2.0 redesign above already
+made for Selected Time, and for the same reason: both Playback UIs share one `#timeline` instance, so
+there's no longer a meaningful "which flow's Overlapped Id" distinction to keep separate.
+
+This also **corrects** the earlier FR-7.8.6 "Channel change during Playback" analysis above (written
+before the v2.0 redesign, when Overlapped Id genuinely was two independent, non-shared per-flow
+fields): that section's claim that "the manual flow's own Overlapped Id ... fields are left exactly
+as they were" on a Calendar-side channel-change reset no longer holds — since Overlapped Id is now
+the widget's own single control, `resetPlaybackSearchStateForChannelChange()`'s reset
+(`state.eventTimeline?.setOverlappedIds([])`) applies regardless of which flow's search last
+populated it, matching how that same function already treats `#timeline` and the player itself as
+shared, unconditional-on-SUNAPI-state resets.
+
+`playback.ts`'s `runManualTimelineSearch()` keeps its existing network sequence unchanged
+(`getOverlappedIdList()` before `getTimeline()`, since the former's result is a query parameter of
+the latter) but no longer builds any DOM for it directly — it computes the same default selection the
+old select box's own native default landed on (`OverlappedIDList[OverlappedIDList.length - 1]`,
+since options were always appended highest-index-first) and threads the raw list through
+`updateTimeline()`'s new `overlappedIds` parameter, straight into `mountEventTimeline()`'s own option
+of the same name.
+
+`playbackCalendar.ts` needed one more piece precisely because its Rule dropdown
+(`#event_rules_type`'s `change` listener, FR-7.8.2 v1.24) re-fetches only `getTimeline()`, not
+Overlapped Id, and `updateTimeline()` fully remounts the widget on *every* call (FR-12) — a naive
+port would have silently snapped a user's manual Overlapped Id pick back to the list's default on
+every Rule change, since the freshly-remounted select has no memory of the pre-remount selection.
+Fixed with two pieces: `runCalendarTimelineSearch()` picks the query's own `overlappedId` by
+preferring the widget's *current live selection* (`state.eventTimeline?.getOverlappedId()`) whenever
+it's still a member of the cached `currentOverlappedIds` list (a Rule change re-search reuses the
+same day's list, so a prior manual pick is still valid), falling back to that list's own default only
+when it isn't (a fresh day/preset search just replaced the list with a different day's, so the old
+selection has nothing to do with it) — and that same resolved value is passed back into
+`updateTimeline()`'s new `selectedOverlappedId` parameter so the remounted select keeps showing it
+instead of resetting. See `docs/event-timeline-component/DESIGN.md`'s own file-changes entry for
+`playbackCalendar.ts` for the fuller mechanical explanation.
 
 ## Build wiring
 
@@ -574,3 +628,16 @@ go through the native host's Digest logic at all; the mock server just returns `
   Event Timeline widget's own preset buttons instead (see the "v2.0 Playback search redesign"
   section above for the full rationale and what replaced each piece). `src/shared/`'s own untouched
   original keeps this entire flow exactly as it always was.
+- **`#password` is now `type="password"` with a show/hide eye-icon toggle, `#password_toggle`
+  (SRS.md FR-3.4).** Requested directly by the user — the original leaves `#password` as
+  `type="text"`, so its value is always rendered as plaintext in the field. `session.ts`'s new
+  `setupPasswordToggle()` just flips the input's `type` between `"password"`/`"text"` on click and
+  swaps which of the button's two inline `<svg>` icons is `hidden`; it never reads/writes
+  `player.password` or calls `initSunapiManager()` (purely a display toggle, unlike the
+  `#username`/`#password` `change` handlers covered by FR-3.2/the redundant-init deviation above).
+  The markup (`.password-field` wrapper + `#password_toggle` + two `<svg>` icons) is
+  `src/shared-v2/window.html`-only; the CSS (`.password-field`/`.password-toggle`/icon sizing)
+  lives in `src/shared/css/window.css` since that's the one physical `css/window.css` both pages'
+  markup links to (see this doc's `css/` re-export note above) — those rules are simply unmatched,
+  harmless dead weight against `src/shared/`'s own markup, which has no `.password-field` wrapper
+  and keeps `#password` as plain `type="text"`.

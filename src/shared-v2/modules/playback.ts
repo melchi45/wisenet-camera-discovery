@@ -92,30 +92,22 @@ function runManualTimelineSearch(fromDate: Date, toDate: Date): void {
       overlappedIDList = state.getSunapiManager().getOverlappedIdList(fromStr, toStr, channel);
     }
 
+    // FR-15: the select itself now lives inside the Event Timeline widget's
+    // own toolbar (event-timeline.ts), not a standalone #overlapped_id_area
+    // -- this fetch's result is threaded through to updateTimeline() below
+    // instead of being DOM-built here directly. `overlappedId` (the value
+    // used for the getTimeline() query right below, same as before) is
+    // ids[ids.length - 1] -- the pre-move select box's own native default,
+    // since its options were appended highest-index-first.
+    let overlappedIds: string[] = [];
+    let overlappedId: string | undefined;
+
     overlappedIDList
       .then((overlapped_id_list: any) => {
-        document.getElementById('overlapped_id')?.remove();
-        document.getElementById('overlapped_id_span')?.remove();
-
         if (typeof overlapped_id_list.OverlappedIDList !== 'undefined' && overlapped_id_list.OverlappedIDList.length > 0) {
-          const span = document.createElement('span');
-          span.id = 'overlapped_id_span';
-          span.textContent = 'Overlapped Id:';
-          document.getElementById('overlapped_id_area')!.append(span);
-
-          const selectbox = document.createElement('select');
-          selectbox.id = 'overlapped_id';
-          selectbox.style.cssText = 'width:50px;margin-left: 5px;';
-          for (let i = overlapped_id_list.OverlappedIDList.length - 1; i >= 0; i--) {
-            const opt = overlapped_id_list.OverlappedIDList[i];
-            const el = document.createElement('option');
-            el.textContent = opt;
-            el.value = opt;
-            selectbox.appendChild(el);
-          }
-          document.getElementById('overlapped_id_area')!.append(selectbox);
-
-          state.getSelectedPlayer().overlappedId = (document.getElementById('overlapped_id') as HTMLSelectElement).value;
+          overlappedIds = overlapped_id_list.OverlappedIDList;
+          overlappedId = overlappedIds[overlappedIds.length - 1];
+          state.getSelectedPlayer().overlappedId = overlappedId;
         }
       })
       .catch((error: any) => {
@@ -126,15 +118,14 @@ function runManualTimelineSearch(fromDate: Date, toDate: Date): void {
         }
       })
       .finally(() => {
-        const overlappedIdEl = document.getElementById('overlapped_id') as HTMLSelectElement | null;
-        const requestPromise = overlappedIdEl !== null
-          ? state.getSunapiManager().getTimeline(fromStr, toStr, channel, overlappedIdEl.value)
+        const requestPromise = overlappedId !== undefined
+          ? state.getSunapiManager().getTimeline(fromStr, toStr, channel, overlappedId)
           : state.getSunapiManager().getTimeline(fromStr, toStr, channel);
 
         requestPromise
           .then((timeline: any) => {
             if (typeof timeline !== 'undefined') {
-              updateTimeline(timeline.TimeLineSearchResults, onManualRangePresetSelect);
+              updateTimeline(timeline.TimeLineSearchResults, onManualRangePresetSelect, { start: fromDate, end: toDate }, overlappedIds, overlappedId);
               (document.getElementById('timeline') as HTMLElement).style.display = 'block';
             } else {
               throw new Error((timeline as any).Error.Details);
@@ -218,18 +209,31 @@ export function changespeed(): void {
 
 // ---------------------------------------------------------------------
 // One "All" row (no more separate Normal/Event rows -- see MEMORY.md for
-// why), rendered by src/component/event-timeline/'s custom widget (not
-// vis.Timeline -- see docs/window-ui/SRS.md FR-7.6 v1.16/
-// docs/event-timeline-component/ for why this replaced it). Each item's
+// why this was the original merge), rendered by src/component/event-timeline/'s
+// custom widget (not vis.Timeline -- see docs/window-ui/SRS.md FR-7.6
+// v1.16/docs/event-timeline-component/ for why this replaced it). As of a
+// later change, Normal additionally gets its own detail row below "All",
+// same as every distinct Rule# already did (updateTimeline() below) --
+// requested directly by the user; not a reversal of the original All-row
+// merge, "All" still exists and still combines everything. Each item's
 // color is assigned dynamically by distinct `Type` string (see
 // assignEventColorClass() below) rather than a fixed enum of known
 // detection-type names -- a real device's Timeline items are labeled by
 // which Rule triggered them (e.g. "Rule1"), not a generic category, so a
 // fixed switch on known names left every real event bucketed into the
 // same "unknown" color.
+// `evt-`-prefixed so these can never collide with an unrelated global CSS
+// class of the same bare name -- `src/shared/css/table.css`'s own `.normal`
+// (`height: 40px; border: 1px solid red;`, meant for something else
+// entirely in the discovery table) is reused as-is by src/shared-v2/'s
+// window.html and was silently bleeding into the Normal row's label/items
+// here, inflating that one row's height far past every other row's.
+// Reported directly by the user as the Normal row's height visibly
+// differing from every other row. Matches the `--evt-<class>-border/-bg`
+// custom-property naming already used by event-timeline.css.
 const EVENT_COLOR_CLASSES = [
-  'motiondetection', 'audiodetection', 'facedetection', 'audioanalysis',
-  'videoanalysis', 'defocusdetection', 'ai', 'unknown',
+  'evt-motiondetection', 'evt-audiodetection', 'evt-facedetection', 'evt-audioanalysis',
+  'evt-videoanalysis', 'evt-defocusdetection', 'evt-ai', 'evt-unknown',
 ];
 
 /** The same `type` string always gets the same color class, keyed off the
@@ -288,7 +292,19 @@ function resolveEventLabel(type: string, channel: number): string {
  *  at all (not even for a different channel -- e.g. rules not loaded yet
  *  this session) is also kept, not filtered: there's nothing to compare
  *  against, so filtering here could only ever hide data incorrectly,
- *  never correctly. */
+ *  never correctly.
+ *
+ *  Checks EVERY entry sharing this Rule number, not just the first one
+ *  found -- `getDynamicRules()` can list the same numeric Rule configured
+ *  separately per channel (the exact cross-channel-leak report above only
+ *  makes sense if it does), so a single `.find()` keyed on Rule number
+ *  alone can land on a different channel's entry than the one actually
+ *  queried and wrongly reject a legitimate same-channel event whose own
+ *  entry sits elsewhere in the array. Reported directly by the user as a
+ *  real device's timeline looking suspiciously sparse compared to the raw
+ *  recording.cgi response -- resolveEventLabel() already avoided this by
+ *  matching Rule number AND channel together in one predicate; this now
+ *  does the same. */
 function eventAppliesToChannel(type: string, channel: number): boolean {
   const key = (type ?? '').toLowerCase();
   if (key === '' || key === 'normal') {
@@ -298,17 +314,17 @@ function eventAppliesToChannel(type: string, channel: number): boolean {
   if (Number.isNaN(ruleNumber)) {
     return true;
   }
-  const entry = state.dynamicRuleEntries.find((candidate: any) => Number(candidate?.Rule) === ruleNumber - 1);
-  if (typeof entry === 'undefined') {
+  const matchingEntries = state.dynamicRuleEntries.filter((candidate: any) => Number(candidate?.Rule) === ruleNumber - 1);
+  if (matchingEntries.length === 0) {
     return true;
   }
-  return (entry.EventSources ?? []).some((source: any) => Number(source.Channel) === channel);
+  return matchingEntries.some((entry: any) => (entry.EventSources ?? []).some((source: any) => Number(source.Channel) === channel));
 }
 
 function assignEventColorClass(colorAssignments: Map<string, string>, type: string): string {
   const key = (type ?? '').toLowerCase();
   if (key === 'normal') {
-    return 'normal';
+    return 'evt-normal';
   }
   let colorClass = colorAssignments.get(key);
   if (typeof colorClass === 'undefined') {
@@ -358,8 +374,38 @@ export function clearSelectedTime(): void {
 // the existing one-directional import (playbackCalendar.ts -> playback.ts)
 // stays one-directional.
 // ---------------------------------------------------------------------
-export function updateTimeline(results: any, onRangePresetSelect?: (fromDate: Date, toDate: Date, label: string) => void): void {
-  if (results.length > 0 && results[0].Results.length > 0) {
+export function updateTimeline(
+  results: any,
+  onRangePresetSelect?: (fromDate: Date, toDate: Date, label: string) => void,
+  // The actual [fromDate, toDate] this search covered -- threaded through
+  // to the widget's own `dataRange` (event-timeline.ts's FR-2), so a 1H/
+  // 6H/1D/1W/1M/1Y preset (or the initial default search) always shows its
+  // full requested period, even one with few or zero events in it, instead
+  // of collapsing to just wherever the actual data happens to fall.
+  // Requested directly by the user.
+  dataRange?: { start: Date; end: Date },
+  // FR-15: the same search's already-fetched Overlapped Id list, threaded
+  // through to the widget's own toolbar control (event-timeline.ts's
+  // `overlappedIds` mount option) -- both runManualTimelineSearch() and
+  // playbackCalendar.ts's runOverlappedAndTimelineSearch() fetch this
+  // BEFORE calling getTimeline()/updateTimeline(), since it's also a query
+  // param of that same getTimeline() call.
+  overlappedIds?: string[],
+  // FR-15: which of overlappedIds the just-completed getTimeline() call
+  // actually used -- only needed by playbackCalendar.ts's Rule-change path
+  // (runCalendarTimelineSearch(), no fresh Overlapped Id fetch), so the
+  // widget's redrawn select keeps showing that value instead of silently
+  // snapping back to overlappedIds' own default (event-timeline.ts's
+  // `selectedOverlappedId`).
+  selectedOverlappedId?: string,
+): void {
+  // Only the outer envelope being empty (no `results[0]` at all) is a real
+  // error worth the popup below -- `results[0].Results` being an empty
+  // array is a normal, expected "no events in this period" outcome for a
+  // valid search (a 1H preset with no motion in the last hour, say), not a
+  // failure, and should still mount an empty timeline covering the full
+  // requested range rather than silently doing nothing.
+  if (results.length > 0) {
     if (state.eventTimeline !== null) {
       state.eventTimeline.destroy();
       state.eventTimeline = null;
@@ -378,7 +424,7 @@ export function updateTimeline(results: any, onRangePresetSelect?: (fromDate: Da
     // anything below ever sees them, rather than left to render mislabeled
     // (see eventAppliesToChannel()'s own doc comment). Reported directly
     // by the user.
-    const channelResults = results[0].Results.filter((timeline_element: any) => eventAppliesToChannel(timeline_element.Type, channel));
+    const channelResults = (results[0].Results ?? []).filter((timeline_element: any) => eventAppliesToChannel(timeline_element.Type, channel));
 
     // "All" stays one combined line -- Normal + every Rule# event together,
     // colored per rule type. Each distinct Rule# additionally gets its own
@@ -405,9 +451,17 @@ export function updateTimeline(results: any, onRangePresetSelect?: (fromDate: Da
       return String(a).localeCompare(String(b));
     });
 
+    // Normal (not rule-triggered) additionally gets its own detail row,
+    // same as every distinct Rule# does above -- only added when at least
+    // one Normal-classed item is actually present in this channel's
+    // results, matching how a Rule# row only appears for rules that
+    // actually occur. Requested directly by the user.
+    const hasNormal = channelResults.some((timeline_element: any) => ((timeline_element.Type ?? '').toLowerCase()) === 'normal');
+
     const colorAssignments = new Map<string, string>();
     const rows: EventTimelineRow[] = [
       { id: 'All', label: 'ALL EVENTS', overview: true },
+      ...(hasNormal ? [{ id: 'Normal', label: 'Normal', colorClass: 'evt-normal' }] : []),
       ...ruleGroupIds.map((type) => ({ id: type, label: resolveEventLabel(type, channel), colorClass: assignEventColorClass(colorAssignments, type) })),
     ];
 
@@ -428,13 +482,13 @@ export function updateTimeline(results: any, onRangePresetSelect?: (fromDate: Da
         };
         items.push(item);
 
-        // Rule-triggered (non-Normal) events additionally get a second
-        // copy of the same item in their own Rule# row -- a distinct `id`
-        // since item ids must be unique, but otherwise identical, so
-        // clicking either copy drives the same onSelect behavior below.
-        if (colorClass !== 'normal') {
-          items.push({ ...item, id: item.id + '__group', rowId: timeline_element.Type });
-        }
+        // Every event additionally gets a second copy of the same item in
+        // its own row -- 'Normal' for Normal-classed items, its own Rule#
+        // for everything else -- a distinct `id` since item ids must be
+        // unique, but otherwise identical, so clicking either copy drives
+        // the same onSelect behavior below.
+        const groupRowId = colorClass === 'evt-normal' ? 'Normal' : timeline_element.Type;
+        items.push({ ...item, id: item.id + '__group', rowId: groupRowId });
       } catch (error) {
         console.error(error);
       }
@@ -452,6 +506,9 @@ export function updateTimeline(results: any, onRangePresetSelect?: (fromDate: Da
       containerId: 'timeline',
       rows,
       items,
+      dataRange,
+      overlappedIds,
+      selectedOverlappedId,
       formatTick,
       onSelect: (item) => {
         if (state.getSelectedPlayer().readyState === RTSPOverWebSocketPlayState.PLAYING) {

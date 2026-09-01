@@ -12,6 +12,8 @@ import { onchangemute, onchangevolume } from './audio';
 import { onchangefullscreen } from './screen';
 import { onchangetimezone, onchangeprotocol } from './device';
 
+declare var IS_EXTENSION: boolean;
+
 /** Log-only stub, shared by changedevicetype/changeprofilenumber/
  *  changeprofile/changechannel/changehostname/changeport/
  *  changebestshotfilter/changebestshot -- kept as one function per event
@@ -63,11 +65,35 @@ function onchangehostname(event: any): void {
  *  getSelectedPlayer() -- NOT the event's own target element. Preserved
  *  exactly: if multiple players exist and the event fires on a
  *  non-selected one, this still writes to whichever player is currently
- *  selected in the dropdown, matching the original's own behavior. */
+ *  selected in the dropdown, matching the original's own behavior.
+ *
+ *  **`src/shared-v2/`-only deviation**: outside the extension, this write
+ *  is skipped -- device.ts's setupDevice() locks the actual connection
+ *  scheme (`player.https`) to `document.location.protocol` (FR-4.10), and
+ *  this line was the real, deeper cause of that lock silently breaking:
+ *  selecting a discovered device sets `player.port` to that device's own
+ *  port (`applyDiscoveredDeviceSelection()`, discovery.ts), the player
+ *  custom element's own attribute setter for "port" dispatches
+ *  'changeport' as a side effect regardless of extension/web, and this
+ *  handler then set `.https = (port === 443)` -- which itself triggers the
+ *  player's 'changeprotocol' event, flipping the http/https radios back
+ *  via onchangeprotocol() below, one level removed from
+ *  discovery.ts's own already-`IS_EXTENSION`-guarded radio-sync lines and
+ *  invisible to a fix scoped to just that file. Guarding here (rather
+ *  than only in onchangeprotocol()) also keeps the *actual* outgoing
+ *  connection scheme (`player.https`) consistent with the locked radios,
+ *  not just their visual state -- a locked-to-HTTP page should never
+ *  attempt an HTTPS connection just because a selected camera happens to
+ *  advertise port 443. Reported directly by the user with the exact
+ *  repro (`http://localhost:8080`, selecting a discovered
+ *  `https://.../index.htm` camera on port 443 flipped the toggle to
+ *  HTTPS). */
 function onchangeport(event: any): void {
   try {
     changedebug('onchangeport: ' + fastJsonStringfy(event.detail));
-    state.getSelectedPlayer().https = event.detail.port == '443';
+    if (IS_EXTENSION) {
+      state.getSelectedPlayer().https = event.detail.port == '443';
+    }
   } catch (error) {
     console.error(error);
   }

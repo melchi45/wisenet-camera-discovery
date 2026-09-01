@@ -20,6 +20,9 @@
 | 2.3 | 2026-08-31 | Youngho Kim | FR-14's target field pair corrected: `#seeking_date`/`#seeking_time` retired, unified into `#timestamp_date`/`#timestamp_time` (shared with `'live'` mode) per the user's explicit request — see `docs/window-ui/SRS.md` v2.2. Drag-seek also now force-resets the player to forward speed, a mitigation for a reported reverse-playback symptom when dragging backward then resuming. |
 | 2.4 | 2026-08-31 | Youngho Kim | Found while verifying v2.2: the draggable current-time marker (FR-14) also blocked overview-row item clicks, since its `pointer-events: auto` hit area spanned the same full height as its visual line (v2.2 above) and `playback.ts` starts it at the earliest item's own start — always that item's Normal bar in the overview row. Split into `customTimeEl` (always-visible line, unchanged, `pointer-events: none`, spans the full height) and a separate `customTimeHitEl` (the actual drag target, `.event-timeline-custom-time-hit`), appended only into the detail-rows wrapper so it can never sit over an overview item. See SRS.md FR-9/FR-14 v2.5. |
 | 2.5 | 2026-08-31 | Youngho Kim | Found while re-verifying v2.2: the two edge-resize handles kept from v2.2 (`pointer-events: auto`, explicitly re-enabled) had the exact same problem as the highlight and the marker before their own fixes — at the default full-extent zoom they sit exactly on the data range's start/end pixel, occluding whichever item is there for the browser's real hit-testing (not just this component's own routing), confirmed by Playwright's actionability check correctly refusing to click an occluded element. Removed as real hit targets (`pointer-events: none`, purely visual); resize is now detected by proximity to the highlight's edge (`RESIZE_EDGE_PX`) inside the track's own single pointerdown/move/up flow instead of a separate element. See "Click vs. drag" below and SRS.md FR-3 v2.6. |
+| 2.6 | 2026-09-01 | Youngho Kim | Three fixes reported directly by the user: color classes are now `evt-`-prefixed (`evt-normal`, `evt-motiondetection`, ...) so they can never collide with an unrelated bare-word global class — `src/shared/css/table.css`'s own `.normal` (reused as-is on the `src/shared-v2/` page) was leaking `height: 40px; border: 1px solid red;` into this component's Normal row; detail-row headers now reserve an invisible spacer matching the overview row's collapse-button width, so row-title labels actually line up in a column; and the overview row's collapse button now hides its entire track (items, highlight, edge-handles together), not just the item markers as v2.2-v2.5 left it — the empty-but-full-height leftover track read as broken, not as v2.3's deliberate "highlight stays available as a pan/zoom control" design. See SRS.md FR-1/FR-3/NFR-5 v2.9. |
+| 2.7 | 2026-09-01 | Youngho Kim | Requested directly by the user right after v2.6: every row (overview and detail) is now a fixed `height: 20px` (`.event-timeline-row`/`.event-timeline-row-track`/`.event-timeline-overview-track`, previously auto/30px/25px respectively), and `src/shared/css/table.css`'s `.normal` rule had its `height: 40px` line deleted outright rather than just left unreachable by the v2.6 `evt-` rename. See SRS.md v2.10. |
+| 2.8 | 2026-09-01 | Youngho Kim | Overlapped Id moves into this component's own toolbar (immediately left of the 1H/6H/1D/1W/1M/1Y preset buttons, `.event-timeline-toolbar-left` wrapping both) — requested directly by the user. Replaces `playback.ts`'s/`playbackCalendar.ts`'s own previously-separate `#overlapped_id_area`/`#calendar_overlapped_id_area` DOM-building with a single shared control (`setOverlappedIds()`/`getOverlappedId()`), the same single-canonical-control move v2.0 already did for Selected Time. See SRS.md FR-15 v2.11. |
 
 ## Why a full custom widget, not a `vis.Timeline` reskin
 
@@ -142,6 +145,11 @@ component's `EventTimelineRow[]`/`EventTimelineItem[]` shape.
   `onRangePresetSelect` (v2.0) is supplied differently per caller: `playback.ts`'s own manual-flow
   re-fetch, or `playbackCalendar.ts`'s Calendar-flow equivalent, passed in as `updateTimeline()`'s
   second parameter (kept one-directional — `playback.ts` never imports from `playbackCalendar.ts`).
+  As of v2.8 (FR-15), `updateTimeline()` also takes `overlappedIds`/`selectedOverlappedId` parameters,
+  threaded straight into the same `mountEventTimeline()` call's own options of the same name —
+  `runManualTimelineSearch()` fetches the list itself (unchanged network sequence: Overlapped Id
+  before Timeline, since it's a query param of the latter) and no longer builds any DOM for it
+  directly.
   `ontimestamp()`'s `'playback'` case calls `state.eventTimeline.setCustomTime()` in place of the
   previous `visTimeline.setCustomTime()` — as of v2.1 (FR-14) gated on
   `readyState === PLAYING`, passing `null` otherwise. `onCustomTimeSeek` (v2.1) mirrors the existing
@@ -151,6 +159,17 @@ component's `EventTimelineRow[]`/`EventTimelineItem[]` shape.
   `#seeking_date`/`#seeking_time`) instead of waiting for the player's own next `timestamp` event to
   report it. **v2.2**: also force-resets the player to forward speed (`playSpeed = '1'`) on every
   drag-seek, a mitigation for a reported reverse-playback symptom.
+- `src/shared-v2/modules/playbackCalendar.ts` — `runOverlappedAndTimelineSearch()`'s Overlapped Id
+  fetch now stores the raw list in a module-level `currentOverlappedIds` instead of building DOM;
+  `runCalendarTimelineSearch()` (also the Rule-change/`#event_rules_type` handler, which does NOT
+  re-fetch Overlapped Id) picks the query's `overlappedId` by preferring
+  `state.eventTimeline?.getOverlappedId()` when it's still a member of `currentOverlappedIds` (a Rule
+  change re-search: same list, so a user's manual pick is still valid) and falling back to
+  `currentOverlappedIds`'s own default otherwise (a fresh day/preset search just replaced the list
+  with a different day's) — this is `selectedOverlappedId`'s reason for existing at all: without
+  passing it back into `updateTimeline()`, the widget's full remount (FR-12, every call) would
+  silently reset a Rule-change re-search's select back to the new list's default instead of keeping
+  whatever the query itself actually used.
 - `src/shared-v2/modules/videoControl.ts` — `onstatechange()`'s `STOPPED`/`PAUSED` branches call
   `state.eventTimeline?.setCustomTime(null)` (v2.1, FR-14): once playback isn't `PLAYING`,
   `ontimestamp()` stops firing entirely, so nothing else would ever clear a marker left over from

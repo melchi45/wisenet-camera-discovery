@@ -28,6 +28,16 @@
 // preset buttons (docs FR-4 v2.0) can also now trigger a caller-owned
 // re-fetch via `onRangePresetSelect` instead of a purely local re-zoom --
 // still no network calls from this component itself (NFR-1 unchanged).
+//
+// As of docs FR-15: also owns the "Overlapped Id" select, in the toolbar
+// immediately left of the 1H/6H/1D/1W/1M/1Y preset buttons -- replaces
+// playback.ts's/playbackCalendar.ts's own previously-separate
+// #overlapped_id_area/#calendar_overlapped_id_area DOM-building, same
+// single-canonical-control move as Selected Time above. Moved directly per
+// the user's request. Like Selected Time, this component still makes no
+// network calls itself (NFR-1) -- callers populate it via `overlappedIds`/
+// `setOverlappedIds()` with an already-fetched list and read the current
+// selection back via `getOverlappedId()`.
 
 export interface EventTimelineRow {
   id: string;
@@ -64,6 +74,24 @@ export interface MountEventTimelineOptions {
    *  every other row renders as its own detail row, in array order. */
   rows: EventTimelineRow[];
   items: EventTimelineItem[];
+  /** The full extent to display (the "ALL EVENTS" overview scale, the
+   *  outer zoom-clamp bound, and what a preset button's own active-state
+   *  check compares against) -- when provided, this **is** the extent,
+   *  exactly (not unioned with the item extent -- an earlier version of
+   *  this option did union them "defensively, in case an item ever falls
+   *  outside it", but a real server should never return an item outside
+   *  the range it was queried for, and that union broke badly against a
+   *  test double that doesn't honor query ranges at all; see MEMORY.md).
+   *  Without it (FR-2's original behavior, still the fallback when
+   *  omitted), a preset search that comes back with few or zero items
+   *  collapses the display to just wherever those items happen to fall,
+   *  instead of showing the full requested period (e.g. a real, empty
+   *  hour for a 1H search) the way a search covering a wider span than
+   *  its actual data always should. Pass the caller's own requested
+   *  `[start, end]` here whenever one exists (a preset click, a Calendar
+   *  day, the initial default search) -- omit only when there genuinely
+   *  isn't one. */
+  dataRange?: { start: Date; end: Date };
   /** GMT/timezone-aware axis tick + item tooltip formatter. Defaults to
    *  the browser's local-timezone `toLocaleTimeString()`. */
   formatTick?: (date: Date) => string;
@@ -100,6 +128,28 @@ export interface MountEventTimelineOptions {
    *  requested window's boundary Dates. If omitted, the preset buttons
    *  fall back to the original local-zoom-only behavior. */
   onRangePresetSelect?: (fromDate: Date, toDate: Date, label: string) => void;
+  /** Initial Overlapped Id option values, rendered in the toolbar
+   *  immediately to the left of the 1H/6H/1D/1W/1M/1Y preset buttons
+   *  (docs/event-timeline-component/SRS.md FR-15) -- omit or pass an empty
+   *  array to start with no control shown at all, matching the pre-move
+   *  `#overlapped_id_area`/`#calendar_overlapped_id_area` DOM-building's own
+   *  "absent until there's data" behavior. Mirrors the controller's
+   *  `setOverlappedIds()` below; both render into the same single, page-
+   *  unique `#overlapped_id` select (FR-13's "only one #timeline instance
+   *  ever exists at a time" reasoning applies here too -- this replaces
+   *  BOTH of playback.ts's/playbackCalendar.ts's previously-separate manual/
+   *  Calendar-flow selects). Options render highest-index-first, so the
+   *  select's native default (its first `<option>`) matches the pre-move
+   *  select boxes' own default exactly. */
+  overlappedIds?: string[];
+  /** Which of `overlappedIds` starts selected -- defaults to the select's
+   *  native default (highest-index-first, see `overlappedIds` above) when
+   *  omitted or not present in `overlappedIds`. Exists for callers that
+   *  remount without a fresh Overlapped Id fetch (e.g. playbackCalendar.ts's
+   *  Rule-change path) and want the redrawn select to keep showing
+   *  whichever value the user had actually queried with, not silently snap
+   *  back to the list's own default. */
+  selectedOverlappedId?: string;
   /** Fires once, on pointer release, when the user drags the current-time
    *  marker (`setCustomTime()`'s line) left/right -- `date` is the Date at
    *  the dropped position in the current zoom window. Not fired during the
@@ -126,6 +176,20 @@ export interface EventTimelineController {
    *  doc comment. `endDate`/`endTime` both `null` clears End Time
    *  (unchecks "Has End Time", open-ended). */
   setSelectedTime(startDate: string, startTime: string, endDate: string | null, endTime: string | null): void;
+  /** Repopulates the Overlapped Id select (FR-15) -- an empty array removes
+   *  it entirely, same add/remove-on-empty behavior the pre-move
+   *  `#overlapped_id_area`/`#calendar_overlapped_id_area` DOM-building had.
+   *  Options render highest-index-first (matching `overlappedIds`'s own
+   *  mount-time option above), so the native default selection lands on
+   *  the same value the pre-move select boxes defaulted to.
+   *  `selectedId` mirrors `MountEventTimelineOptions.selectedOverlappedId`
+   *  -- omit for the plain default-selection behavior. */
+  setOverlappedIds(ids: string[], selectedId?: string): void;
+  /** The Overlapped Id select's current value, or `null` when the control
+   *  is empty/not rendered. Callers read this right before their own
+   *  `getTimeline()` call (Rule change, a Selected Time-independent re-
+   *  search) instead of querying `#overlapped_id` directly. */
+  getOverlappedId(): string | null;
   /** Detaches all listeners/observers. Callers that re-mount into the same
    *  container on every search (playback.ts) must call this on the
    *  previous instance first. */
@@ -197,7 +261,27 @@ export function mountEventTimeline(config: MountEventTimelineOptions): EventTime
 
   let dataStart = new Date();
   let dataEnd = new Date();
-  if (config.items.length > 0) {
+  if (config.dataRange) {
+    // Deliberately NOT unioned with the item extent (an earlier version of
+    // this did union them, defensively, "in case an item ever falls
+    // outside the requested range") -- a real SUNAPI response should never
+    // return an item outside the range it was queried for, so that union
+    // was meant to be a no-op safety net. It instead actively broke every
+    // test against tools/mock-sunapi-server/, which always returns the
+    // same ~150-item static fixture regardless of the query's actual date
+    // range (documented in MEMORY.md) -- unioning a "now"-anchored
+    // requested range with that fixture's own unrelated fixed dates
+    // produced a combined extent spanning from the fixture's dates all the
+    // way to "now", compressing every real item into a sliver of the
+    // track and making them overlap each other at the pixel level. Found
+    // live via Playwright (TC-6/TC-7/TC-8 regressions right after adding
+    // `dataRange`). Using the requested range as-is, unconditionally, both
+    // matches real-server behavior exactly and sidesteps this entirely.
+    dataStart = config.dataRange.start;
+    dataEnd = config.dataRange.end.getTime() > dataStart.getTime()
+      ? config.dataRange.end
+      : new Date(dataStart.getTime() + MIN_WINDOW_MS);
+  } else if (config.items.length > 0) {
     let minMs = Infinity;
     let maxMs = -Infinity;
     for (const item of config.items) {
@@ -221,6 +305,47 @@ export function mountEventTimeline(config: MountEventTimelineOptions): EventTime
 
   const toolbar = document.createElement('div');
   toolbar.className = 'event-timeline-toolbar';
+
+  // ---- Overlapped Id (docs/event-timeline-component/SRS.md FR-15) ------
+  // Replaces playback.ts's/playbackCalendar.ts's own previously-separate
+  // #overlapped_id_area/#calendar_overlapped_id_area DOM-building -- lives
+  // here now so both flows share one control, positioned immediately to
+  // the left of the 1H/6H/1D/1W/1M/1Y preset buttons below. Moved directly
+  // per the user's request.
+  const overlappedIdEl = document.createElement('div');
+  overlappedIdEl.className = 'event-timeline-overlapped-id';
+  let overlappedIdSelect: HTMLSelectElement | null = null;
+
+  function renderOverlappedIds(ids: string[], selectedId?: string): void {
+    overlappedIdEl.replaceChildren();
+    overlappedIdSelect = null;
+    if (ids.length === 0) {
+      return;
+    }
+    const label = document.createElement('span');
+    label.className = 'event-timeline-overlapped-id-label';
+    label.textContent = 'Overlapped Id:';
+    const select = document.createElement('select');
+    select.id = 'overlapped_id';
+    // Highest-index-first, matching the pre-move select boxes' own option
+    // order -- their native default (first <option>) landed on ids[ids.length
+    // - 1], not ids[0].
+    for (let i = ids.length - 1; i >= 0; i--) {
+      const opt = document.createElement('option');
+      opt.value = ids[i];
+      opt.textContent = ids[i];
+      select.append(opt);
+    }
+    if (selectedId !== undefined && ids.includes(selectedId)) {
+      select.value = selectedId;
+    }
+    overlappedIdEl.append(label, select);
+    overlappedIdSelect = select;
+  }
+  renderOverlappedIds(config.overlappedIds ?? [], config.selectedOverlappedId);
+
+  const toolbarLeft = document.createElement('div');
+  toolbarLeft.className = 'event-timeline-toolbar-left';
 
   const presetsEl = document.createElement('div');
   presetsEl.className = 'event-timeline-presets';
@@ -269,7 +394,8 @@ export function mountEventTimeline(config: MountEventTimelineOptions): EventTime
   zoomInBtn.addEventListener('click', () => zoomAroundRatio(0.5, 1 / BUTTON_ZOOM_FACTOR));
   zoomControlsEl.append(zoomOutBtn, zoomReadout, zoomInBtn);
 
-  toolbar.append(presetsEl, zoomControlsEl);
+  toolbarLeft.append(overlappedIdEl, presetsEl);
+  toolbar.append(toolbarLeft, zoomControlsEl);
   root.append(toolbar);
 
   // ---- Selected Time (docs/event-timeline-component/SRS.md FR-11) -------
@@ -418,6 +544,7 @@ export function mountEventTimeline(config: MountEventTimelineOptions): EventTime
     overviewHighlightEl = highlightEl;
 
     wireOverviewDrag(trackEl);
+    wireWheelZoom(trackEl);
   }
 
   const rowsContainer = document.createElement('div');
@@ -431,6 +558,15 @@ export function mountEventTimeline(config: MountEventTimelineOptions): EventTime
 
     const header = document.createElement('div');
     header.className = 'event-timeline-row-header';
+    // Invisible placeholder matching the overview row's own collapse
+    // button footprint (see below) -- without it, only the overview row's
+    // header carries that leading button, so its own label starts further
+    // right than every detail row's label and the row-title column doesn't
+    // line up. Reported directly by the user. aria-hidden since it carries
+    // no content/behavior, purely a layout spacer.
+    const collapseSpacer = document.createElement('span');
+    collapseSpacer.className = 'event-timeline-collapse-btn-spacer';
+    collapseSpacer.setAttribute('aria-hidden', 'true');
     const label = document.createElement('span');
     label.className = `event-timeline-row-label ${row.colorClass ?? ''}`;
     label.textContent = row.label;
@@ -439,7 +575,7 @@ export function mountEventTimeline(config: MountEventTimelineOptions): EventTime
     hideBtn.className = 'event-timeline-hide-btn';
     hideBtn.textContent = 'Hide';
     hideBtn.addEventListener('click', () => setRowHidden(row.id, rowEl, hideBtn));
-    header.append(label, hideBtn);
+    header.append(collapseSpacer, label, hideBtn);
     rowEl.append(header);
 
     const trackEl = document.createElement('div');
@@ -510,14 +646,23 @@ export function mountEventTimeline(config: MountEventTimelineOptions): EventTime
     setWindow(newStart, newStart + newRange);
   }
 
-  // ---- Pointer interaction: zoom (wheel) + pan (drag) + click on items ---
-  function wireZoomPan(el: HTMLElement): void {
+  // ---- Wheel zoom -- shared by the detail-rows area (wireZoomPan) and the
+  // overview row's own track (wireOverviewDrag), so scrolling zooms the
+  // same shared window regardless of which row the pointer happens to be
+  // over. Requested directly by the user (the overview row previously had
+  // no wheel handling of its own at all). ---------------------------------
+  function wireWheelZoom(el: HTMLElement): void {
     el.addEventListener('wheel', (event) => {
       event.preventDefault();
       const rect = el.getBoundingClientRect();
       const ratio = clamp((event.clientX - rect.left) / rect.width, 0, 1);
       zoomAroundRatio(ratio, event.deltaY > 0 ? WHEEL_ZOOM_FACTOR : 1 / WHEEL_ZOOM_FACTOR);
     }, { passive: false });
+  }
+
+  // ---- Pointer interaction: zoom (wheel) + pan (drag) + click on items ---
+  function wireZoomPan(el: HTMLElement): void {
+    wireWheelZoom(el);
 
     let dragging = false;
     let dragStartX = 0;
@@ -974,6 +1119,12 @@ export function mountEventTimeline(config: MountEventTimelineOptions): EventTime
       selectedEndDate.value = endDate ?? '';
       selectedEndTime.value = endTime ?? '';
       updateEndFieldsEnabled();
+    },
+    setOverlappedIds(ids: string[], selectedId?: string): void {
+      renderOverlappedIds(ids, selectedId);
+    },
+    getOverlappedId(): string | null {
+      return overlappedIdSelect !== null ? overlappedIdSelect.value : null;
     },
     destroy(): void {
       resizeObserver.disconnect();

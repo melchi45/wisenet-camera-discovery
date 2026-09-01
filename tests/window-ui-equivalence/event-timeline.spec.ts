@@ -7,7 +7,7 @@
 // cross-page item-count check that still applies).
 
 import { test, expect, Page } from '@playwright/test';
-import { NEW_URL } from '../../playwright.config';
+import { NEW_URL, MOCK_SUNAPI_PORT } from '../../playwright.config';
 
 /** Reaches a populated #timeline on the new page only -- the same manual
  *  Playback flow docs/window-ui/TC.md's TC-15..18 drive on both pages,
@@ -36,6 +36,17 @@ async function openNewPageWithTimeline(browser: any): Promise<Page> {
   await page.locator('#init').click();
   await page.waitForSelector('#datatable tbody tr:nth-child(1)');
   await page.locator('#datatable tbody tr').first().click();
+  // device.ts's FR-4.10 locks #port to 80/443 (matching this page's own
+  // http:// scheme) whenever a device is selected outside the extension --
+  // correct for a real camera, but this fixture's mock device deliberately
+  // reuses the mock-sunapi-server's own non-standard port (MOCK_SUNAPI_PORT)
+  // rather than simulating a real camera on 80, so every SUNAPI call this
+  // test relies on would otherwise target a port nothing is listening on.
+  // Refilled the same way username/password below are (fill + dispatch
+  // 'change', not a raw .value= assignment) so changeport() actually runs
+  // and updates the player's real .port, not just the input's own display.
+  await page.locator('#port').fill(String(MOCK_SUNAPI_PORT));
+  await page.locator('#port').dispatchEvent('change');
   await page.locator('#username').fill('admin');
   await page.locator('#username').dispatchEvent('change');
   await page.locator('#password').fill('admin1234');
@@ -52,7 +63,7 @@ async function openNewPageWithTimeline(browser: any): Promise<Page> {
 }
 
 test.describe('Event Timeline component (new page only)', () => {
-  test('TC-1/TC-3: overview row first, one detail row per distinct non-Normal type, all preset buttons start inactive', async ({ browser }) => {
+  test('TC-1/TC-3: overview row first, one detail row per distinct type (Normal included), all preset buttons start inactive', async ({ browser }) => {
     const page = await openNewPageWithTimeline(browser);
 
     const rows = page.locator('#timeline .event-timeline-row');
@@ -61,14 +72,23 @@ test.describe('Event Timeline component (new page only)', () => {
     const detailRowCount = await page.locator('#timeline .event-timeline-detail-row').count();
     expect(detailRowCount).toBeGreaterThan(0);
 
+    // v2.10: Normal gets its own detail row too, not just a merge into "All".
+    const normalRowLabel = page.locator('#timeline .event-timeline-detail-row .event-timeline-row-label', { hasText: /^Normal$/ });
+    await expect(normalRowLabel).toHaveCount(1);
+
     const overviewItemCount = await page.locator('#timeline .event-timeline-overview-row .event-timeline-item').count();
     const totalItemCount = await page.locator('#timeline .event-timeline-item').count();
     expect(overviewItemCount).toBeGreaterThan(0);
     expect(totalItemCount).toBeGreaterThan(overviewItemCount);
 
-    // Full data extent doesn't exactly match any fixed preset width, so
-    // none should start active.
-    await expect(page.locator('.event-timeline-preset-btn-active')).toHaveCount(0);
+    // v2.7 (docs/event-timeline-component/SRS.md FR-2): the widget's data
+    // extent now comes from the search's own requested range (dataRange),
+    // not the item extent -- the default search requests exactly "1 day
+    // ending now", so 1D correctly starts active (previously, before
+    // dataRange existed, the item-derived extent never exactly matched a
+    // fixed preset width, so nothing started active; that was an artifact
+    // of the old extent-computation, not a real requirement).
+    await expect(page.locator('.event-timeline-preset-btn-active')).toHaveText('1D');
 
     await page.context().close();
   });
@@ -141,7 +161,7 @@ test.describe('Event Timeline component (new page only)', () => {
     // "Normal disables End Time" behavior is not reproduced.
     const page = await openNewPageWithTimeline(browser);
 
-    const eventItem = page.locator('#timeline .event-timeline-item:not(.normal)').first();
+    const eventItem = page.locator('#timeline .event-timeline-item:not(.evt-normal)').first();
     await eventItem.click();
     await expect(eventItem).toHaveClass(/event-timeline-item-selected/);
     expect(await page.locator('#selected_has_end_time').isChecked()).toBe(true);
@@ -149,7 +169,7 @@ test.describe('Event Timeline component (new page only)', () => {
     const startAfterEvent = await page.locator('#selected_start_date').inputValue();
     expect(startAfterEvent.length).toBeGreaterThan(0);
 
-    const normalItem = page.locator('#timeline .event-timeline-overview-row .event-timeline-item.normal').first();
+    const normalItem = page.locator('#timeline .event-timeline-overview-row .event-timeline-item.evt-normal').first();
     await normalItem.click();
     await expect(normalItem).toHaveClass(/event-timeline-item-selected/);
     expect(await page.locator('#selected_has_end_time').isChecked()).toBe(true);

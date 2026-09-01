@@ -213,8 +213,9 @@ export function refreshRuleSelectForChannelChange(): void {
  *  - `#timeline` (FR-7.6) likewise may hold the OLD channel's rendered
  *    results, from either UI -- hidden the same way `updatePlaybackSunapiUIVisibility()`
  *    already hides it on leaving Playback mode entirely.
- *  - This Calendar panel's own Overlapped Id (`#calendar_overlapped_id_area`)
- *    resets to its pre-day-click (empty) state, `currentCalendarSearchRange`
+ *  - Overlapped Id (the Event Timeline's own toolbar select, shared with
+ *    FR-7.1's manual flow -- see event-timeline.ts FR-15) resets to its
+ *    pre-day-click (empty) state, `currentCalendarSearchRange`
  *    clears (so a stray Rule change before the next day/preset click
  *    silently no-ops rather than reusing the OLD channel's range), and
  *    `#calendar_search_area` (their shared container) hides again. Selected
@@ -248,8 +249,12 @@ export function resetPlaybackSearchStateForChannelChange(): void {
       return;
     }
 
-    document.getElementById('calendar_overlapped_id')?.remove();
-    document.getElementById('calendar_overlapped_id_span')?.remove();
+    // FR-15: the select itself now lives inside the Event Timeline widget
+    // (event-timeline.ts), not a standalone #calendar_overlapped_id_area --
+    // reset the cached list and the widget's own selection instead of
+    // removing DOM elements directly.
+    currentOverlappedIds = [];
+    state.eventTimeline?.setOverlappedIds([]);
     (document.getElementById('calendar_search_area') as HTMLElement).style.display = 'none';
     calendarController?.setSelectedDay(null);
     state.getSelectedPlayer().overlappedId = 0;
@@ -384,6 +389,18 @@ function formatDateForCalendarSearch(date: Date): string {
  *  treat that as a silent no-op. */
 let currentCalendarSearchRange: { strSearchStartTime: string; strSearchEndTime: string } | null = null;
 
+/** This flow's last-fetched Overlapped Id list -- FR-15's move of the
+ *  select into the Event Timeline widget's own toolbar means there's no
+ *  standalone `#calendar_overlapped_id_area` DOM to read back any more
+ *  (see event-timeline.ts). Set by runOverlappedAndTimelineSearch() (day
+ *  click or preset click); reset to `[]` by
+ *  resetPlaybackSearchStateForChannelChange() on channel change. Empty
+ *  means "nothing fetched yet this panel-visible session, or the last
+ *  fetch came back with no overlapping sessions" -- runCalendarTimelineSearch()
+ *  then falls back to the widget's own current live selection (a Rule
+ *  change re-search, which doesn't re-fetch this list). */
+let currentOverlappedIds: string[] = [];
+
 /** FR-7.8.5: getOverlappedIdList() then getTimeline() (via
  *  runCalendarTimelineSearch()) -- sequenced, not fired as independent/
  *  concurrent Promises the way FR-7.1/FR-7.3's own equivalent pattern
@@ -402,10 +419,10 @@ let currentCalendarSearchRange: { strSearchStartTime: string; strSearchEndTime: 
  *  the very first call), this race could recur on every click. Waiting
  *  for getOverlappedIdList() to settle before firing getTimeline() closes
  *  that window -- as a side effect, getTimeline()'s overlappedId argument
- *  now reflects THIS click's freshly-fetched list
- *  (populateCalendarOverlappedIdSelect() already ran by the time
- *  getTimeline() reads #calendar_overlapped_id) rather than the previous
- *  click's stale value, which is arguably more correct anyway.
+ *  now reflects THIS click's freshly-fetched list (currentOverlappedIds is
+ *  already updated by the time runCalendarTimelineSearch() reads it) rather
+ *  than the previous click's stale value, which is arguably more correct
+ *  anyway.
  *
  *  As of FR-7.8.5 v2.0, called with an explicit range (a day click's own
  *  00:00:00-23:59:59, or a preset click's `[now-preset, now]` via
@@ -418,10 +435,11 @@ function runOverlappedAndTimelineSearch(strSearchStartTime: string, strSearchEnd
 
     state.getSunapiManager().getOverlappedIdList(strSearchStartTime, strSearchEndTime, channel)
       .then((overlapped: any) => {
-        populateCalendarOverlappedIdSelect(overlapped);
+        currentOverlappedIds = typeof overlapped.OverlappedIDList !== 'undefined' ? overlapped.OverlappedIDList : [];
       })
       .catch((error: any) => {
         changedebug('getOverlappedIdList (playback calendar) error: ' + fastJsonStringfy(error));
+        currentOverlappedIds = [];
       })
       .finally(() => {
         runCalendarTimelineSearch();
@@ -443,7 +461,23 @@ function runOverlappedAndTimelineSearch(strSearchStartTime: string, strSearchEnd
  *  searched yet this panel-visible session (`currentCalendarSearchRange`
  *  still `null`). Also passed as `updateTimeline()`'s `onRangePresetSelect`
  *  by both callers below, since a preset click should always land here
- *  regardless of what triggered the search it's redrawing. */
+ *  regardless of what triggered the search it's redrawing.
+ *
+ *  FR-15: since Overlapped Id now lives inside the Event Timeline widget's
+ *  own toolbar, and `updateTimeline()` fully remounts that widget on every
+ *  call (including this Rule-change path, not just a fresh day/preset
+ *  search), the query's own `overlappedId` is picked by preferring the
+ *  widget's current live selection -- but only when it's actually a member
+ *  of `currentOverlappedIds` (a Rule change re-search: same day, same
+ *  list, so a user's manual pick is still valid and should be honored).
+ *  When it isn't (a fresh day/preset search just replaced
+ *  `currentOverlappedIds` with a different day's list, so the old
+ *  selection has nothing to do with it, or nothing has been selected yet),
+ *  falls back to the new list's own default (its last element -- matching
+ *  the pre-move select box's own highest-index-first default). The result
+ *  is also passed back into `updateTimeline()`'s `selectedOverlappedId` so
+ *  the remounted select keeps showing this same value instead of silently
+ *  snapping to the list's default. */
 function runCalendarTimelineSearch(): void {
   try {
     if (currentCalendarSearchRange === null) {
@@ -452,12 +486,19 @@ function runCalendarTimelineSearch(): void {
     const { strSearchStartTime, strSearchEndTime } = currentCalendarSearchRange;
     const channel = Number(state.getSelectedPlayer().channel) - 1;
     const ruleType = (document.getElementById('event_rules_type') as HTMLSelectElement).value;
-    const overlappedIdEl = document.getElementById('calendar_overlapped_id') as HTMLSelectElement | null;
+    const liveSelection = state.eventTimeline?.getOverlappedId() ?? null;
+    const overlappedId = liveSelection !== null && currentOverlappedIds.includes(liveSelection)
+      ? liveSelection
+      : currentOverlappedIds[currentOverlappedIds.length - 1];
 
-    state.getSunapiManager().getTimeline(strSearchStartTime, strSearchEndTime, channel, overlappedIdEl?.value, ruleType)
+    state.getSunapiManager().getTimeline(strSearchStartTime, strSearchEndTime, channel, overlappedId, ruleType)
       .then((timeline: any) => {
         if (typeof timeline !== 'undefined') {
-          updateTimeline(timeline.TimeLineSearchResults, onCalendarRangePresetSelect);
+          updateTimeline(
+            timeline.TimeLineSearchResults, onCalendarRangePresetSelect,
+            { start: new Date(strSearchStartTime), end: new Date(strSearchEndTime) },
+            currentOverlappedIds, overlappedId,
+          );
           (document.getElementById('timeline') as HTMLElement).style.display = 'block';
         }
       })
@@ -479,33 +520,6 @@ function onCalendarRangePresetSelect(fromDate: Date, toDate: Date): void {
     applyCalendarGmtConversion(formatDateForCalendarSearch(fromDate)),
     applyCalendarGmtConversion(formatDateForCalendarSearch(toDate)),
   );
-}
-
-/** Same DOM-building pattern as playback.ts's search_overlapped_id(),
- *  targeting this panel's own #calendar_overlapped_id_area/
- *  #calendar_overlapped_id ids instead. */
-function populateCalendarOverlappedIdSelect(overlapped: any): void {
-  document.getElementById('calendar_overlapped_id')?.remove();
-  document.getElementById('calendar_overlapped_id_span')?.remove();
-
-  if (typeof overlapped.OverlappedIDList !== 'undefined' && overlapped.OverlappedIDList.length > 0) {
-    const span = document.createElement('span');
-    span.id = 'calendar_overlapped_id_span';
-    span.textContent = 'Overlapped Id:';
-    document.getElementById('calendar_overlapped_id_area')!.append(span);
-
-    const selectbox = document.createElement('select');
-    selectbox.id = 'calendar_overlapped_id';
-    selectbox.style.cssText = 'width:50px;margin-left: 5px;';
-    for (let i = overlapped.OverlappedIDList.length - 1; i >= 0; i--) {
-      const opt = overlapped.OverlappedIDList[i];
-      const el = document.createElement('option');
-      el.textContent = opt;
-      el.value = opt;
-      selectbox.appendChild(el);
-    }
-    document.getElementById('calendar_overlapped_id_area')!.append(selectbox);
-  }
 }
 
 export function setupPlaybackCalendar(): void {

@@ -1529,3 +1529,226 @@ server) rather than in the toggle's own UI code is easy to half-port when adding
 the extension case "worked" here because the process (`background.ts`) enforced the setting on its
 own regardless of what the toggle's change handler did; the web case had no such independent
 enforcer, so the toggle's UI code needed to be the actual enforcement, and wasn't.
+
+## `disabled` blocks user clicks, not a scripted `.checked` assignment — the HTTP/HTTPS lock's real bug
+
+Locked `#http_type_toggle` to `document.location.protocol` outside the extension (previous entry-
+adjacent session work) by setting `.checked` + `.disabled = true` once in `setupDevice()`. The user
+reported the lock "seems reversed" — but on investigation the *initial* lock was correct; it just
+silently broke the instant a discovered device was clicked. `discovery.ts`'s
+`applyDiscoveredDeviceSelection()` (FR-2.5) re-syncs the radios to *that device's own* advertised
+`http`/`https` (`row_data[5]`) on every selection, and `disabled` on a native `<input>` only prevents
+*user* interaction (clicks) — it does nothing to stop a script from still assigning `.checked`
+directly, which is exactly what that handler does. So selecting a device whose discovered protocol
+happened to differ from the page's own scheme flipped the "locked" toggle right back, looking exactly
+like a reversed/backwards lock even though the lock's own boolean logic was never wrong. Fixed by
+guarding just those two lines with `if (IS_EXTENSION)` in `discovery.ts`.
+
+Two lessons: (1) `element.disabled = true` is not a substitute for auditing every OTHER place that
+writes to the same element's state — it only stops the one interaction path (direct user clicks) most
+people think of first. (2) When a user says a fix "seems reversed," don't assume the comparison/
+boolean logic itself is inverted — ask what sequence of actions they took; here the bug wasn't in the
+lock's own condition at all, it was a second, unrelated code path re-asserting a different value
+right after the correct one was already set.
+
+**Follow-up**: the `discovery.ts` guard above turned out to only be the first of *two* places
+re-asserting the radios, and fixing just it wasn't enough — the user retested with an exact repro
+(`http://localhost:8080`, selecting a discovered `https://192.168.x.x/index.htm` camera on port 443)
+and the toggle still flipped. The real, deeper trigger was one hop further down the event chain:
+`applyDiscoveredDeviceSelection()` sets `player.port` to the device's own port; the player custom
+element's own attribute setter for `"port"` dispatches a `'changeport'` event as a side effect
+(unconditionally, regardless of extension/web — this comes from the vendored
+`@melchi45/rtsp-over-websocket` library itself, not this app's code); `playerEvents.ts`'s
+`onchangeport()` handles that by writing `player.https = (port === 443)`; setting `.https` on the
+player triggers *its own* attribute setter, which dispatches `'changeprotocol'`; and
+`onchangeprotocol()` (device.ts) is what actually flips the radios in response to *that*. None of this
+touches `discovery.ts` at all — a fix scoped to that one file could never have caught it. Fixed by
+also guarding `onchangeport()`'s `.https =` write (the real fix — this is what keeps the actual
+outgoing connection scheme consistent with the lock, not just the radios' visible state) and, for
+defense-in-depth, `onchangeprotocol()` itself.
+
+Sharper version of the lesson above: when a value gets re-asserted through a chain of `.property =`
+assignments that each trigger a custom element's own dispatch -> listener -> another `.property =`
+assignment, "guard the place I see the wrong value appear" (`discovery.ts`, or later
+`onchangeprotocol()`) finds the last stop in the chain, not necessarily the actual source. Tracing
+which attribute setter in the *vendored library itself* fires which event was necessary here —
+grepping the bundled `rtsp-over-websocket.esm.js` for `dispatch("changeport"`/`dispatch("changeprotocol"`
+is what surfaced the `port === 443 -> .https` link, not anything visible from this app's own source
+alone.
+
+**Follow-up 2**: the user also asked for `#port` itself to get the same lock, explicitly distinguishing
+intent from the extension case: in the extension, a selected device's own port stays the default
+(unchanged); outside it, the port should default to `80`/`443` matching the locked scheme, not the
+device's own advertised port. Extended `applyDiscoveredDeviceSelection()` (`discovery.ts`) with an
+`IS_EXTENSION` ternary right where `row_data[3]` was previously used unconditionally.
+
+## "Normal" gets its own Event Timeline detail row too — not a reversal of the earlier All-row merge
+
+An earlier session merged what used to be separate Normal/Event rows into one combined `"All"` row
+(see this file's much earlier `vis.Timeline` history), and Rule#-triggered events later each got an
+*additional* dedicated detail row alongside `"All"` (v1.15) — but `"Normal"` was deliberately excluded
+from that per-type row treatment (`ruleGroupIds` explicitly filtered `key !== 'normal'` in
+`playback.ts`), so it only ever showed up merged into `"All"`, never as its own row. The user asked
+for Normal to get the same per-type row every Rule# already has. This is additive, not a reversal of
+the original All-row merge — `"All"` still exists and still shows everything combined; Normal just
+also now gets a second copy of each of its own items in a dedicated `"Normal"` row, exactly the same
+mechanism (`colorClass === 'normal' ? 'Normal' : Type` picks the second copy's `rowId`) already used
+for Rule# groups, gated the same way (`hasNormal` mirrors "only add a row for a type that actually
+occurs"). Worth remembering because the two changes look superficially contradictory read out of
+context ("merge Normal into one row" vs. "give Normal its own row") — they're actually orthogonal:
+the merge was about not having *separate Normal-only and Event-only* rows any more; the per-type rows
+are a *supplement* to the merged "All" row, and Normal simply hadn't been given one yet.
+
+## Empty preset results were silently discarded — `updateTimeline()`'s data extent was purely item-derived
+
+Reported directly by the user, alongside two smaller Event Timeline asks (wheel-zoom on the overview
+row's own track, which had none; and a devtools-only `__web-inspector-hide-shortcut__` class the user
+saw in the Elements panel, which is a Chrome DevTools "H" hide-element artifact, not anything this
+codebase ever adds — nothing to fix there). The substantial one: "1H should show the full hour even
+with no data, same for 6H/1D/1W/1M/1Y." Two independent bugs compounded to defeat this:
+
+1. `mountEventTimeline()`'s `dataStart`/`dataEnd` (the full extent used for the overview scale *and*
+   the outer zoom-clamp bound) were always computed purely from `config.items`' own min/max — with
+   zero items, or items narrower than the requested period, the displayed extent silently shrank to
+   match, never the actual requested `[fromDate, toDate]`.
+2. `updateTimeline()` (`playback.ts`) skipped mounting the widget *entirely* whenever
+   `results[0].Results` came back empty — just a "Result is empty" popup and nothing else. A 1H
+   preset with genuinely zero motion events in the last hour (an entirely normal outcome, not an
+   error) hit this every time, so there was no widget at all to even apply a wider extent to.
+
+Fixed both: `MountEventTimelineOptions` gained an optional `dataRange: {start, end}` that seeds the
+extent instead of it being purely item-derived; `updateTimeline()` narrowed its "is this an error"
+check to just the outer envelope (`results.length === 0`) and now always passes its own requested
+range through as `dataRange` from both call sites (the manual flow's `fromDate`/`toDate`, the
+Calendar flow's `strSearchStartTime`/`strSearchEndTime` parsed to `Date`s).
+
+**Follow-up, found immediately by re-running the Playwright suite** (not by the user): the first cut
+of the `dataRange` fix *unioned* it with the item extent, "defensively, in case an item ever falls
+outside the requested range." This union broke TC-6/TC-7 (click an item) and TC-8 (click a Hide
+button) hard — every item rendered but crammed into an unusably tiny, overlapping sliver, so real
+mouse/Playwright clicks landed on the wrong item or nothing at all. Root cause:
+`tools/mock-sunapi-server/`'s Timeline fixture is a **fixed historical date** (`2026-01-15`,
+hardcoded), while the actual test run's "now" was 2026-09-01 — a real server would never return items
+outside its query window, so unioning was supposed to be a no-op, but this mock always returns the
+same static fixture regardless of the query's actual date range (already documented elsewhere in this
+file). Unioning a "now"-anchored requested range with a fixture dated ~7.5 months earlier produced a
+combined extent spanning that entire gap, compressing all 150 real items into a sliver at one edge.
+Fixed two ways: (1) dropped the union entirely — `dataRange`, when provided, is now the extent,
+unconditionally, matching how a real, well-behaved server actually works; (2) also fixed the mock
+fixture itself (`buildMockTimelineResults()`) to anchor its ~150-item, ~10-11-hour cluster to
+`Date.now() - 20h` (computed once at server startup) instead of the fixed calendar date, so it stays
+within a realistic "last 24 hours" window for as long as the mock server process stays up. Confirmed
+safe against `CALENDAR_SEARCH_RESULTS`'s own use of the old `MOCK_DATE`-keyed object first —
+`parseRecordedDaysFromCalendarSearch()` (`playback.ts`) only ever reads the response's `Result`
+bitmask values, never checks that the object's own date *key* matches the currently-displayed
+calendar month, so changing the Timeline fixture's anchor doesn't affect that calendar test at all.
+Also had to add a *third*, unrelated fix to keep the same test suite green: `applyDiscoveredDeviceSelection()`'s
+new FR-4.10 port lock (see the entry above) forces `#port` to `80`/`443` outside the extension on
+every device selection — which broke every test that selects the mock device (whose "camera" is
+really just the mock server itself, reachable only on its own non-standard port) and then relies on
+live SUNAPI communication afterward. Fixed by having the test's own helper explicitly refill `#port`
+back to the mock server's real port right after selecting the row (mirroring how it already
+re-fills `#username`/`#password`), rather than weakening the FR-4.10 lock itself for a test-only
+convenience it was never meant to accommodate.
+
+The general shape of the ORIGINAL bug is worth remembering: a "full extent" that's silently *derived*
+from the data (rather than the *request* that produced the data) looks correct for every
+well-populated test case and is wrong in exactly the case nobody tests by hand — a short,
+genuinely-empty window. Deriving the extent from data was fine back when every search was guaranteed
+non-trivial (the original 3-month/1-day manual ranges); it stopped being fine the moment 1-hour
+presets made "legitimately zero events" a routine outcome rather than an edge case. Separately, the
+union follow-up is its own lesson: a "defensive" fallback added for a case that "should never happen
+against a real server" can still be the thing that breaks against a *test double* that doesn't behave
+like a real server at all — worth checking what the test fixtures actually simulate before assuming
+defensive code is free.
+
+## `eventAppliesToChannel()`'s cross-channel filter could itself wrongly drop same-channel events
+
+Reported directly by the user, comparing a real device's raw `recording.cgi?msubmenu=timeline`
+response against the rendered `#timeline` — the response was dense/continuous, but the rendered
+result had visible gaps. Traced to `playback.ts`'s `eventAppliesToChannel()` (added earlier, see the
+"real device's Timeline response mixed in a different channel's Rule events" entry above): for a
+`Rule<N>` type, it did `state.dynamicRuleEntries.find(candidate => candidate.Rule === ruleNumber - 1)`
+— finds the *first* entry with that Rule number, then checks only *that one* entry's
+`EventSources[].Channel`. `getDynamicRules()` can list the same numeric Rule configured separately per
+channel (the earlier cross-channel-leak bug only makes sense if it does), so when a different
+channel's same-numbered entry happened to sort first in the array, `.find()` landed on it instead of
+the actually-queried channel's own entry — wrongly rejecting a legitimate same-channel event as
+"belongs to a different channel." `resolveEventLabel()` right above it never had this bug: its own
+`.find()` predicate already required Rule number **and** `EventSources[].Channel` together in one
+compound condition. Fixed `eventAppliesToChannel()` to match: `.filter()` down to every entry sharing
+the Rule number first, then check whether *any* of them include the queried channel, instead of
+picking one entry via Rule number alone and trusting it. General lesson: two functions solving the
+"same Rule number, ambiguous across channels" problem right next to each other, only one of which
+actually disambiguates correctly, is exactly the kind of inconsistency that's invisible reading either
+function in isolation — worth checking that near-duplicate lookup logic in the same file actually
+agrees before trusting a "this one's already been fixed" comment to also cover its neighbor.
+
+## Event Timeline's Normal row had a different height than every other row — a bare `.normal` CSS class collision, not a component bug
+
+Reported directly by the user, alongside two related layout complaints (row-title labels not lining
+up across rows, and the overview row's collapse button not actually collapsing it — see below and
+`docs/event-timeline-component/SRS.md` v2.9 for all three). This one took a real browser + DOM
+inspection to find, not just reading the component's own source (`event-timeline.ts`/`.css`
+individually looked correct in isolation): `src/shared-v2/`'s `window.html` loads `css/table.css`
+reused as-is from `src/shared/` (same shared-asset convention as `socket.ts`), and that file has its
+own, unrelated `.normal { height: 40px; border: 1px solid red; }` rule — meant for something else
+entirely in the discovery result table. `playback.ts`'s `assignEventColorClass()` returns the bare
+string `'normal'` as the Normal row's `colorClass`, which event-timeline.ts then adds as a literal,
+un-namespaced CSS class on that row's label (`event-timeline-row-label normal`) and its items
+(`event-timeline-item normal`) — a plain, single-class selector match, so table.css's rule applied
+right alongside event-timeline.css's own (more specific, two-class) `.event-timeline-row-label.normal
+{ color: ... }`, inflating just that one row's header height (measured live: 50px vs. 36px for every
+other detail row) and painting a red border nobody asked for. None of the *other* color classes
+(`motiondetection`, `ai`, `unknown`, ...) happened to collide with anything else on the page, which is
+exactly why this stayed invisible until "Normal" specifically was added as its own detail row.
+Fixed by namespacing every one of `EVENT_COLOR_CLASSES`/`assignEventColorClass()`'s color-class
+strings with an `evt-` prefix (`evt-normal`, `evt-motiondetection`, ...) — matching the
+`--evt-<class>-border`/`-bg` custom-property naming already used for the same classes — and updating
+`event-timeline.css`'s selectors and the equivalence-test suite's own `.normal`-keyed locators to
+match. General lesson: a component's own CSS/TS can be internally 100% consistent and still break
+from a class-name collision with a completely unrelated, page-wide stylesheet it happens to share —
+worth namespacing dynamically-assigned class tokens defensively rather than assuming a short, generic
+name like `normal`/`ai`/`unknown` is safe just because nothing *inside* the component itself uses it
+for anything else.
+
+**Follow-up, requested directly by the user right after the `evt-` fix landed**: `table.css`'s
+`.normal` rule had its `height: 40px` line deleted outright (its `border` line is untouched — only
+the height was ever implicated), rather than leaving it in place now-unreachable behind the rename.
+Same change also standardized every row to a fixed `height: 20px` (`.event-timeline-row`/
+`.event-timeline-row-track`/`.event-timeline-overview-track`, previously auto/30px/25px
+respectively) — see `docs/event-timeline-component/SRS.md` v2.10.
+
+**Follow-up, requested directly by the user right after the `evt-` fix landed**: `table.css`'s
+`.normal` rule had its `height: 40px` line deleted outright (its `border` line is untouched — only
+the height was ever implicated), rather than leaving it in place now-unreachable behind the rename.
+Same change also standardized every row to a fixed `height: 20px` (`.event-timeline-row`/
+`.event-timeline-row-track`/`.event-timeline-overview-track`, previously auto/30px/25px
+respectively) — see `docs/event-timeline-component/SRS.md` v2.10.
+
+## Event Timeline row titles didn't line up, and the overview row's collapse button didn't actually collapse it
+
+Two more parts of the same user report as the `.normal` collision above. Both root causes were
+visible only by inspecting real rendered geometry (`getBoundingClientRect()`), not by reading the
+CSS/TS in isolation:
+
+- **Row-title alignment**: only the overview ("ALL EVENTS") row's header has a leading collapse
+  button (`▾`); every detail row's header goes straight from its left edge to the label. That extra
+  button (plus its `gap`) pushes the overview row's own label ~20px further right than every detail
+  row's label starts, so the label column doesn't line up as the eye scans down the row headers.
+  Fixed by giving every detail row header an invisible, same-width spacer
+  (`.event-timeline-collapse-btn-spacer`) in the same position the real button occupies on the
+  overview row — not by removing the button or restructuring the layout.
+- **Collapse button**: `.event-timeline-overview-collapsed .event-timeline-overview-items { display:
+  none; }` only ever hid the item markers, leaving the track itself (and the draggable
+  zoom-window highlight inside it) at its original full height — clicking `▾` visibly changed
+  nothing about the row's own size, just emptied it out, which reads as broken rather than as
+  "collapsed." This was in fact the *documented, deliberate* v2.3-era design (SRS.md FR-3: "the
+  highlight rectangle itself stays visible either way, since it's the pan/zoom control, not just a
+  display") — reversed here per the user's direct, current request: the selector now targets
+  `.event-timeline-overview-track` (items, highlight, and edge-handles together), so collapsing
+  genuinely folds the row down to just its header, at the cost of the highlight/pan-zoom control
+  also being unavailable while collapsed. Worth remembering next time this area changes again: this
+  is the second time this exact behavior has flipped (v2.3 deliberately chose "keep the highlight
+  visible", v2.9 deliberately reversed it) — check history before assuming either direction is
+  obviously correct.

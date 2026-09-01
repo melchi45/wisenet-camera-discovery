@@ -39,6 +39,7 @@
 | 1.23 | 2026-08-31 | Youngho Kim | FR-7.8.2: `#event_rules_type` moved from its own field-row (next to Language) into `#calendar_search_area`, positioned immediately before Overlapped Id — it's a Timeline search filter like the fields after it, not a device-wide setting like Language, so it now shows/hides on the same timing (hidden until the month search first resolves, hidden again by FR-7.8.6's channel-change reset). Reported directly by the user. FR-7.8.5 updated to unconditionally re-show `#calendar_search_area` on day click, since a day stays clickable regardless of that container's own hidden state (surfaced by this move interacting with FR-7.8.6's channel-change reset — without it, a day click right after a channel change, with no month navigation in between, would populate fields into a still-hidden container). |
 | 1.24 | 2026-08-31 | Youngho Kim | FR-7.8.2: `#event_rules_type` gained its own `change` listener — selecting a different Rule now immediately re-fetches `getTimeline()` with the new `Type` for the already-set date range/Overlapped Id and redraws `#timeline`, instead of only taking effect on the next day click. New `runCalendarTimelineSearch()` factored out of FR-7.8.5's `runOverlappedAndTimelineSearch()` (shared `buildCalendarSearchTimeRange()` helper) so a Rule change re-fetches only the Timeline query, not Overlapped Id too. Reported directly by the user with the real `recording.cgi?msubmenu=timeline` request that should reflect the newly-selected Rule. |
 | 1.25 | 2026-08-31 | Youngho Kim | FR-7.6: `updateTimeline()` now filters `Results[]` by `eventAppliesToChannel()` before building any row/item — a real device's Timeline response has been observed including a different channel's Rule events (e.g. CH2's `Rule5`/`Rule6`/`Rule8`/`Rule9` while CH1 was queried), which previously rendered as extra, wrongly-scoped rows. Reported directly by the user with a screenshot of the live timeline. Kept, not filtered: `"Normal"` (always belongs to the queried channel) and any `Rule<N>` with no cached `state.dynamicRuleEntries` match at all (can't be judged either way). |
+| 1.26 | 2026-09-01 | Youngho Kim | FR-6.9: the `statechange` handler's `STOPPED` branch now also nulls the player's `startTime`/`endTime` — previously only `PAUSED`/`STOPPED`'s custom-time marker (FR-14) was cleared, leaving the `rtsp-over-websocket` player's own start/end time fields stuck on whatever range the last playback used. Requested directly by the user. `src/shared-v2/` only, `videoControl.ts`'s `onstatechange()`. |
 | 2.0 | 2026-08-31 | Youngho Kim | Major Playback search redesign, reported directly by the user via a 5-item request plus a follow-up clarification. FR-7.1-7.4 rewritten: the manual flow's typed-date-range search (`#search_overlapped_id`/`#search_date`/`#start_date`/`#end_date`/`#support_end_time`/1 Day-3 Month toggle/`#search_timeline`) is retired — search is now driven entirely by the shared Event Timeline widget's own 1H/6H/1D/1W/1M/1Y preset buttons (anchored to real "now"), with a default "1 day ending now" search auto-firing on entering Playback. Manual Start/End Time moved into that same widget as "Selected Time" (`docs/event-timeline-component/SRS.md` FR-13), used by both this manual flow and FR-7.8's Calendar panel — fixing a latent bug where `onSelect` always wrote to the manual flow's fields even while the Calendar flow was active. FR-7.8.2/7.8.4/7.8.5/7.8.6 updated: `#calendar_start_date`/etc. retired in favor of internal `currentCalendarSearchRange` state; a Calendar-side preset click re-runs the same Overlapped Id + Timeline sequence for `[now-preset, now]` instead of a clicked day's own range. See `docs/window-ui/DESIGN.md`'s corresponding rewrite and `MEMORY.md` for the full scope-discovery narrative. |
 | 2.1 | 2026-08-31 | Youngho Kim | FR-7.1/FR-7.8: Control:/Seeking Date/Seeking Time/BestshotFilter (`#playback_video_controls`, new) split out of `#playback_control` into their own sibling, gated on Playback mode alone (`isPlayback`) rather than on `showManual` — these are video-playback controls, not manual-flow search UI, so `updatePlaybackSunapiUIVisibility()` hiding all of `#playback_control` whenever the Calendar/SUNAPI flow was active had been hiding Seeking Date/Time (and Forward/Backward/Speed) along with it too, for no reason tied to search mode. Reported directly by the user (Seeking Date/Time not visible while testing the FR-14 draggable marker below). See `docs/event-timeline-component/SRS.md` FR-14. |
 | 2.2 | 2026-08-31 | Youngho Kim | FR-7.7: `playback` mode's separate `#seeking_date`/`#seeking_time` display (added v2.1's `#playback_video_controls`) retired — unified into the same `#timestamp_date`/`#timestamp_time` pair `live` mode already used (`updateTimestampReadout()`, shared by both cases), per the user's explicit request. `#playback_video_controls` no longer contains Seeking Date/Seeking Time fields at all (Control:/ISO checkbox/BestshotFilter remain). The Event Timeline's drag-seek handler (`onCustomTimeSeek`, `docs/event-timeline-component/SRS.md` FR-14) now also force-resets the player to forward speed (`playSpeed = '1'`) on every drag-seek, as a mitigation for a reported reverse-playback symptom (most likely cause: a stale negative `#speed` selection persisting across an unrelated seek) — not verified against real hardware. |
@@ -46,6 +47,14 @@
 | 2.4 | 2026-08-31 | Youngho Kim | FR-7.7: `#timestamp_date` widened to `140px` — same underlying cause as v2.3, just for the date field: legacy's `100px` was too narrow to render the full `2026-09-01` in a disabled native date input, clipping the last digit and visually leaving a trailing `-`. Reported directly by the user. |
 | 2.5 | 2026-08-31 | Youngho Kim | Added FR-4.10: `#http_type_toggle` locked to `document.location.protocol` outside the extension (`src/shared-v2/`-only — a `chrome-extension://` page has no such scheme to match). Requested directly by the user, who is planning further Chrome-Extension-vs-web-access differences beyond this one. |
 | 2.6 | 2026-08-31 | Youngho Kim | FR-1.2: `#auto_discovery_toggle` now calls `socket.start()`/`socket.stop()` outside the extension, matching what disabling `#init`/`#disconnect` implied was already happening. Reported directly by the user as a Chrome-Extension-vs-web-access difference. |
+| 2.7 | 2026-08-31 | Youngho Kim | FR-4.10: fixed `discovery.ts`'s device-selection handler silently overriding the http/https lock (a disabled radio can still be re-checked via script) whenever a discovered device was selected. Reported directly by the user as the lock appearing "reversed" — it was actually fine on load, only broken by the very next device click. |
+| 2.8 | 2026-08-31 | Youngho Kim | FR-4.10: v2.7 was incomplete — the real trigger was `playerEvents.ts`'s `onchangeport()` unconditionally setting `player.https` from the selected device's port, one hop upstream of the `'changeprotocol'` event `onchangeprotocol()` reacts to. Guarded both. Reported directly by the user with an exact repro showing the bug still reproduced after v2.7. |
+| 2.9 | 2026-08-31 | Youngho Kim | FR-4.10: `#port`/`player.port` now get the same lock as the http/https radios — outside the extension, device selection defaults the port to `80`/`443` matching the locked scheme instead of the selected device's own advertised port. Requested directly by the user. |
+| 2.10 | 2026-08-31 | Youngho Kim | FR-7.6: `"Normal"` now also gets its own detail row (when present), same as any distinct Rule# — previously only ever shown merged into `"All"`. Requested directly by the user. |
+| 2.11 | 2026-08-31 | Youngho Kim | FR-7.6: an empty (but valid) `Results[]` no longer skips mounting the timeline entirely; `updateTimeline()`'s own requested date range is threaded through as the widget's `dataRange` so 1H/6H/1D/1W/1M/1Y (and the initial default search) always show their full requested period, empty or not. Also: the overview row's own track now responds to mouse wheel zoom (`docs/event-timeline-component/SRS.md` FR-5 v2.7), matching the detail-rows area. Requested directly by the user. |
+| 2.12 | 2026-09-01 | Youngho Kim | FR-7.6: `eventAppliesToChannel()` fixed to check *every* `state.dynamicRuleEntries` entry sharing a Rule number, not just the first one `.find()` happens to land on. Reported directly by the user comparing a real device's raw `recording.cgi` Timeline response against the rendered timeline: when the same numeric Rule is configured separately per channel (the same fact FR-7.6 v1.25's cross-channel-leak fix already relies on), a `.find()` keyed on Rule number alone could match a *different* channel's entry first and wrongly reject a legitimate same-channel event whose own entry sat elsewhere in the array — making the rendered timeline visibly sparser than the camera's actual data. `resolveEventLabel()` (v1.19) already matched Rule number AND channel together in one predicate; `eventAppliesToChannel()` now does the same. |
+| 2.13 | 2026-09-01 | Youngho Kim | Added FR-3.4: `#password` is now `type="password"` (was `type="text"`, plaintext) with a show/hide eye-icon toggle button (`#password_toggle`). New-page-only — `src/shared/`'s own `#password` is untouched (still `type="text"`, no toggle); see DESIGN.md's Deviations list. Requested directly by the user. |
+| 2.14 | 2026-09-01 | Youngho Kim | FR-7.1/FR-7.8.2/FR-7.8.4/FR-7.8.5/FR-7.8.6: Overlapped Id moves out of `#overlapped_id_area`/`#calendar_overlapped_id_area` into the shared Event Timeline widget's own toolbar (`docs/event-timeline-component/SRS.md` FR-15 v2.11), immediately left of the 1H/6H/1D/1W/1M/1Y preset buttons — the same single-canonical-control move v2.0 already did for Selected Time. `playbackCalendar.ts`'s `runCalendarTimelineSearch()` (the Rule-change handler, which doesn't re-fetch Overlapped Id) now reads the query's `overlappedId` from the widget's own live selection when it's still valid for the currently-cached list, falling back to that list's default otherwise, and threads it back into `updateTimeline()` so the remount doesn't silently reset it. Requested directly by the user. |
 
 ## Conventions
 
@@ -105,6 +114,10 @@
 - **FR-3.2**: `#username`/`#password` write the player's `.username`/`.password`; each re-runs
   `initSunapiManager()` if SUNAPI is already on.
 - **FR-3.3**: `#statistics` (default checked) writes the player's `.statistics`.
+- **FR-3.4**: `#password` is masked (`type="password"`) by default. `#password_toggle` (an
+  eye-icon button next to it) flips it to `type="text"`/back on each click, swapping its icon
+  and `aria-pressed`/`aria-label` to match; it does not touch `player.password` or trigger
+  `initSunapiManager()` — display-only. New-page-only, no `src/shared/` equivalent.
 
 ## FR-4: Control panel — Device
 
@@ -137,6 +150,27 @@
   actually a free choice outside the extension the way FR-4.7 treats it inside one (a
   `chrome-extension://` page has no such scheme to inherit/conflict with). `docs/switch-component/SRS.md`
   FR-12 covers the underlying disabled-radio styling this relies on. Requested directly by the user.
+  **v2.7**: `discovery.ts`'s device-selection handler (`applyDiscoveredDeviceSelection()`, FR-2.5)
+  was found to silently override this lock — `disabled` only blocks user clicks, not a scripted
+  `.checked` assignment, so selecting any discovered device re-synced the radios to *that device's*
+  own advertised protocol regardless. Guarded with `if (IS_EXTENSION)` around just the radio-sync
+  lines (the native-TLS-proxy checkbox sync on the same lines is unaffected, extension-only anyway).
+  Reported directly by the user as the toggle appearing to "reverse" itself. **v2.8**: v2.7 turned out
+  incomplete — the real, deeper trigger was one level further down: `applyDiscoveredDeviceSelection()`
+  sets `player.port` to the selected device's own port, the player custom element's own "port"
+  attribute setter dispatches `'changeport'` as a side effect (regardless of extension/web),
+  `playerEvents.ts`'s `onchangeport()` handled that by writing `player.https = (port === 443)`
+  unconditionally, and *that* write is what triggers the player's own `'changeprotocol'` event that
+  flips the radios via `onchangeprotocol()` (device.ts) — one hop removed from anything v2.7 touched.
+  Fixed by also guarding `onchangeport()`'s `.https =` write with `IS_EXTENSION` (this is the real fix
+  — it keeps the *actual* connection scheme consistent with the lock, not just the radios' visual
+  state) and, as defense-in-depth, `onchangeprotocol()` itself. Reported directly by the user with an
+  exact repro (`http://localhost:8080`, selecting a discovered `https://.../index.htm` camera on port
+  443 flipped the toggle to HTTPS despite v2.7). **v2.9**: `#port`/`player.port` extended the same
+  lock — in the extension, selecting a device still defaults `#port` to that device's own advertised
+  port (`row_data[3]`, unchanged); outside it, `applyDiscoveredDeviceSelection()` now defaults it to
+  `'80'`/`'443'` matching the locked scheme instead, so a device on a non-standard port never leaves
+  `player.port` inconsistent with the locked HTTP/HTTPS choice. Requested directly by the user.
 
 ## FR-5: Video Source / Profile List
 
@@ -175,7 +209,9 @@
 - **FR-6.9**: The player's `statechange` event is the master button-state machine: `PLAYING` enables
   Stop/Pause/capture, disables Play/Resume, conditionally enables Unmute/Forward/Backward/Speed;
   `STOPPED` removes any injected live-clock fields, resets all button states, disables audio
-  controls, honors `#reconnect` (FR-6.5); `PAUSED` swaps Pause↔Resume; `STEP` enables Resume/capture.
+  controls, honors `#reconnect` (FR-6.5), and clears the player's own `startTime`/`endTime` back to
+  `null` (v1.26, `src/shared-v2/` only) so a later plain Play doesn't silently reuse a stale prior
+  playback range; `PAUSED` swaps Pause↔Resume; `STEP` enables Resume/capture.
 - **FR-6.10**: The player's `error`/`close`/`meta`/`resize`/`waiting`/`statistics` events: `error`
   appends to `#debug` directly (own `_useDebug` gate, independent of `changedebug()`); `resize`
   additionally applies the reported width/height to the named element; the rest are debug-log-only
@@ -191,8 +227,10 @@
   own visibility is decided, fires a default "1 day ending now" search (`runManualTimelineSearch()`)
   the first time this panel becomes visible each time Playback mode is (re-)entered (mirroring
   FR-7.8.3's Calendar auto-firing its first month search) — self-initializing a SUNAPI session if
-  needed, exactly as the retired `search_overlapped_id()` used to. `#overlapped_id_area` is still a
-  plain, auto-populated `<select>` container (no button next to it any more). A preset click
+  needed, exactly as the retired `search_overlapped_id()` used to. **As of FR-15
+  (`docs/event-timeline-component/SRS.md` v2.11)**, the resulting Overlapped Id select renders
+  inside the shared Event Timeline widget's own toolbar (`#overlapped_id`, immediately left of the
+  1H/6H/1D/1W/1M/1Y buttons), not a standalone `#overlapped_id_area` any more. A preset click
   re-fires the same sequence for `[now - preset, now]` instead. DEVIATION from legacy behavior
   (`#search_overlapped_id`/`#search_date`/`#start_date`/`#end_date`/`#support_end_time`/the 1 Day-3
   Month toggle/`#search_timeline` are all retired) — reported directly by the user: "start_time isn't
@@ -226,7 +264,18 @@
   `"All"` (every Normal + Rule# event on one row) + one-row-per-distinct-Rule# data shape as v1.15
   did (`assignEventColorClass()`'s Rule#-keyed coloring, unique second `id` for each Rule#'s
   duplicated row copy — unchanged), just reshaped into the new component's `rows`/`items` options
-  instead of a `vis.DataSet`/groups pair. As of v1.17, each item's/row's *displayed* `label` (not
+  instead of a `vis.DataSet`/groups pair. **v2.10**: `"Normal"` additionally gets its own detail row
+  too (only when at least one Normal-classed item is present, same as any Rule# row), instead of
+  only ever appearing merged into `"All"` — requested directly by the user. **v2.11**:
+  `updateTimeline()` used to skip mounting anything at all (just a "Result is empty" popup) whenever
+  a search's `Results[]` came back empty — relaxed to only treat the *outer envelope* being empty
+  (`results.length === 0`) as that error case; a valid response with zero matching events for the
+  requested period (an ordinary outcome for a short preset like 1H) now still mounts an empty
+  timeline, with `updateTimeline()`'s own requested `[fromDate, toDate]`/`[strSearchStartTime,
+  strSearchEndTime]` threaded through as the widget's new `dataRange` (`docs/event-timeline-component/SRS.md`
+  FR-2 v2.7) so the full requested period is what's actually shown, not a collapsed
+  wherever-the-data-happens-to-be range. Requested directly by the user. As of v1.17, each item's/
+  row's *displayed* `label` (not
   its `id`/`rowId`, which stay the raw `Type` string for grouping/coloring) resolves a `"Rule<N>"`
   `Type` to that rule's configured `RuleName` via `resolveEventLabel()`, looked up in
   `state.dynamicRuleEntries` (the same `getDynamicRules()` entries FR-7.8.2's Rule dropdown uses,
@@ -249,8 +298,14 @@
   `eventAppliesToChannel()` (same `state.dynamicRuleEntries` cache/offset as `resolveEventLabel()`)
   drops any result whose Rule is known to belong to a different channel; a `Rule<N>` with no
   matching entry at all (not cached yet this session) is kept, not filtered, since there's nothing
-  to compare against — filtering there could only hide data incorrectly. `"Normal"` is never
-  filtered, since it belongs to whichever channel was actually queried. `onSelect` syncs
+  to compare against — filtering there could only hide data incorrectly. **As of v2.12**, "known to
+  belong to a different channel" is judged across *every* `state.dynamicRuleEntries` entry sharing
+  that Rule number, not just the first one found: the same numeric Rule can be configured
+  separately per channel (the same premise the cross-channel-leak fix above already depends on), so
+  checking only the first match could land on a different channel's entry and wrongly drop a
+  legitimate same-channel event — reported directly by the user as the rendered timeline looking
+  sparser than a real device's raw Timeline response. `"Normal"` is never filtered, since it
+  belongs to whichever channel was actually queried. `onSelect` syncs
   Selected Time (GMT-aware) from the clicked item — **as of v2.0, this lives inside the Event
   Timeline widget itself** (`docs/event-timeline-component/SRS.md` FR-13:
   `#selected_start_date`/`#selected_start_time`/`#selected_has_end_time`/`#selected_end_date`/
@@ -340,18 +395,24 @@
     `getDynamicRulesOptions()`+`getDynamicRules()` merged by `EventSources[].Type` instead — real
     device testing showed the Timeline endpoint doesn't accept that `Type` value at all, only
     `Rule<N>`, so that design was retracted in favor of the one described here.)
-    **As of v1.23**, `#event_rules_type`'s field lives inside `#calendar_search_area` (positioned
-    immediately before Overlapped Id), not in its own field-row next to `#event_rules_language` —
-    it's a Timeline search filter, the same kind of field as Overlapped Id/Manual Start-End Time
-    after it, not a device-wide setting like Language. It shows/hides together with that container:
-    hidden until FR-7.8.4's month search first resolves (same as every field after it), and hidden
-    again by FR-7.8.6's channel-change reset — populating its *options* (`getDynamicRules()`) is
-    unaffected either way, since that never depended on visibility. Reported directly by the user.
+    **As of v1.23**, `#event_rules_type`'s field lives inside `#calendar_search_area`, not in its own
+    field-row next to `#event_rules_language` — it's a Timeline search filter, not a device-wide
+    setting like Language. It shows/hides together with that container: hidden until FR-7.8.4's month
+    search first resolves (same as every field after it), and hidden again by FR-7.8.6's channel-
+    change reset — populating its *options* (`getDynamicRules()`) is unaffected either way, since that
+    never depended on visibility. Reported directly by the user. (**As of FR-15**,
+    `docs/event-timeline-component/SRS.md` v2.11, Overlapped Id itself is no longer a sibling field in
+    `#calendar_search_area` — it moved into the shared Event Timeline widget's own toolbar, populated
+    independently of this container's visibility; see FR-7.8.4 above.)
     **As of v1.24**, `#event_rules_type` also has its own `change` listener: selecting a different
-    Rule immediately re-runs `getTimeline(from, to, channel, overlappedId, newRuleType)` for
-    whatever date range/Overlapped Id is already set (via a new `runCalendarTimelineSearch()`,
-    factored out of FR-7.8.5's `runOverlappedAndTimelineSearch()` so a Rule change doesn't also
-    redundantly re-fetch Overlapped Id, which doesn't depend on `Type`) and redraws `#timeline`
+    Rule immediately re-runs `getTimeline(from, to, channel, overlappedId, newRuleType)` for whatever
+    date range is already set, with `overlappedId` read from the shared widget's own current selection
+    (**as of FR-15**, `state.eventTimeline?.getOverlappedId()` when it's still a member of the last-
+    fetched list, else that list's own default — see `docs/event-timeline-component/DESIGN.md`; was a
+    direct `#calendar_overlapped_id` DOM read before that move). This runs via a new
+    `runCalendarTimelineSearch()`, factored out of FR-7.8.5's `runOverlappedAndTimelineSearch()` so a
+    Rule change doesn't also redundantly re-fetch Overlapped Id, which doesn't depend on `Type`, and
+    redraws `#timeline`
     (FR-7.6) from the response — previously the Rule dropdown only took effect on the *next* day
     click, leaving whatever was already on screen stale until then. No-ops silently if nothing has
     been searched yet this panel-visible session — **as of v2.0**, tracked as
@@ -377,11 +438,15 @@
     behavior) into a list of days-of-month with recordings, passed to the Calendar controller's
     `setHighlightedDays()` (`search_date()` itself is retired as of v2.0, FR-7.2 above — its
     per-day-bitmask parser lives on as this shared export). Once this resolves (regardless of
-    whether any day has recordings), the Rule / Overlapped Id controls become visible —
-    `#calendar_search_area`, containing `#event_rules_type`/`#calendar_overlapped_id_area`,
-    deliberately separate ids from FR-7.1's `#overlapped_id_area`/etc. so the manual panel's own
-    ids/behavior are untouched. **As of v2.0**, Manual Start/End Time is no longer part of this
-    reveal at all — it moved into the shared Event Timeline widget as Selected Time (FR-7.6/FR-7.4),
+    whether any day has recordings), the Rule control becomes visible —
+    `#calendar_search_area`, containing `#event_rules_type` (its own id, separate from FR-7.1's
+    manual panel, so the two panels' own ids/behavior stay untouched of each other). **As of FR-15**
+    (`docs/event-timeline-component/SRS.md` v2.11), Overlapped Id itself is no longer part of
+    `#calendar_search_area` at all — it moved into the shared Event Timeline widget's own toolbar
+    (`#overlapped_id`), the same single-canonical-control move FR-7.6/FR-7.4 already did for Selected
+    Time, so it's populated once a day/preset search actually resolves (`#timeline` mounts), not
+    alongside the Rule dropdown's own reveal. **As of v2.0**, Manual Start/End Time is no longer part
+    of this reveal at all — it moved into the shared Event Timeline widget as Selected Time (FR-7.6/FR-7.4),
     populated only by clicking a rendered item, not by this month search or a day click.
     As of v1.21, `channel` selector changes (`#channel`, `device.ts`'s `changechannel()`) also
     re-trigger this month search for whichever month/year the Calendar is currently showing —
@@ -412,20 +477,25 @@
     Playback (no-op otherwise); if so, items 2 and 5 run regardless of SUNAPI state — `#timeline`
     and the player are shared by both Playback search UIs (this Calendar panel and FR-7.1's manual
     flow) — then items 1/3/4 run only if this Calendar panel is actually visible (SUNAPI On):
-    `#calendar_overlapped_id`/`#calendar_overlapped_id_span` are removed, `currentCalendarSearchRange`
-    clears (v2.0 — was `#calendar_start_date`/etc. before FR-7.4's move into Selected Time),
-    `#calendar_search_area` hides, the Calendar's selected-day highlight clears
+    `playbackCalendar.ts`'s own cached `currentOverlappedIds` list resets to `[]` and the shared
+    Event Timeline widget's Overlapped Id select is cleared (`state.eventTimeline?.setOverlappedIds([])`,
+    **as of FR-15**, `docs/event-timeline-component/SRS.md` v2.11 — was
+    `#calendar_overlapped_id`/`#calendar_overlapped_id_span` removal before that move),
+    `currentCalendarSearchRange` clears (v2.0 — was `#calendar_start_date`/etc. before FR-7.4's move
+    into Selected Time), `#calendar_search_area` hides, the Calendar's selected-day highlight clears
     (`setSelectedDay(null)`), the player's `overlappedId` resets (`0`), `clearSelectedTime()`
     (`playback.ts`, v2.0) resets Selected Time and the player's `startTime`/`endTime`, and finally
-    FR-7.8.4's month search re-runs (`revealSearchArea: false`) for the new channel. FR-7.1's own
-    manual-flow Overlapped Id has no equivalent show/hide toggle to reset (its area is always a
-    plain, empty-until-populated container, not a hidden one) — see `docs/window-ui/DESIGN.md`.
+    FR-7.8.4's month search re-runs (`revealSearchArea: false`) for the new channel. Since Overlapped
+    Id is now the shared widget's own single control (FR-15), this same reset also covers FR-7.1's
+    manual flow — there's no longer a separate manual-flow Overlapped Id state to reset independently.
   - **FR-7.8.5 — Day click**: only reachable for a highlighted (has-recordings) day. As of v1.23,
     unconditionally re-shows `#calendar_search_area` first (`display: ''`) — defensive, since a day
     stays clickable independently of that container's own visibility, and FR-7.8.6's channel-change
     reset deliberately leaves it hidden until the next month navigation; without this, a day click
-    right after a channel change (no month nav in between) would populate Rule/Overlapped Id into a
-    still-hidden container, invisible to the user. **As of v2.0**, computes the clicked day's
+    right after a channel change (no month nav in between) would populate Rule into a still-hidden
+    container, invisible to the user (Overlapped Id itself, as of FR-15, populates into the shared
+    `#timeline` widget's own toolbar instead, independent of `#calendar_search_area`'s visibility).
+    **As of v2.0**, computes the clicked day's
     `00:00:00`-`23:59:59` range and passes it directly into `runOverlappedAndTimelineSearch(from,
     to)` (no longer written into `#calendar_start_date`/etc., retired — see FR-7.4) — the function
     also tracks it as `currentCalendarSearchRange` (FR-7.8.2's own no-op guard reads this) and, once
@@ -433,9 +503,11 @@
     `getTimeline(from, to, channel, overlappedId, ruleDropdownValue)` — sequenced, not fired
     concurrently the way FR-7.1/FR-7.3's own equivalent pattern does; see `MEMORY.md` for why
     (a real, confirmed digest-auth race in the vendored `@melchi45/rtsp-over-websocket` library,
-    reported by the user against a real device). Populates `#calendar_overlapped_id_area` the same
-    way FR-7.1 populates `#overlapped_id_area`, and renders into the *same shared* `#timeline`
-    widget via FR-7.6's existing `updateTimeline()`, passing `onCalendarRangePresetSelect` as its
+    reported by the user against a real device). Caches the fetched `OverlappedIDList` (as of FR-15,
+    `docs/event-timeline-component/SRS.md` v2.11, in the module-level `currentOverlappedIds`, no
+    longer DOM-built into `#calendar_overlapped_id_area`) and passes it straight through to FR-7.6's
+    existing `updateTimeline()` (its `overlappedIds` parameter), which renders into the *same shared*
+    `#timeline` widget's own toolbar Overlapped Id select, passing `onCalendarRangePresetSelect` as its
     `onRangePresetSelect` — **v2.0**: a subsequent 1H/6H/1D/1W/1M/1Y click on that timeline re-runs
     this same Overlapped Id + Timeline sequence for `[now-preset, now]` instead of the clicked day's
     own range, via that same `runOverlappedAndTimelineSearch()`.

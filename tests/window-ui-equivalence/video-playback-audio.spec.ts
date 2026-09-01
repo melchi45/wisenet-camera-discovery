@@ -142,7 +142,10 @@ test.describe('FR-7 Playback (mock SUNAPI)', () => {
 
   test('TC-15: new page auto-fires a default "1 day ending now" search on entering Playback (new page only)', async () => {
     await pages.newPage.waitForTimeout(500);
-    const overlappedIdHtml = await pages.newPage.locator('#overlapped_id_area').innerHTML();
+    // FR-15 (event-timeline-component's SRS): Overlapped Id now renders
+    // inside the Event Timeline widget's own toolbar, not a standalone
+    // #overlapped_id_area -- moved directly per the user's request.
+    const overlappedIdHtml = await pages.newPage.locator('#timeline .event-timeline-overlapped-id').innerHTML();
     expect(overlappedIdHtml).toContain('select');
     await expect(pages.newPage.locator('#timeline')).toBeVisible();
     expect(await pages.newPage.locator('#timeline .event-timeline-item').count()).toBeGreaterThan(0);
