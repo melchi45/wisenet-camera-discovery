@@ -729,8 +729,44 @@ export function updateTimeline(
  *  static `#seeking_date`/`#seeking_time` pair; now both modes share this
  *  one dynamically-created readout in the Video Control panel's
  *  `#live_control`, created on first use exactly like the original
- *  'live'-only behavior did). */
-function updateTimestampReadout(dateStr: string, timeStr: string): void {
+ *  'live'-only behavior did).
+ *
+ *  FR-14: also moves the Event Timeline's current-time marker
+ *  (`#event_timeline_custom_time`/`_hit`) to this exact `dateStr`/`timeStr`
+ *  instant, keeping it in sync with whatever this readout itself displays.
+ *  Previously the 'playback' ontimestamp() case computed the marker's
+ *  position separately, via its own parallel GMT-aware `currentTimeBar` --
+ *  that computation could drift from this readout's own value, leaving the
+ *  marker positioned far from the actually-playing position `#timestamp_date`/
+ *  `#timestamp_time` correctly showed at the same instant. Reported directly
+ *  by the user with a screenshot. `moveTimelineMarker` (default `true`) lets
+ *  `ontimestamp()`'s 'playback' case still pass `false` to clear the marker
+ *  instead of moving it while not actually PLAYING (FR-14's "only reflect an
+ *  actually-playing position" guard, needed so a late in-flight timestamp
+ *  can't re-draw a stale line right as `onstatechange()` (`videoControl.ts`)
+ *  clears it on PAUSED/STOPPED) -- every other caller (the 'live' case,
+ *  `onCustomTimeSeek`'s drag-seek) just wants it moved.
+ *
+ *  Reconstructed with or without a trailing `'Z'` depending on
+ *  `#universaltime_checkbox` (`player.coordinatedUniversalTime`) -- checked
+ *  means this device's own timestamps are being treated as true UTC
+ *  (`'Z'` appended, matching `dateStr`/`timeStr`'s own origin: every caller
+ *  splits a `'Z'`-suffixed `toISOString()` string), unchecked means they're
+ *  local-styled digits instead, same convention this component's own
+ *  timeline items already use (`updateTimeline()`'s
+ *  `new Date(timeline_element.StartTime)` parses SUNAPI's bare,
+ *  timezone-less `"YYYY-MM-DD HH:mm:ss"` wire format as LOCAL time --
+ *  standard JS Date parsing of an unsuffixed string, see
+ *  `tools/mock-sunapi-server/server.js`'s `formatLocalSunapiTime()` comment,
+ *  confirmed against a real device). Getting this wrong in either direction
+ *  shifts the reconstructed instant by this machine's own UTC offset
+ *  relative to how the surrounding items are positioned -- reported
+ *  directly by the user with a screenshot after an initial version of this
+ *  fix always appended `'Z'`, unconditionally. Logged to the console on
+ *  every move so the resolved instant can be checked directly against
+ *  `#universaltime_checkbox`'s state live in the browser, per the user's
+ *  own request. */
+function updateTimestampReadout(dateStr: string, timeStr: string, moveTimelineMarker = true): void {
   if (document.getElementById('timestamp_date') === null) {
     const dateInput = document.createElement('input');
     dateInput.id = 'timestamp_date';
@@ -762,6 +798,11 @@ function updateTimestampReadout(dateStr: string, timeStr: string): void {
 
   (document.getElementById('timestamp_date') as HTMLInputElement).value = dateStr;
   (document.getElementById('timestamp_time') as HTMLInputElement).value = timeStr;
+
+  const isUniversalTime = (document.getElementById('universaltime_checkbox') as HTMLInputElement).checked;
+  const markerDate = new Date(dateStr + 'T' + timeStr + (isUniversalTime ? 'Z' : ''));
+  console.log('[FR-14] event_timeline_custom_time_hit ->', dateStr, timeStr, 'universaltime_checkbox:', isUniversalTime, '-> marker Date:', markerDate, markerDate.toString());
+  state.eventTimeline?.setCustomTime(moveTimelineMarker ? markerDate : null);
 }
 
 /** FR-7.7. */
@@ -784,44 +825,30 @@ export function ontimestamp(timestamp: any): void {
         break;
       }
       case 'playback': {
-        if (timestamp.detail.local !== undefined && timestamp.detail.local !== null) {
-          updateTimestampReadout(
-            new Date(timestamp.detail.local).toISOString().split('T')[0],
-            new Date(timestamp.detail.local).toISOString().split('T')[1].replace(/Z/gi, ''),
-          );
-        } else {
-          updateTimestampReadout(
-            new Date(timestamp.detail.timestamp).toISOString().split('T')[0],
-            new Date(timestamp.detail.timestamp).toISOString().split('T')[1].replace(/Z/gi, ''),
-          );
-        }
-
-        let currentTimeBar: moment.Moment;
-        if ((document.getElementById('use_gmt') as HTMLInputElement).checked) {
-          let temp = '';
-          temp += timestamp.detail.timezone > 0 ? '+' : '';
-          temp += String(timestamp.detail.timezone / 60).padStart(2, '0') + ':00';
-          currentTimeBar = moment(timestamp.detail.timestamp).utcOffset(temp);
-        } else {
-          if (elementPlayer.device === 'camera') {
-            currentTimeBar = moment(timestamp.detail.local).utc();
-          } else {
-            currentTimeBar = moment(timestamp.detail.timestamp).utc();
-          }
-        }
-
         // FR-14: the marker only reflects an actually-playing position --
         // when paused/stopped, ontimestamp() stops firing new frames
         // entirely, which would otherwise leave a stale line frozen at the
         // last position forever; onstatechange() (videoControl.ts) is what
         // actually clears it on PAUSED/STOPPED, this guard just keeps a
         // late-arriving in-flight timestamp from re-drawing it in between.
-        if (state.eventTimeline !== null) {
-          if (elementPlayer.readyState === RTSPOverWebSocketPlayState.PLAYING) {
-            state.eventTimeline.setCustomTime(currentTimeBar.toDate());
-          } else {
-            state.eventTimeline.setCustomTime(null);
-          }
+        // Previously computed the marker's own Date separately here (a
+        // parallel GMT-aware `currentTimeBar`, branching on `#use_gmt`/
+        // device type) instead of reusing this exact call's own
+        // dateStr/timeStr -- see updateTimestampReadout()'s own comment for
+        // why that could drift from what this readout displays.
+        const isPlaying = elementPlayer.readyState === RTSPOverWebSocketPlayState.PLAYING;
+        if (timestamp.detail.local !== undefined && timestamp.detail.local !== null) {
+          updateTimestampReadout(
+            new Date(timestamp.detail.local).toISOString().split('T')[0],
+            new Date(timestamp.detail.local).toISOString().split('T')[1].replace(/Z/gi, ''),
+            isPlaying,
+          );
+        } else {
+          updateTimestampReadout(
+            new Date(timestamp.detail.timestamp).toISOString().split('T')[0],
+            new Date(timestamp.detail.timestamp).toISOString().split('T')[1].replace(/Z/gi, ''),
+            isPlaying,
+          );
         }
         break;
       }

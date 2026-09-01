@@ -46,6 +46,15 @@ export function updatePlaybackSunapiUIVisibility(): void {
     const isSunapiOn = (document.getElementById('use_sunapi_client_checkbox') as HTMLInputElement).checked;
     const showCalendar = isPlayback && isSunapiOn;
 
+    // Video Source (profile/resolution/fps selection) only applies to a
+    // live stream -- an already-recorded Playback segment plays back
+    // whatever profile it was recorded in, so this section is hidden while
+    // in Playback mode and shown for Live, same explicit isPlayback-driven
+    // toggle as every other section below. Requested directly by the user,
+    // reported live via screenshot: this section stayed visible in
+    // Playback mode since nothing gated it on Play Type before.
+    (document.getElementById('video_source_group') as HTMLElement).style.display = isPlayback ? 'none' : 'block';
+
     const showManual = isPlayback && !showCalendar;
     (document.getElementById('playback_control') as HTMLElement).style.display = showManual ? 'block' : 'none';
     (document.getElementById('playback_control_calendar') as HTMLElement).style.display = showCalendar ? 'block' : 'none';
@@ -59,16 +68,20 @@ export function updatePlaybackSunapiUIVisibility(): void {
     // pattern below for the manual flow's default "1 day ending now" search.
     updateManualPlaybackPanelVisibility(showManual);
 
-    // #timeline is a deliberate sibling of both panels above (see the HTML
-    // comment at its markup) so switching between the manual/calendar
-    // sub-panels *within* Playback mode never hides it -- but nothing
-    // gated that on Playback mode itself, so a leftover timeline from a
-    // previous Playback search stayed visible after switching to Live.
-    // Only this specific branch (not the SUNAPI-toggle-within-Playback
-    // case above) should hide it.
-    if (!isPlayback) {
-      (document.getElementById('timeline') as HTMLElement).style.display = 'none';
-    }
+    // #playback-calendar-timeline wraps #playback_control_calendar and
+    // #timeline together purely for layout (side-by-side, see its own HTML
+    // comment) -- #timeline itself is a deliberate SIBLING of both search
+    // panels (not nested in either), so switching between the manual/
+    // calendar sub-panels *within* Playback mode never hides it. Toggled
+    // explicitly here on `isPlayback` alone, same pattern as
+    // #playback_video_controls right above, instead of the earlier design
+    // where only #timeline itself got a Live-mode special-cased hide (a
+    // leftover timeline from a previous Playback search otherwise stayed
+    // visible after switching to Live) -- that left the group wrapper's own
+    // visibility implicit (empty but not actually `display:none`) rather
+    // than explicit like every other Playback-only section here. Requested
+    // directly by the user.
+    (document.getElementById('playback-calendar-timeline') as HTMLElement).style.display = isPlayback ? 'flex' : 'none';
 
     if (showCalendar) {
       if (!panelInitialized) {

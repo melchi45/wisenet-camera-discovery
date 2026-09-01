@@ -1863,3 +1863,51 @@ actually published to the registry (no sourcemaps, unless that package has since
 with its own fix). Worth reconciling deliberately (either commit to `file:...` for local player-repo
 development, or run `npm install` for real and accept losing local-checkout debugging) rather than
 leaving it in this mismatched state.
+
+## Event Timeline current-time marker drifting from the playback readout it should match
+
+`playback.ts`'s `ontimestamp()` (FR-7.7) computes two things on every `'playback'`-mode `timestamp`
+event: the `#timestamp_date`/`#timestamp_time` readout (via `updateTimestampReadout()`) and the
+Event Timeline's current-time marker (`state.eventTimeline.setCustomTime()`, FR-14). These used to
+be computed by two *separate* code paths from the same `timestamp.detail.local`/`.timestamp`
+payload — the readout via a plain `new Date(...).toISOString()` split into date/time strings, the
+marker via a parallel `moment`-based calculation that branched on `#use_gmt`/device type
+(`timestamp.detail.timezone`-derived UTC offset for the GMT case, `.utc()` otherwise). Reported
+directly by the user with a screenshot: the marker sat far to the right of the actual playback
+position, while the readout right next to it in the Video Control panel correctly showed the real
+time. The practical fix, and what the user asked for directly, was to stop computing the marker's
+Date separately at all: `updateTimestampReadout()` now moves the marker itself, reconstructing the
+same instant its own `dateStr`/`timeStr` already represent. A new `moveTimelineMarker` parameter
+(default `true`) preserves the existing "only move while actually PLAYING, else clear" guard the
+`'playback'` case needs (a late in-flight timestamp must not re-draw a stale marker right as
+`onstatechange()` clears it on PAUSED/STOPPED, per FR-14's own comment) — the caller passes
+`elementPlayer.readyState === PLAYING` through instead of branching on it separately after the call.
+
+**First attempt at this reconstruction was itself wrong, caught live by the user asking a follow-up
+question.** `dateStr`/`timeStr` are produced by splitting a `'Z'`-suffixed `toISOString()` string
+(`timestamp.detail.local`/`.timestamp`, both always ISO+`'Z'` regardless of any GMT setting), so
+reappending `'Z'` when reconstructing (`new Date(dateStr + 'T' + timeStr + 'Z')`) looked like the
+obvious round-trip. But the Event Timeline's own *items* (`updateTimeline()`'s
+`new Date(timeline_element.StartTime)`) parse SUNAPI's actual wire format — a bare, timezone-less
+`"YYYY-MM-DD HH:mm:ss"` string, no `'Z'` at all — which JS parses as **local** time, not UTC (see
+`tools/mock-sunapi-server/server.js`'s `formatLocalSunapiTime()` comment, itself written after an
+earlier live bug where the mock fixture's own `StartTime`/`EndTime` got this backwards). Appending
+`'Z'` to the marker's reconstruction interpreted it as UTC instead, silently shifting the marker's
+epoch by this machine's own UTC offset relative to how the surrounding items are positioned — the
+exact same class of error already fixed once for the fixture itself, just relocated to the marker
+side of the same timeline. The user then explicitly directed that this decision be tied to
+`#universaltime_checkbox` (`player.coordinatedUniversalTime`) instead of being unconditional either
+way: checked means this device's own timestamps are being treated as true UTC (append `'Z'`),
+unchecked means local-styled digits (no `'Z'`, matching `formatLocalSunapiTime()`'s own convention).
+Note that this checkbox's only other effect anywhere in the codebase is unrelated — it gates the
+vendored `@melchi45/rtsp-over-websocket` player's own outgoing NVR backup/rangeClock request
+formatting (`buildTimelineUri()`-adjacent code), nothing about the `'timestamp'` event's own
+`local`/`timestamp` fields or how SUNAPI's Timeline response is parsed — but the user's own domain
+knowledge of the intended semantics ("Coordinate UTC Time") took precedence over that code-only
+reading, and this is the second follow-up question in this same fix that corrected an assumption a
+pure read of the existing code led to (see the `'Z'`-appending mistake above) — a sign this specific
+area is easy to get subtly wrong from code alone and worth double-checking against the user's own
+understanding of the device/checkbox semantics before changing again. `updateTimestampReadout()`
+also now `console.log`s the resolved marker Date on every move (prefixed `[FR-14]`), per the user's
+own request, so the actual value can be checked live in the browser console against
+`#universaltime_checkbox`'s state.

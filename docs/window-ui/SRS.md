@@ -57,6 +57,8 @@
 | 2.14 | 2026-09-01 | Youngho Kim | FR-7.1/FR-7.8.2/FR-7.8.4/FR-7.8.5/FR-7.8.6: Overlapped Id moves out of `#overlapped_id_area`/`#calendar_overlapped_id_area` into the shared Event Timeline widget's own toolbar (`docs/event-timeline-component/SRS.md` FR-15 v2.11), immediately left of the 1H/6H/1D/1W/1M/1Y preset buttons — the same single-canonical-control move v2.0 already did for Selected Time. `playbackCalendar.ts`'s `runCalendarTimelineSearch()` (the Rule-change handler, which doesn't re-fetch Overlapped Id) now reads the query's `overlappedId` from the widget's own live selection when it's still valid for the currently-cached list, falling back to that list's default otherwise, and threads it back into `updateTimeline()` so the remount doesn't silently reset it. Requested directly by the user. |
 | 2.15 | 2026-09-01 | Youngho Kim | FR-7.8.2: `#event_rules_type` (Rule) moves out of `#calendar_search_area` into the shared Event Timeline widget's own toolbar (`docs/event-timeline-component/SRS.md` FR-16 v2.12), immediately left of Overlapped Id — same move as v2.14. `playbackCalendar.ts` mounts an empty-rows/items "shell" instance of the widget (`ensureEventTimelineShell()`) as soon as Rule data is ready so it's interactive before the first day/preset click, unlike Overlapped Id which stays absent until real search data exists; a real search later destroys and replaces the shell via `updateTimeline()` exactly like any other remount. `#playback_control_calendar` and `#timeline` are now laid out side by side (`.playback-calendar-timeline-row`, `src/shared/css/window.css`) instead of stacked, with `#playback_calendar`'s own `.field-row` flex-shrink bug (leaving a wide blank gap between the calendar grid and `#timeline`) fixed alongside it. Requested directly by the user. |
 | 2.16 | 2026-09-01 | Youngho Kim | FR-7.8.1: `#event_rules_language` moves out of `#playback_control_calendar` into the Device panel's `#time_info` row, immediately left of `#is_android` — always visible regardless of Play Type, fetched (`getDeviceInfo()`) as soon as SUNAPI turns On (`device.ts`'s `on_change_use_sunapi_client()` → `playbackCalendar.ts`'s new `fetchDeviceLanguage()`) instead of waiting for this Calendar panel to first show. `initPlaybackCalendarPanel()` reuses that fetch's own settlement as `runMonthSearch()`'s first-call digest-auth-race barrier (see FR-7.8.4) in place of fetching `getDeviceInfo()` itself. FR-7.8.2's Rule fetch is unaffected — it still reads this same select's value once the Calendar panel shows, just a value that's normally already known by then. Requested directly by the user. |
+| 2.17 | 2026-09-01 | Youngho Kim | Two visibility-toggle fixes in `updatePlaybackSunapiUIVisibility()`, both explicit `isPlayback`-driven `style.display` toggles matching `#playback_video_controls`'s existing pattern: (1) the v2.15 layout row (now `id="playback-calendar-timeline"`) is shown for Playback/hidden for Live as a whole, replacing the narrower `if (!isPlayback) { #timeline.style.display='none' }` special case, which only ever hid `#timeline` itself and left the row's own visibility merely implicit. (2) `#video_source_group` ("Video Source (selected channel)") now also hides during Playback and shows for Live — nothing gated it on Play Type before, so it stayed visible during Playback even though profile selection doesn't apply to an already-recorded segment; reported directly by the user with a screenshot. See `docs/window-ui/DESIGN.md` v1.32-v1.34. |
+| 2.18 | 2026-09-01 | Youngho Kim | FR-7.7 fix, described in that section above. |
 
 ## Conventions
 
@@ -346,15 +348,39 @@
 - **FR-7.7**: The player's `timestamp` event: both `live` and `playback` mode share one lazily-
   injected, read-only `#timestamp_date`/`#timestamp_time` pair (`updateTimestampReadout()`) kept in
   sync with the current position; `playback` mode additionally moves the timeline's custom-time
-  marker (GMT-aware). **v2.2**: `playback` mode used to sync a separate, static `#seeking_date`/
-  `#seeking_time` pair instead — unified into the same fields `live` mode uses, per the user's
-  explicit request, since both were the same concept (a read-only current-position readout) under
-  two different names/mechanisms for no functional reason. **v2.3**: `#timestamp_time`'s inline
-  width widened to `160px` (legacy's own `min-width: 130px;width: 100px !important;` was too narrow
-  to render the full `00:00:00.000` the `step="0.001"` millisecond field needs room for) — a
-  deliberate deviation from legacy's sizing, not a port, requested directly by the user. **v2.4**:
-  `#timestamp_date` likewise widened to `140px` (legacy's `100px` clipped the last digit of
-  `2026-09-01`, visually leaving a trailing `-`).
+  marker, from that exact same `dateStr`/`timeStr` (**v2.18**, see below), while actually PLAYING —
+  otherwise clears it (`updateTimestampReadout()`'s own `moveTimelineMarker` parameter, default
+  `true`). **v2.2**: `playback` mode used to sync a separate, static `#seeking_date`/`#seeking_time`
+  pair instead — unified into the same fields `live` mode uses, per the user's explicit request,
+  since both were the same concept (a read-only current-position readout) under two different
+  names/mechanisms for no functional reason. **v2.3**: `#timestamp_time`'s inline width widened to
+  `160px` (legacy's own `min-width: 130px;width: 100px !important;` was too narrow to render the
+  full `00:00:00.000` the `step="0.001"` millisecond field needs room for) — a deliberate deviation
+  from legacy's sizing, not a port, requested directly by the user. **v2.4**: `#timestamp_date`
+  likewise widened to `140px` (legacy's `100px` clipped the last digit of `2026-09-01`, visually
+  leaving a trailing `-`). **v2.18**: the timeline marker's own Date used to be computed separately
+  from this readout, via a parallel GMT-aware `moment` calculation (branching on `#use_gmt`/device
+  type) in `ontimestamp()`'s own `'playback'` case — that computation could drift from what this
+  readout itself displayed, leaving the marker positioned far from the actually-playing instant
+  `#timestamp_date`/`#timestamp_time` correctly showed at the same moment. Reported directly by the
+  user with a screenshot. Now sourced from `updateTimestampReadout()`'s own `dateStr`/`timeStr`
+  instead — the same value already proven correct by the readout, moved inside
+  `updateTimestampReadout()` itself per the user's explicit instruction, guarded by a new
+  `moveTimelineMarker` parameter so the pre-existing "only while actually PLAYING" clearing
+  behavior is preserved. Whether the reconstruction appends a trailing `'Z'` now depends on
+  `#universaltime_checkbox` (`player.coordinatedUniversalTime`) — checked means this device's own
+  timestamps are being treated as true UTC (append `'Z'`, matching `dateStr`/`timeStr`'s own origin:
+  every caller splits a `'Z'`-suffixed `toISOString()` string), unchecked means local-styled digits
+  instead, matching how the Event Timeline's own items already parse SUNAPI's bare, timezone-less
+  `"YYYY-MM-DD HH:mm:ss"` wire format (`updateTimeline()`'s `new Date(timeline_element.StartTime)`,
+  parsed as LOCAL time per standard JS Date parsing of an unsuffixed string — see
+  `tools/mock-sunapi-server/server.js`'s `formatLocalSunapiTime()` comment, confirmed against a real
+  device). An initial version of this fix always appended `'Z'` regardless of this checkbox, which
+  the user caught live and had corrected to check `#universaltime_checkbox` explicitly — getting
+  this wrong in either direction shifts the reconstructed instant by this machine's own UTC offset
+  relative to how the surrounding items are positioned. Also logs the resolved marker Date to the
+  console on every move (`[FR-14] event_timeline_custom_time_hit -> ...`), per the user's own
+  request, so it can be checked directly against the checkbox's state live in the browser.
 - **FR-7.8 (new, `src/shared-v2/` only — no equivalent in `src/shared/`): SUNAPI-driven Calendar
   search.** When both `#playback_radio` is selected **and** SUNAPI is On, `#playback_control_calendar`
   replaces `#playback_control` entirely (FR-7.1–FR-7.4's manual buttons/fields); every other state

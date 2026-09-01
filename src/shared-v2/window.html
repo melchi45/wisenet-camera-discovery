@@ -329,10 +329,13 @@
                    Playback mode is selected -- see
                    updatePlaybackSunapiUIVisibility() (playbackCalendar.ts).
                    Wrapped together with #timeline (below) in
-                   .playback-calendar-timeline-row purely for layout -- see
-                   that wrapper's own comment for why #timeline itself still
-                   isn't nested inside this panel. -->
-              <div class="playback-calendar-timeline-row">
+                   #playback-calendar-timeline purely for layout -- see that
+                   wrapper's own comment for why #timeline itself still
+                   isn't nested inside this panel. The wrapper's own
+                   show/hide (Playback -> shown, Live -> hidden) is driven
+                   explicitly in updatePlaybackSunapiUIVisibility(), same
+                   pattern as #playback_video_controls right below. -->
+              <div id="playback-calendar-timeline" class="playback-calendar-timeline-row">
                 <div id="playback_control_calendar" class="panel-subgroup" style="display:none;">
                   <p class="subgroup-title">Playback (SUNAPI)</p>
                   <!-- Language moved to the Device panel's #time_info row
