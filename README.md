@@ -49,6 +49,8 @@ npm run build
 | `npm run build` | compiles both TypeScript targets and assembles `dist/chrome-extension/` + `dist/nodejs/` |
 | `npm run build:extension` | just the chrome-extension compile steps — `tsc` for `background.ts`/`socket.ts`, a separate `tsc --noEmit` type-check for `window.ts`, then `vite build` to bundle `window.ts` (+ its `vis`/`moment`/`moment-timezone` imports) into one `window.js` (compile-only, no assembly) |
 | `npm run build:node` | just `tsc -p tsconfig.node.json` (compile-only, no assembly) |
+| `npm run build:shared-v2` | builds `src/shared-v2/` (see below) to `dist/shared-v2-preview/`, and — if `dist/chrome-extension/`/`dist/nodejs/examples/public/` already exist — overwrites their shared web assets too |
+| `npm run build:shared-v2:dev` | same as `build:shared-v2`, unminified (`vite build --mode development`) for readable browser debugging — sourcemaps are on for both |
 | `npm run clean` | removes `dist/` and the `build/` intermediate |
 | `npm run start` | assembles just `dist/nodejs/` (`node scripts/build.js node`, skipping the chrome-extension side) then runs its [example HTTP(S)/WebSocket server](src/nodejs/README.md#example-server) on `:8080`/`:8443` |
 
@@ -130,7 +132,11 @@ compiles to under `dist/`):
   same command also overwrites the real `dist/chrome-extension/`/`dist/nodejs/` outputs above with
   its `window.html`/`window.js`/`scripts/socket.js`/`css/calendar.css`. See
   [docs/window-ui/MRD.md](docs/window-ui/MRD.md) for why the source tree stays parallel even though
-  the build output no longer does, and `CLAUDE.md` for how to build/test it.
+  the build output no longer does, and `CLAUDE.md` for how to build/test it. `npm run
+  build:shared-v2:dev` (same assembly, `vite build --mode development`) skips minification for
+  browser debugging — both scripts always emit a `window.js.map`, so DevTools' Sources panel shows
+  the original `src/shared-v2/modules/*.ts` files either way; see `docs/window-ui/DESIGN.md`'s
+  "Build wiring" section.
 
 ## Discovery result views: table or star topology
 

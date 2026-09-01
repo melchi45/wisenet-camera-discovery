@@ -45,6 +45,8 @@
 | 1.28 | 2026-09-01 | Youngho Kim | Added a new section, "Overlapped Id moves into the Event Timeline widget" (SRS.md v2.14) — Overlapped Id moves out of `#overlapped_id_area`/`#calendar_overlapped_id_area` into the shared widget's own toolbar (`docs/event-timeline-component/SRS.md` FR-15 v2.11), the same single-canonical-control move v2.0 already did for Selected Time; corrects the earlier FR-7.8.6 "not shared" analysis, which predates that move. Requested directly by the user. |
 | 1.29 | 2026-09-01 | Youngho Kim | Catch-up entry: `#event_rules_type` (Rule) moves out of `#calendar_search_area` (retired) into the shared Event Timeline widget's own toolbar, immediately left of Overlapped Id (`docs/event-timeline-component/SRS.md` FR-16 v2.12, SRS.md v2.15) — same move as v1.28 did for Overlapped Id. Updates the v1.23/v1.24 notes below, which described the now-retired `#calendar_search_area` placement. `#playback_control_calendar`/`#timeline` also laid out side by side (`.playback-calendar-timeline-row`) instead of stacked, with a `#playback_calendar` flex-shrink width bug fixed alongside it. Requested directly by the user. |
 | 1.30 | 2026-09-01 | Youngho Kim | `#event_rules_language` moves out of `#playback_control_calendar` into the Device panel's `#time_info` row, immediately left of `#is_android` (SRS.md v2.16) — always visible regardless of Play Type, fetched as soon as SUNAPI turns On instead of waiting for this Calendar panel to first show. Requested directly by the user. |
+| 1.31 | 2026-09-01 | Youngho Kim | "Build wiring" updated: `src/shared-v2/vite.config.ts` now sets `sourcemap: true` and a new `npm run build:shared-v2:dev` (`--mode development`) skips minification, so the browser debugger can step through `src/shared-v2/modules/*.ts` directly (e.g. `playback.ts`'s `ontimestamp()`) instead of the bundled `window.js` — requested directly by the user, who needed to debug `ontimestamp` in the browser console after the TS→JS build. New `window-ui` skill (mirroring `shared-window`) added to formalize this doc set's before/after checklist. See `MEMORY.md`. |
+| 1.32 | 2026-09-01 | Youngho Kim | The `.playback-calendar-timeline-row` wrapper (v1.29) gained an explicit `id="playback_timeline_group"` alongside its existing class -- purely an addressability change (a stable hook for future JS/tests), no behavior or CSS selector change (styling stays keyed on the class). Requested directly by the user. |
 
 ## `src/shared-v2/` module structure
 
@@ -506,6 +508,21 @@ part of the top-level `npm run build`/`all` target). **Update:** per explicit us
 `npm run build` — see [PRD.md](PRD.md)'s Non-Goals and [MRD.md](MRD.md)'s History for the reversed
 "parallel, not in-place" call. Served for Playwright via a small static file server (same minimal
 pattern `src/nodejs/examples/server.ts` already uses for `dist/nodejs/examples/public/`).
+
+**Update (browser debugging):** `src/shared-v2/vite.config.ts` sets `build.sourcemap: true`
+unconditionally, so both `npm run build:shared-v2` and the new `npm run build:shared-v2:dev` emit
+a `window.js.map` alongside `window.js` — the browser's DevTools Sources panel shows the original
+`src/shared-v2/modules/*.ts` files instead of the bundled `window.js`, so e.g. `playback.ts`'s
+`ontimestamp()` (FR-7.7, registered by `playerEvents.ts`'s `setupPlayerEvents()` on the
+`<rtsp-over-websocket>` element's `'timestamp'` event) can get a real breakpoint or logpoint set
+directly on its `.ts` source, no rebuild needed to inspect it. `build:shared-v2:dev` additionally
+passes `--mode development` through to Vite (the config reads it via
+`minify: mode !== 'development'`) for fully unminified output, mirroring
+`@melchi45/rtsp-over-websocket`'s own `build:player`/`build:player:dev` split (see that package's
+`MEMORY.md`). `buildSharedV2()` (`scripts/build.js`) also now copies `rtsp-over-websocket.esm.js`'s
+own sibling `.map` (when present) alongside the existing `rtsp-over-websocket.esm.js` copy into
+`external-lib/rtsp-over-websocket/`, guarded with an existence check since older installed
+versions of that package predate its own sourcemap support.
 
 ## Mock-SUNAPI server (`tools/mock-sunapi-server/`)
 

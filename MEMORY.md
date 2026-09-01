@@ -1806,3 +1806,60 @@ whenever a stateful control moves into this component, check every caller that r
 *without* also re-fetching that control's own data — FR-12's full-remount-every-time design means
 "the control's value" and "the data used for the just-completed query" can silently diverge unless
 the caller deliberately threads the query's actual value back through the next mount.
+
+## `src/shared-v2/` build shipped with no sourcemaps — same gap as `@melchi45/rtsp-over-websocket`
+
+Reported need: debug `playerEvents.ts`'s `element.addEventListener('timestamp', ontimestamp)` →
+`playback.ts`'s `ontimestamp()` (FR-7.7) in the actual browser console — after the TS→JS build,
+DevTools could only step through the bundled/minified `window.js`, not the original
+`src/shared-v2/modules/*.ts`.
+
+Root cause, and fix, is the same shape as `@melchi45/rtsp-over-websocket`'s own version of this gap
+(see that package's own `MEMORY.md` — worked on directly earlier in the same session, initially
+*in that repo* on a misidentified `onTimestamp` in its `src/player/react/Player.tsx`, which is a
+different, unrelated no-op listener; the real ask was always this repo's `src/shared-v2` one).
+`src/shared-v2/vite.config.ts` never set `build.sourcemap`. Fixed by adding `sourcemap: true`
+(unconditional — `npm run build:shared-v2` and the new `npm run build:shared-v2:dev` both emit
+`window.js.map`), converting the config to `defineConfig(({ mode }) => ({...}))` so a new
+`build:shared-v2:dev` script (`scripts/build.js`'s `buildSharedV2({ dev: true })`, wired to
+`node scripts/build.js shared-v2:dev`) can pass `--mode development` through to `vite build` and
+set `minify: mode !== 'development'` — mirroring `@melchi45/rtsp-over-websocket`'s own
+`build:player`/`build:player:dev` split exactly. `buildSharedV2()` also now copies
+`rtsp-over-websocket.esm.js`'s sibling `.map` (guarded with an existence check, since an
+older-installed copy of that package may predate its own sourcemap support) alongside the existing
+`rtsp-over-websocket.esm.js` copy into `external-lib/rtsp-over-websocket/` — the Worker-chunk
+sourcemaps under its `assets/` subdirectory were already covered by the existing wholesale
+`copyDir()` call.
+
+**Caught only by actually running the build and checking for the file**: `sourcemap: true` alone
+was not sufficient — `buildSharedV2()` copies specific named files out of `build/shared-v2/` into
+`dist/shared-v2-preview/` (and, in the overwrite loop, on into the real `dist/chrome-extension/`/
+`dist/nodejs/examples/public/`) rather than the whole directory, and the original file list
+(`window.html`, `window.js`, `scripts/socket.js`, ...) predates sourcemaps existing at all, so
+`window.js.map` was silently never copied anywhere — Vite wrote it into `build/shared-v2/` and it
+just sat there, unreferenced, while every `dist/` output shipped a `//# sourceMappingURL=
+window.js.map` comment in `window.js` pointing at a file that didn't exist alongside it (a 404 in
+DevTools' Network tab, not a build error — easy to miss without actually opening DevTools against
+a real build). Fixed by adding `window.js.map` to both the initial assembly copy list and the
+real-`dist/`-overwrite loop.
+
+New `.claude/skills/window-ui/SKILL.md` added alongside this, mirroring the existing
+`shared-window` skill's structure but scoped to `src/shared-v2/`/`docs/window-ui/` — no such skill
+existed before despite `src/shared-v2/` being an actively-developed, separately-specced tree;
+`shared-window`'s own text already explicitly disclaims covering `src/shared-v2/` changes, so this
+fills a real gap rather than duplicating it. `docs/window-ui/DESIGN.md`'s "Build wiring" section
+updated to match (v1.31).
+
+**Known loose end, not addressed here**: while investigating this, `package.json`'s
+`@melchi45/rtsp-over-websocket` dependency was temporarily pointed at `file:../rtsp-over-websocket`
+(a sibling checkout) to pick up that package's own sourcemap fix without waiting on a registry
+publish, per the user's explicit "temporarily" request — then reverted back to the registry
+`^1.1.7` spec in `package.json`, but *without* a following `npm install`, so `node_modules/
+@melchi45/rtsp-over-websocket` is (as of this writing) still a symlink to the local checkout even
+though `package.json`/`package-lock.json` no longer say so. Debugging into that package's own code
+(vs. just this repo's `src/shared-v2/modules/*.ts`) currently still works only because of that
+stale symlink — a plain `npm install` run from here on would silently replace it with whatever's
+actually published to the registry (no sourcemaps, unless that package has since been published
+with its own fix). Worth reconciling deliberately (either commit to `file:...` for local player-repo
+development, or run `npm install` for real and accept losing local-checkout debugging) rather than
+leaving it in this mismatched state.

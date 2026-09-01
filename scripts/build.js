@@ -267,6 +267,11 @@ function buildSharedV2({ dev = false } = {}) {
     path.join(BUILD_SHARED_V2, 'window.js'),
     path.join(DIST_SHARED_V2, 'window.js')
   );
+  // vite.config.ts's `sourcemap: true` -- see this function's doc comment above.
+  copyFile(
+    path.join(BUILD_SHARED_V2, 'window.js.map'),
+    path.join(DIST_SHARED_V2, 'window.js.map')
+  );
   copyFile(
     path.join(BUILD_SHARED_V2, 'scripts', 'socket.js'),
     path.join(DIST_SHARED_V2, 'scripts', 'socket.js')
@@ -343,8 +348,8 @@ function buildSharedV2({ dev = false } = {}) {
 
   // Per explicit user instruction: if dist/chrome-extension/ and/or
   // dist/nodejs/examples/public/ already exist (i.e. `npm run build` ran
-  // first), overwrite their window.html/window.js/scripts/socket.js/
-  // css/calendar.css/css/event-timeline.css with this shared-v2 build too --
+  // first), overwrite their window.html/window.js/window.js.map/scripts/
+  // socket.js/css/calendar.css/css/event-timeline.css with this shared-v2 build too --
   // so the actual shipped Chrome extension and nodejs example server both
   // get FR-7.8's Calendar-driven Playback UI and FR-7.6 v1.16's custom
   // event-timeline widget, not just dist/shared-v2-preview/. Every OTHER
@@ -365,6 +370,7 @@ function buildSharedV2({ dev = false } = {}) {
     console.log(`Overwriting ${path.relative(ROOT, realTargetDir)}/ with the shared-v2 build...`);
     copyFile(path.join(DIST_SHARED_V2, 'window.html'), path.join(realTargetDir, 'window.html'));
     copyFile(path.join(DIST_SHARED_V2, 'window.js'), path.join(realTargetDir, 'window.js'));
+    copyFile(path.join(DIST_SHARED_V2, 'window.js.map'), path.join(realTargetDir, 'window.js.map'));
     copyFile(path.join(DIST_SHARED_V2, 'scripts', 'socket.js'), path.join(realTargetDir, 'scripts', 'socket.js'));
     copyFile(path.join(DIST_SHARED_V2, 'css', 'calendar.css'), path.join(realTargetDir, 'css', 'calendar.css'));
     copyFile(path.join(DIST_SHARED_V2, 'css', 'event-timeline.css'), path.join(realTargetDir, 'css', 'event-timeline.css'));

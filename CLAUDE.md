@@ -25,6 +25,8 @@ npm run build:shared-v2    # builds src/shared-v2/ to dist/shared-v2-preview/, a
                             # dist/nodejs/examples/public/ already exist) also overwrites their window.html/
                             # window.js/scripts/socket.js/css/calendar.css/css/event-timeline.css with it --
                             # run AFTER npm run build
+npm run build:shared-v2:dev # same as build:shared-v2, unminified (vite build --mode development) --
+                            # for browser debugging; sourcemaps are on for both, see below
 npm run start               # builds dist/nodejs/, then dist/shared-v2-preview/ (overwriting dist/nodejs/'s shared
                              # web assets per the above), then runs the example server (http://localhost:8080/)
 npm run clean               # removes dist/ and build/
@@ -122,13 +124,20 @@ see [`src/chrome-extension/native-host/README.md`](src/chrome-extension/native-h
   Topology's `vis.Network` (`docs/star-topology/`) is unaffected and unchanged.
 - `src/shared-v2/` is a from-scratch, independently-written reimplementation of `src/shared/`'s
   `window.html`/`window.ts`, built directly from a full SDD spec — read
-  [`docs/window-ui/`](docs/window-ui/) (MRD/PRD/SRS/DESIGN/TC) before touching it. `src/shared/`
+  [`docs/window-ui/`](docs/window-ui/) (MRD/PRD/SRS/DESIGN/TC) before touching it; the
+  [`window-ui`](.claude/skills/window-ui/SKILL.md) skill (mirroring `src/shared/`'s
+  `shared-window` skill) has the full before/after checklist. `src/shared-v2/vite.config.ts` sets
+  `sourcemap: true` unconditionally, so `npm run build:shared-v2`/`build:shared-v2:dev` both emit
+  a `window.js.map` — the browser debugger steps through the original `src/shared-v2/modules/*.ts`
+  either way; `build:shared-v2:dev` additionally skips minification (`--mode development`) for
+  fully readable output, same pattern as `@melchi45/rtsp-over-websocket`'s own
+  `build:player`/`build:player:dev`. `src/shared/`
   itself is untouched (still a separate source tree, `npm run build:shared-v2` is still its own
   build target, not part of plain `npm run build`), but its **build output is no longer isolated**:
   `npm run build:shared-v2`, run after `npm run build` (or `npm run start`, which chains both),
   overwrites `dist/chrome-extension/`'s and `dist/nodejs/examples/public/`'s `window.html`/
-  `window.js`/`scripts/socket.js` (and adds `css/calendar.css`/`css/event-timeline.css`) with the
-  `src/shared-v2/` build —
+  `window.js`/`window.js.map`/`scripts/socket.js` (and adds `css/calendar.css`/
+  `css/event-timeline.css`) with the `src/shared-v2/` build —
   see `scripts/build.js`'s `buildSharedV2()` and `docs/window-ui/MRD.md`'s History (this reverses
   that doc's original "parallel, not in-place" call, per explicit user instruction). A standalone
   `npm run build:shared-v2` (no prior `npm run build`) still just produces the side,

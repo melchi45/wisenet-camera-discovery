@@ -17,9 +17,10 @@ full design: what's shared vs target-specific, the `socket.ts` transport abstrac
 specifically (the real, shipped `window.html`/`window.ts`) — `src/shared-v2/` is a separate,
 independently-written, spec-driven reimplementation that builds to its own
 `dist/shared-v2-preview/` output. A change there follows
-[`docs/window-ui/`](../../../docs/window-ui/)'s own SDD (MRD/PRD/SRS/DESIGN/TC) instead of this
-file's after-change checklist below — don't apply this skill's steps to `src/shared-v2/` changes,
-and don't assume this skill covers them. **Caveat**: unlike before, `npm run build:shared-v2` run
+[`docs/window-ui/`](../../../docs/window-ui/)'s own SDD (MRD/PRD/SRS/DESIGN/TC), via its own
+[`window-ui`](../window-ui/SKILL.md) skill, instead of this file's after-change checklist below —
+don't apply this skill's steps to `src/shared-v2/` changes, and don't assume this skill covers
+them. **Caveat**: unlike before, `npm run build:shared-v2` run
 after `npm run build` now overwrites `dist/chrome-extension/`'s/`dist/nodejs/examples/public/`'s
 `window.html`/`window.js`/`scripts/socket.js` with the `src/shared-v2/` build (see `CLAUDE.md` and
 `docs/window-ui/MRD.md`'s History) — if you're verifying a `src/shared/` change per this skill's
