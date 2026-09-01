@@ -14,6 +14,7 @@
 | Version | Date | Author | Description |
 |---|---|---|---|
 | 1.0 | 2026-08-28 | Youngho Kim | Split out of the original single-file `docs/switch-component.md`; added Title/Abstract/Author/Milestone/History metadata. |
+| 1.1 | 2026-08-31 | Youngho Kim | Added FR-12: a disabled-radio visual style for the segmented radio-group target — needed by `device.ts` locking the HTTP/HTTPS toggle to the page's own protocol outside the extension (`docs/window-ui/SRS.md`). No `MountSwitchOptions` API change; the caller disables the native input(s) directly. |
 
 ## Interface
 
@@ -80,6 +81,15 @@ export function mountSwitch(config: MountSwitchOptions): SwitchController;
 - **FR-11 (`setValue()` is silent)**: `SwitchController.setValue()` writes the underlying DOM state
   directly and does not fire `onChange` — matches assigning `.checked`/`.value` on a native input
   directly, never a synthetic user interaction.
+- **FR-12 (disabled radio options, v1.1)**: for a radio-group target (FR-6), setting `.disabled =
+  true` on the underlying `<input type="radio">`s natively prevents toggling (the radio is
+  `display: none`, so this has no visual effect on its own without the option below) and is styled
+  the same as this codebase's existing disabled-button look (`--button-disable-color`/
+  `--button-disable-font-color`, not a new palette) via
+  `.ws-switch--segmented input:disabled + .ws-switch-option`. There is no `MountSwitchOptions` flag
+  for this — the caller disables the native input(s) directly, the same way it would on any other
+  native form control; `mountSwitch()` doesn't need to know about it. Not implemented for the
+  checkbox or button-group enhancement targets (no current caller needs it there).
 
 ## Non-functional requirements
 

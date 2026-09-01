@@ -128,6 +128,22 @@
   background: var(--accent-soft);
 }
 
+/* A locked switch (radios disabled by the caller, e.g. device.ts locking
+   HTTP/HTTPS to the page's own protocol outside the extension) -- the
+   radio itself is display:none (see above) so :disabled has to be read off
+   it via the sibling combinator onto the visible label. Matches this
+   codebase's existing disabled-button look (window.css's
+   --button-disable-color/--button-disable-font-color), not a new palette. */
+.ws-switch--segmented input[type="radio"].ws-switch-input:disabled + .ws-switch-option {
+  cursor: not-allowed;
+}
+
+.ws-switch--segmented input[type="radio"].ws-switch-input:disabled:not(:checked) + .ws-switch-option,
+.ws-switch--segmented input[type="radio"].ws-switch-input:disabled:not(:checked) + .ws-switch-option:hover {
+  background: var(--button-disable-color);
+  color: var(--button-disable-font-color);
+}
+
 /* Checkbox-driven 2-option (e.g. SUNAPI On/Off) -- a single checkbox
    followed by two <label for="..."> siblings ("Off" then "On" in DOM
    order). `~` (general sibling), not `+`, since the "On" label isn't
