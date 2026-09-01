@@ -13,6 +13,19 @@ full design: what's shared vs target-specific, the `socket.ts` transport abstrac
 (`IS_EXTENSION`: native messaging host vs WebSocket), and how `examples/server.ts` mirrors
 `background.ts`'s persistent-discovery role.
 
+**Not the same thing as `src/shared-v2/`.** This skill's checklist is scoped to `src/shared/`
+specifically (the real, shipped `window.html`/`window.ts`) — `src/shared-v2/` is a separate,
+independently-written, spec-driven reimplementation that builds to its own
+`dist/shared-v2-preview/` output. A change there follows
+[`docs/window-ui/`](../../../docs/window-ui/)'s own SDD (MRD/PRD/SRS/DESIGN/TC) instead of this
+file's after-change checklist below — don't apply this skill's steps to `src/shared-v2/` changes,
+and don't assume this skill covers them. **Caveat**: unlike before, `npm run build:shared-v2` run
+after `npm run build` now overwrites `dist/chrome-extension/`'s/`dist/nodejs/examples/public/`'s
+`window.html`/`window.js`/`scripts/socket.js` with the `src/shared-v2/` build (see `CLAUDE.md` and
+`docs/window-ui/MRD.md`'s History) — if you're verifying a `src/shared/` change per this skill's
+"after" checklist, verify with `npm run build` alone (don't also run `build:shared-v2`
+afterward), or your `src/shared/` change will appear not to take effect.
+
 ## Before touching `src/shared/` or `examples/server.ts`'s discovery/settings code
 
 Read `docs/architecture.md` first. The two consumers differ in ways that are easy to break by

@@ -636,9 +636,11 @@ change introduced.
 
 A parallel front end at `src/shared-v2/`, built from scratch against a full SDD spec
 (`docs/window-ui/` — MRD/PRD/SRS/DESIGN/TC), not copy-pasted from `src/shared/`. Builds to a side
-artifact (`dist/shared-v2-preview/` via `npm run build:shared-v2`), never wired into the real
-`dist/chrome-extension/`/`dist/nodejs/` outputs — see `docs/window-ui/MRD.md` for why this is
-"parallel, not in-place". Verified against the original for functional equivalence with a
+artifact (`dist/shared-v2-preview/` via `npm run build:shared-v2`) — see `docs/window-ui/MRD.md`
+for why the *source tree* is parallel, not an in-place rewrite. Its *build output*, however, is no
+longer isolated from the real `dist/chrome-extension/`/`dist/nodejs/` outputs — see
+["`npm run build:shared-v2` now overwrites the shipped `dist/` outputs" below](#npm-run-buildshared-v2-now-overwrites-the-shipped-dist-outputs)
+for why and how that changed. Verified against the original for functional equivalence with a
 Playwright suite (`tests/window-ui-equivalence/`, `npx playwright test`), backed by
 `tools/mock-sunapi-server/` (canned SUNAPI HTTP responses, endpoint paths/params read directly out
 of the vendored `@melchi45/rtsp-over-websocket` bundle, not guessed) and
@@ -744,3 +746,786 @@ chart library must be slow"), profile before fixing — CPU sampling ruled out t
 component in one pass, and request-counting pointed straight at the real one. Both are cheap to set
 up via Playwright + CDP and are worth reaching for before further source-reading guesses, especially
 after the previous entry's lesson about what pure source-reading missed.
+
+## Playback's Calendar search (`src/shared-v2/`-source-only) — why it's additive, not a replacement
+
+Requested directly by the user: Playback + SUNAPI On gets a Calendar-driven search flow (pick a
+day with recordings, rest fetches automatically) instead of the existing manual date-range flow
+(`#playback_control`: type a date range, click Search Overlapped Id, click Search Timeline). Two
+decisions worth recording, both confirmed via `AskUserQuestion` rather than assumed:
+
+- **The old flow stays completely intact, reachable whenever SUNAPI is Off** (even in Playback
+  mode) — this was explicitly *not* "the calendar replaces the old flow everywhere," because the
+  calendar's own `calendarsearch`/`eventrules.cgi` calls need a live SUNAPI session to mean
+  anything; without one there's nothing for it to show. `#playback_control` and the new
+  `#playback_control_calendar` are separate markup with separate element ids on purpose (see
+  `docs/window-ui/DESIGN.md`'s FR-7.8 section) — nothing about the old panel's ids or behavior
+  changed to make room for this.
+- **The Rule dropdown merges two different SUNAPI endpoints** (`getDynamicRulesOptions()` — what a
+  channel *can* report — and `getDynamicRules()` — what's actually *configured*) because neither
+  alone is enough: an unconfigured-but-supported event type is invisible from `getDynamicRules()`
+  alone, and `getDynamicRulesOptions()` alone only has the less-friendly `Type_<Language>` label,
+  not a configured rule's own `RuleName`/`EventName_<Language>`. The two sample JSON responses the
+  user supplied don't even agree on which field holds the localized name
+  (`Type_English` vs `EventName_Korean`) — the merge logic tries both, falling back to the raw
+  `Type` value, rather than assuming one naming convention.
+
+This whole feature has no `SunapiManager.ts` (`rtsp-over-websocket`) changes at all — every call it
+needs (`getDeviceInfo`, `getDynamicRulesOptions`/`getDynamicRules`, `getCalendarSearch`,
+`getOverlappedIdList`, `getTimeline`) already existed before this feature was scoped, confirmed by
+reading `SunapiManager.ts` directly rather than assuming a new method would be needed.
+
+**Real, only-found-by-running-the-suite conflict**: `tests/window-ui-equivalence/`'s pre-existing
+FR-7.1-FR-7.7 tests (TC-15/16/18/27) had always turned SUNAPI on *before* exercising
+`#playback_control`'s manual buttons — the natural order, and exactly the state this new feature
+now shows the Calendar panel in *instead*. Four tests broke. The fix was on the test side (drive
+`#search_overlapped_id`'s/`#hostname`'s own self-init guard instead of the checkbox, still
+exercising the identical `initSunapiManager()` chain) rather than reconsidering FR-7.8's own
+design — replacing the manual flow in that exact state is what was actually requested, so
+`#playback_control` being genuinely unreachable there (not just hidden alongside a still-usable
+alternate path) is correct, not a bug. Same lesson as this file's other "found live, not by
+reading source" entries: a spec change's downstream effect on an *existing, passing* test suite is
+easy to miss until the suite actually runs.
+
+## `npm run build:shared-v2` now overwrites the shipped `dist/` outputs
+
+`docs/window-ui/MRD.md`'s original "parallel, not in-place" call (`src/shared-v2/` builds to its
+own `dist/shared-v2-preview/`, never touching the real `dist/chrome-extension/`/`dist/nodejs/`) was
+explicitly reversed by the user, after the Calendar feature above landed and the equivalence suite
+was green: `npm run build:shared-v2` (run after `npm run build`, or via `npm run start` which now
+chains both) also overwrites `dist/chrome-extension/`'s and `dist/nodejs/examples/public/`'s
+`window.html`/`window.js`/`scripts/socket.js` and adds `css/calendar.css` — see
+`scripts/build.js`'s `buildSharedV2()`.
+
+**Why**: the user wanted the real, actually-loaded Chrome extension (and the `npm run start`
+example server) to show the new Calendar UI, not just a side preview at
+`dist/shared-v2-preview/`/`http://localhost:8080/shared-v2/`. This request came at the end of an
+escalating troubleshooting thread — the user kept building with `build:shared-v2` and checking
+`npm run start`'s normal root URL, not realizing that command had always been a deliberately
+separate, non-shipping artifact; repeating "they're separate build targets" several times across
+that thread was the wrong response to keep giving once the actual ask became clear.
+
+**What did *not* change**: `src/shared/` itself is untouched, and `src/shared-v2/` is still a
+separate source tree/build target (not folded into plain `npm run build`) — only the *build
+output's* relationship changed. The overwrite is conditional on `dist/chrome-extension/`/
+`dist/nodejs/examples/public/` already existing, so `npm run build:shared-v2` run standalone (no
+prior `npm run build`) still just produces `dist/shared-v2-preview/` alone.
+
+**Known gap this creates, surfaced but not yet addressed**: `tests/window-ui-equivalence/` only
+ever drove the nodejs/WebSocket runtime path (`IS_EXTENSION=false`); the extension-only
+`IS_EXTENSION`-gated code paths in `src/shared-v2/` (native-host bypass checkbox, `chrome.*` APIs)
+were implemented for spec completeness per `docs/window-ui/PRD.md`'s original Non-Goals but never
+live-tested. Now that the overwrite makes those paths load-bearing in the real shipped extension,
+that gap is a live risk, not just a documented non-goal — worth loading the extension unpacked and
+manually exercising before relying on it in production.
+
+## Playback Calendar's Rule dropdown: `getDynamicRules()`+channel filter, 1-based `Rule<N>`, not a `getDynamicRulesOptions()` merge
+
+The Rule dropdown design in this file's "Playback's Calendar search" entry above (merge
+`getDynamicRulesOptions()` + `getDynamicRules()` by distinct `EventSources[].Type`, e.g.
+`"MotionDetection"`, use the raw `Type` as the value sent to `getTimeline()`) was never actually verified against a real device's
+Timeline endpoint — only against the mock server, whose fixture never validated what `Type` values
+the real endpoint accepts. The user reported directly, with the real request/response: a real
+device's `recording.cgi?msubmenu=timeline` only accepts `Type=Rule<N>` — a rule identifier derived
+from `eventrules.cgi?msubmenu=dynamicrules`'s `Rules` array, never an `EventSources[].Type` string.
+`MotionDetection` etc. are never valid values there at all.
+
+**The fix** (`src/shared-v2/modules/playbackCalendar.ts`): drop `getDynamicRulesOptions()` from
+this flow entirely. `getDynamicRules(language)`'s own `Rules` array already has everything needed
+per entry — `Rule` (→ dropdown value, prefixed `"Rule"`), `RuleName` (→ dropdown label, the
+user-configured display name like `"움직임 감지 (CH1)"`), and `EventSources[].Channel` (→ filter: only
+show rules whose `EventSources` include the currently-selected channel). This surfaced a second,
+related gap: the Rule list is now inherently channel-scoped, but nothing previously refreshed it on
+channel change — `device.ts`'s `changechannel()` now also calls
+`refreshRuleSelectForChannelChange()` (no-op if the calendar panel isn't visible, to avoid a wasted
+request in Live mode).
+
+**A third, immediate follow-up correction**: the user reported, right after the above landed, that
+the `Rule<N>` numbering the Timeline endpoint expects is **1-based**, one higher than
+`getDynamicRules()`'s own 0-based `Rule` field — `Rule: 0` is `Type=Rule1`, not `Type=Rule0`. The
+dropdown's value is `'Rule' + (entry.Rule + 1)`. Two off-by-similar-but-distinct real-device facts
+surfaced back to back here (which endpoint/field to use at all, then its exact numbering base) —
+neither guessable from the sample JSON alone, both only surfaced by the user actually running a
+query against a real device.
+
+**A fourth follow-up, also from the user**: `#event_rules_type` had no way to search *every* event
+type at once — only one specific Rule at a time. `getTimeline()`'s own `type` parameter already
+defaults to `"All"` when omitted (`SunapiManager.ts`'s `buildTimelineUri()`), so `"All"` (value
+`"All"`) is now always the dropdown's first, default option, ahead of the channel-filtered Rule
+entries — matching the exact query the user specified
+(`recording.cgi?msubmenu=timeline&...&Type=All`).
+
+**Lesson, consistent with this file's other "found only against a real device" entries**: the mock
+server's fixture matched the *shape* of a real response (the user's own sample JSON) but nothing
+validated the *query semantics* on the other end (what the Timeline endpoint's `Type` param
+actually accepts, its numbering base, or that an "any type" option needed to exist at all) until a
+real device was hit. A structurally-correct-looking design built from sample response JSON alone
+can still encode a wrong assumption about how a *different* endpoint consumes that data — and can
+miss adjacent requirements (like an explicit "search everything" option) that only become obvious
+once someone is actually trying to use the feature.
+
+## Intermittent real-device 401s (getCalendarSearch, then getTimeline): a shared-state race in the vendored `rtsp-over-websocket` library, not this app
+
+The user reported, against a real device: `getCalendarSearch()` (Playback Calendar's month search,
+SRS.md FR-7.8.4) came back `401 Unauthorized` while every other concurrent/nearby request succeeded —
+and, when asked, confirmed it "doesn't always happen" (their own words: "항상 발생하는 것은 아닙니다").
+That detail was the key clue: a deterministic bug would fail every time; an intermittent one meant a
+timing-dependent race, not a wrong request.
+
+**Root cause, found by reading `@melchi45/rtsp-over-websocket`'s `SunapiClient` source directly (not
+guessed)**: `authCount`, meant to cap HTTP Digest retries *per logical request* (an unauthenticated
+probe → `401` with a challenge → one retry with credentials, give up if that also fails), is actually
+unscoped **instance** state on `SunapiClient`, shared across every call made through that client —
+and there is no request queue/lock anywhere in `SunapiClient` or `SunapiManager` to prevent two calls
+from being in flight at once. `playbackCalendar.ts`'s `initPlaybackCalendarPanel()` fires
+`getDeviceInfo()` (via `fetchLanguageAndRules()`) and, essentially simultaneously — `mountCalendar()`
+fires its first `onMonthChange` synchronously as part of mounting — `getCalendarSearch()` (via
+`runMonthSearch()`). If this is the first time in a while either needs a *fresh* digest challenge
+(no cached `authInfo` yet), both fire unauthenticated probes and both get `401` back; whichever is
+processed first increments the shared counter and correctly retries with credentials, but whichever
+is processed second sees the counter already at its cap and fails outright — its authenticated retry
+is never sent. Which one loses is timing-dependent (an interleaving of two independent request
+lifecycles), matching exactly "doesn't always happen."
+
+**The fix, and why it's a call-site mitigation rather than a library fix**: `SunapiClient` is a real
+bug — this exact race could in principle hit any two concurrent SUNAPI calls anywhere in this app,
+not just this one call site — but it lives in `@melchi45/rtsp-over-websocket`, a separately
+versioned, privately-published GitHub Packages dependency; fixing it there wouldn't take effect here
+without a version bump and republish, out of scope for what was actually asked. Instead,
+`playbackCalendar.ts` gained a `firstShowBarrier`: the very first `getCalendarSearch()` each time the
+panel is (re-)shown now waits for `getDeviceInfo()`'s own request to settle before firing, guaranteeing
+one request warms the shared digest-auth cache before its sibling fires. This only delays that one
+first call — the calendar grid itself still renders synchronously. **Not reproducible in Playwright**:
+`tools/mock-sunapi-server/` returns `200` directly, with no digest challenge/response modeled at all
+(see `docs/window-ui/TC.md`'s "Not verifiable in this environment" list) — this fix is verified by
+code review and against the real device only.
+
+**A second occurrence, same root cause, that corrected the above's "safe once cached" assumption**:
+the user then reported the identical symptom again, this time against `getTimeline()` specifically,
+triggered by a day click — well after the panel's initial show, i.e. NOT the one cold-start window
+`firstShowBarrier` guards. Two details the user gave along the way ruled out other explanations
+before landing on the same root cause: pasting the exact failing URL directly into the browser's
+address bar returned a normal `200` (rules out bad credentials, a malformed URL, or a camera-side
+problem — the request is valid in isolation), and the browser itself had no errors (rules out a
+CORS/mixed-content/certificate issue). Both point squarely back at *this app's own concurrent
+request pattern*, not the request's content. `runOverlappedAndTimelineSearch()`
+(`playbackCalendar.ts`, FR-7.8.5) fires `getOverlappedIdList()` and `getTimeline()` concurrently on
+**every single day click**, not just once — so the original "once a challenge is cached, concurrent
+calls are safe" belief above doesn't hold in practice; a fresh camera-side challenge/nonce
+apparently isn't durable across arbitrary later requests the way that reasoning assumed (plausibly
+nonce rotation or single-use enforcement server-side — not confirmed from source, since that logic
+lives on the camera, not in the vendored library). **The fix**: sequence `getTimeline()` to fire only
+after `getOverlappedIdList()`'s own request settles, on every call now, not just the first — the same
+technique as `firstShowBarrier`, applied per-click instead of once-per-show. Side effect, not a
+concern: `getTimeline()`'s `overlappedId` argument now reflects the just-fetched list from *this*
+click rather than a stale value from a previous one.
+
+**Standing takeaway**: this is a real bug in `@melchi45/rtsp-over-websocket`'s `SunapiClient` (see
+that repo's own `MEMORY.md` — the shared, unscoped `authCount` retry counter), documented there as
+not yet fixed. Any *other* place in this codebase that fires two-or-more independent SUNAPI calls
+concurrently is a candidate for the same intermittent failure — FR-7.1/FR-7.3's own
+`getOverlappedIdList()`/`getTimeline()` pattern in `playback.ts` fires them concurrently too and has
+not been reported as failing, but that doesn't mean it's actually safe, only that it hasn't been hit
+yet. If it comes up again, sequencing (as done twice here) is the known, tested mitigation; a real
+fix requires a version bump + republish of the vendored library, which has been deferred twice now
+in favor of the immediate, real-device-blocking fix.
+
+## Playback Calendar's own grid was laid out horizontally — a stray `class="field"`, not a component bug
+
+The user reported (with a screenshot): the month/weekday header and the day-number grid inside
+`#playback_calendar` were rendering side-by-side in one row instead of stacked vertically. The
+component itself (`src/component/calendar/calendar.ts`) was correct — its `render()` appends three
+separate block-level children (`.calendar-header`, `.calendar-weekday-row`, `.calendar-grid`) that
+should simply stack. The actual cause: `src/shared-v2/window.html`'s `<div class="field"
+id="playback_calendar">` — `.field` (`window.css`) is `display: inline-flex; align-items: center`,
+meant for label+input pairs elsewhere on the page, accidentally copy-pasted onto this container too.
+That turned the calendar's three stacked sections into flex items laid out in a row, vertically
+centered — which is also why the header/weekday content visually landed next to the *middle* row of
+the day grid rather than above it (its small height, centered against the much taller multi-row
+grid, put it near the grid's vertical midpoint). Fix: removed `class="field"` from that one div;
+`calendar.css`'s own layout was never the problem, and no code in `calendar.ts` needed to change.
+
+## `vis.Timeline` item positioning bug — real, reproducible, confirmed pre-existing, root cause not found
+
+The user reported, against a real device, at ~150-item volume: every `.vis-item` in `#timeline`
+renders (correct count, correct classes, correct text content) but every single one collapses to
+the *exact same* pixel position — no `left`/`top` inline style is set on any of them at all (`vis`
+positions items via `position: absolute` + inline styles; without one, all default to the same
+spot). This was found while implementing the user's requested `updateTimeline()` redesign (merge
+Normal/Event into one auto-stacked "All" group, dynamic per-Type coloring — see the FR-7.6 v1.14
+entries in `docs/window-ui/SRS.md`/`DESIGN.md`), initially suspected as a regression from that
+change.
+
+**Confirmed NOT a regression from that redesign** — this was the single most important finding,
+worth the effort spent reaching it: temporarily restoring the exact original, untouched two-group/
+subgroup `updateTimeline()` code (matching what shipped before this session touched the function at
+all) reproduces the identical failure, in the identical real-app context, at the identical volume.
+Whatever this is, it predates today's work entirely and was never actually verified with real (or
+even mock, ~150-item) data by a human looking at the rendered result — `tests/window-ui-equivalence/`'s
+own TC-18/TC-32 only assert `.vis-item` *count*, never actual position, so this has been silently
+passing undetected the whole time FR-7.6/FR-7.8 existed.
+
+**What was individually ruled out** (each tested in isolation against the real running app, not
+guessed): `stack: true` vs `false`; `groups` present vs. entirely removed; `subgroup` fields present
+vs. absent; `maxHeight` from `60px` to `300px`; `#timeline`'s own `min-height` (`0` vs. an explicit
+`60px` — the container itself measures a perfectly normal, non-zero width and height at construction
+time regardless); the `new vis.DataSet(options)` vs. `new vis.DataSet()` constructor-argument quirk
+(a previously-documented "confirmed harmless" pattern — still confirmed harmless, not the cause);
+calling `.redraw()` after `.setItems()`; forcing a synchronous reflow (`void container.offsetHeight`)
+before constructing the `Timeline`; `container.scrollIntoView()` immediately before construction, at
+both `block: 'nearest'` and `block: 'center'` (confirmed via direct `getBoundingClientRect()`
+logging that the container really is fully within the viewport when this is done — still broken);
+item volume (reproduces identically with only 5 items, not just 150 — ruling out any
+performance/virtualization-at-scale theory); calling `updateTimeline()` twice per action (confirmed,
+via a call counter + stack trace log, that it's called exactly once); headless vs. headed
+(`--headless=false`) Chromium; and `document.fonts.ready` timing (custom webfont not yet loaded at
+measurement time). None of these changed the outcome.
+
+**What was NOT successfully isolated**: a from-scratch minimal reproduction — same vendored
+`vis.js`/`vis.css`, same exact 150-item data shape/timing, built through the exact same Vite/Rollup
+IIFE bundling this app uses (ruling out an ESM/CJS-interop bundling explanation directly) — renders
+every item correctly positioned and spread across the full width. Progressively adding back pieces
+of the real app's actual ancestor chain around `#timeline` (`#container`/`#right_panel` with
+`position: absolute; right/top/bottom; width: 70%`, nested `.panel-stack`/`.panel`/`.panel-body`
+with `display: flex; flex-direction: column`) still rendered correctly in isolation — meaning
+whatever the real trigger is, it depends on some aspect of the live page's actual state/DOM/CSS this
+reproduction attempt didn't capture (a real device screenshot from earlier in this same session,
+before this specific redesign, appeared to show a working, well-populated timeline — though that was
+never confirmed against this exact ~150-item/1-day-search combination, so it isn't proof the bug is
+new; it may simply never have been looked at closely enough before).
+
+**Status: unresolved, reported to the user as such rather than silently shipped as fixed.** The
+FR-7.6 v1.14 redesign (single auto-stacked group, dynamic coloring) is unaffected by this bug either
+way and was kept — it's a real, independently-justified change the user asked for, not a workaround
+for this issue. Whoever picks this back up next should start from "confirmed pre-existing,
+reproducible at 5 items, not caused by groups/stack/height/scroll/volume/redraw/reflow/font-timing/
+headless-mode, not reproducible in an isolated same-library same-bundling same-approximate-CSS test"
+rather than re-deriving any of that.
+
+## `updateTimeline()`'s v1.14 auto-stacked "All" group still wasn't enough — replaced with `stack: false` + per-Rule# rows
+
+Immediately after the v1.14 redesign above shipped (single `"All"` group, `stack: true` for
+automatic overlap-only sub-rows), the user reported the timeline was **still** too tall, and asked
+for two more things: (1) `"All"` should show Normal + every Rule# together on one literal line, with
+per-rule-type coloring, and (2) when the result set contains more than one distinct Rule#, each
+Rule# should get its own additional row.
+
+The root realization: `stack: true`'s "only stack where items overlap" was exactly the source of the
+remaining height problem — a busy channel's Normal/Event segments overlap in time constantly, so
+`"All"` kept growing new sub-rows anyway, just fewer than the old fixed 2-row layout. The fix was
+`stack: false` (a single itemSet-wide `vis.Timeline` option, not per-group — confirmed by reading
+`node_modules/vis/dist/vis.js`'s `Group`/`ItemSet` source: every `Group` shares its parent
+`ItemSet`'s `options` object directly, so there is no way to stack one group and not another), which
+forces every row to a literal single line regardless of overlap. Per-Rule# rows are then just
+additional `vis.DataSet` groups (sorted by trailing rule number, e.g. `"Rule2"` before `"Rule10"`),
+populated by adding each non-`"Normal"` event a **second time** with a different `id` (DataSet ids
+must be unique) under `group: <its own Type>` — `"All"` and the Rule-specific row both hold their own
+copy of the same event, which is why selecting/clicking either behaves identically (same
+`start`/`end`/`className`, `select`'s handler already read `className` not `group`, so it didn't need
+to change). `assignEventColorClass()` also moved from "whichever type is seen first this render gets
+color 0" to parsing the trailing digits out of the type string (`"Rule3"` → palette index 2), so a
+given Rule keeps the same color across separate searches instead of shifting with event order.
+Finally, `maxHeight: '60px'` (right-sized for the old single-row assumption) became `height: 'auto'`
++ `maxHeight: '300px'`, so total height now tracks however many rows (`"All"` + N distinct Rules)
+this particular render actually needs.
+
+One test consequence worth flagging for whoever touches this next:
+`tests/window-ui-equivalence/video-playback-audio.spec.ts`'s TC-18 used to assert the new page's
+total `.vis-item` count equals the old page's exactly — that's no longer true by design, since
+Rule#-typed items now render twice (once in `"All"`, once in their own row). The test was rewritten
+to compare the old page's total against just the new page's `"All"`-row count (`.vis-foreground >
+.vis-group` — one direct-child div per `vis.Timeline` group, `"All"` always first since it's added
+first), asserting that's an exact match, and separately that the new page's grand total is strictly
+higher. See `docs/window-ui/SRS.md` FR-7.6 v1.15, `DESIGN.md` v1.16, and `TC.md` v1.11.
+
+## `vis.Timeline` replaced entirely by a new custom widget — the still-open positioning bug's fate
+
+Right after the v1.15 change above shipped, the user attached a screenshot of a different
+application's dark "ONVIF Timeline" view — a collapsible "ALL EVENTS" mini-overview row (a density
+strip with a highlighted zoom-viewport range and a playhead), per-event-type named rows below it
+with colored bars/duration labels, and explicit zoom controls — and asked for that visual style.
+Offered a choice (`AskUserQuestion`) between reskinning `vis.Timeline`'s colors or a full custom
+rebuild, the user chose the full rebuild, and separately chose to exclude the reference's per-event
+thumbnail images (no data source for them — SUNAPI's `getTimeline()` returns no per-event image).
+
+The reskin option wasn't just less-preferred, it was actually impossible to fully satisfy: grepping
+the vendored `node_modules/vis/dist/vis.js` for `minimap`/`overview` returns zero matches — `vis.
+Timeline` has no overview/minimap sub-widget at all, so the requested "ALL EVENTS" viewport-highlight
+strip can't be reached by any amount of CSS restyling. This was the deciding factor recommended back
+to the user before they chose.
+
+Built a new component, `src/component/event-timeline/` (its own MRD/PRD/SRS/DESIGN/TC set,
+`docs/event-timeline-component/`), hand-rolled vanilla DOM/TS matching `calendar`/`switch`/
+`disclosure`'s no-charting-library convention. The core design insight: the overview row and the
+detail rows are drawn on **two different scales sharing one zoom-window state** — the overview row
+always scales to the *full data extent* (never zooms) and draws a highlight rectangle mapping the
+current zoom window onto that same full-extent scale; every detail row scales to the *current zoom
+window* instead. Dragging the overview's highlight rectangle (body = pan, edges = resize/zoom) is
+therefore the same mechanism as the "ALL EVENTS" viewport display, not a second bolted-on scrollbar
+widget. `updateTimeline()` in `playback.ts` still computes the exact same `"All"` + per-Rule#
+`rows`/`items` shape the v1.15 change above established (`assignEventColorClass()`'s Rule#-keyed
+coloring unchanged) — only the rendering layer changed, from a `vis.DataSet`/groups pair to this
+component's own `rows: EventTimelineRow[]`/`items: EventTimelineItem[]` options.
+
+One directly relevant consequence for the still-open item-positioning bug documented above (every
+`.vis-item` collapsing to the same pixel position in this app's real `#right_panel` layout, root
+cause never found): **it no longer applies to `src/shared-v2/`**, simply because `vis.Timeline` is
+no longer used for this feature here at all — there's no `vis.Timeline` instance left in this code
+path for that bug to trigger against. This is not a fix in any general sense: the bug's root cause
+was never found, and `src/shared/`'s own untouched original still uses `vis.Timeline` for its
+equivalent feature and remains fully exposed to it, unaffected by this change. Anyone revisiting
+that bug later should look at `src/shared/window.ts`, not `src/shared-v2/`.
+
+Since a second `mountEventTimeline()` call for the same container does NOT reuse a previous
+instance (unlike `calendar`'s `WeakMap`-cached idempotency) — `playback.ts` rebuilds this widget's
+entire `rows`/`items` from scratch on every search anyway, so caching would need its own `setData()`
+API for no real benefit — `updateTimeline()` now explicitly calls the previous `state.eventTimeline`'s
+`destroy()` before mounting a new one, replacing the old code's implicit "just overwrite the
+variable, the DOM was already wiped by `innerHTML = ''`" pattern with an explicit teardown (also
+disconnects the new component's own `ResizeObserver`, which `innerHTML = ''` alone would have
+leaked). See `docs/window-ui/SRS.md` FR-7.6 v1.16, `DESIGN.md` v1.17, `TC.md` v1.12, and
+`docs/event-timeline-component/` for the new component's full spec.
+
+## Timeline items displayed raw `"Rule3"` instead of the configured `RuleName`, and matched the wrong channel's same-numbered rule
+
+Reported directly by the user with a real device's `eventrules.cgi?msubmenu=dynamicrules` response:
+Timeline results (`recording.cgi?msubmenu=timeline`) label events by `Type: "Rule<N>"` (1-based),
+but the UI showed that raw string verbatim instead of the rule's own configured `RuleName` (e.g.
+`"MD 1"`) — the `Rule<N>` → `RuleName` lookup already existed (`playbackCalendar.ts`'s
+`populateRuleSelect()`, for the Rule dropdown, see the entry below this one for its 1-based-offset
+history) but was never wired into `updateTimeline()`'s own item/row labels at all.
+
+Fixed by caching the last `getDynamicRules()` response on `state.dynamicRuleEntries` (populated by
+`refreshEventRules()`, the same fetch the dropdown already used) and adding `resolveEventLabel()` in
+`playback.ts`, which converts a `"Rule<N>"` `Type` to `Rule: N-1`'s `RuleName`, falling back to the
+raw string if nothing matches. `"Normal"` items are left untouched — they aren't rule-triggered data
+and were already correctly special-cased elsewhere (`assignEventColorClass()`).
+
+The first cut matched candidates purely by `Rule` number, and the user immediately followed up: since
+`getDynamicRules()` returns every rule configured on the *whole device*, not scoped to one channel,
+and `Rule` numbering isn't guaranteed unique across channels, matching on `Rule` alone risks
+resolving to a *different channel's* same-numbered rule on a multi-channel NVR. The fix ties back to
+something already established the hard way in the entry below this one: `recording.cgi`'s own
+`ChannelIDList` query param and `eventrules.cgi`'s `EventSources[].Channel` field are the *same*
+0-based numbering space (`Number(player.channel) - 1`) — so `resolveEventLabel()` now additionally
+requires the candidate rule's `EventSources` to include a row whose `Channel` equals the currently
+selected player's own 0-based channel, the exact same value already sent as this search's own
+`ChannelIDList`. See `docs/window-ui/SRS.md` FR-7.6 v1.17/v1.19.
+
+Separately, unrelated to the Rule-matching fix but landed alongside it (same user, same session):
+timeline item selection previously nulled `endTime` and disabled `#end_date`/`#end_time` specifically
+for `"Normal"`-classed items — an undocumented `src/shared/window.ts` quirk with no rationale found
+anywhere in the original, reproduced in `src/shared-v2/` up through v1.17 purely for parity.
+`recording.cgi` always returns a real `EndTime` for every result row regardless of `Type`, so nothing
+about the data justified singling out Normal. Reported as unwanted; `onSelect` no longer branches on
+`className === 'normal'` — every item now sets and enables both Start and End Time. `src/shared/`'s
+own untouched original keeps the old behavior. See `docs/window-ui/DESIGN.md`'s "Deviations from
+legacy behavior" (FR-7.6 v1.18 entry).
+
+## `#timeline` outlived Playback mode: moving it to a sibling position (for FR-7.8's two-panel split) fixed one hiding case but broke another
+
+`#timeline`'s `<div>` was deliberately moved out from inside `#playback_control` to a sibling of both
+`#playback_control`/`#playback_control_calendar` when FR-7.8 (the Calendar search panel) was added —
+otherwise a `display:none` ancestor would hide it whenever the *other* Playback panel was the one
+showing, defeating the goal of both panels rendering into the same shared timeline. That fix was
+correct as far as it went, but it was also the only place `#timeline` visibility was ever wired to
+anything: `updatePlaybackSunapiUIVisibility()` only ever set `style.display` on the two panels
+themselves, and once `#timeline` was no longer nested inside either one, nothing in the codebase set
+its `display` back to `'none'` under any condition. The result: switching Play Type from Playback to
+Live correctly hid the Manual Start/End Time fields (they live inside `#playback_control`) but left a
+previous Playback search's rendered timeline sitting on screen indefinitely, since a plain
+`style.display = 'block'` (set by `updateTimeline()`/`runOverlappedAndTimelineSearch()` whenever a
+search returns results) never gets touched again by anything outside the search flow itself.
+
+Reported directly by the user, who noticed the exact asymmetry ("Date picker hides, timeline
+doesn't"). Fixed with one added branch in `updatePlaybackSunapiUIVisibility()` (`playbackCalendar.ts`),
+gated specifically on `!isPlayback` (Live mode) rather than the pre-existing `showCalendar`/`else`
+branches, so the original sibling-placement behavior — never hiding `#timeline` when only switching
+*between* the two Playback sub-panels — stays exactly as before. The lesson for next time a shared
+element moves out from under a hide/show ancestor for one reason: check whether anything else was
+implicitly relying on that ancestor to hide it too, not just the one case that motivated the move. See
+`docs/window-ui/SRS.md` FR-7.8 v1.20 / `DESIGN.md` v1.20.
+
+## Calendar's highlighted-recorded-days data had no channel-change refresh, unlike the Rule dropdown right next to it
+
+`getCalendarSearch(YYYY-MM, channel)` (FR-7.8.4) — the request behind the Calendar's highlighted
+"this day has recordings" days — is channel-scoped the exact same way `getDynamicRules()`'s Rule
+dropdown is (FR-7.8.2, see the entry above about that dropdown's 1-based `Rule<N>` offset). The Rule
+dropdown already had a channel-change refresh, `refreshRuleSelectForChannelChange()`, called from
+`device.ts`'s `changechannel()` — but nothing equivalent existed for the Calendar's own month search.
+Switching `#channel` while the Playback (SUNAPI) Calendar panel was showing correctly re-fetched the
+Rule list, but the Calendar kept showing whichever channel's recordings it had last fetched, until the
+user happened to navigate to a different month (which re-fetches for the new month anyway, incidentally
+also picking up the new channel).
+
+Reported directly by the user, who also proactively stated the precondition mid-request: every one of
+these Playback (SUNAPI) Calendar requests — Language, Rule dropdown, Calendar month search, day-click
+Overlapped Id/Timeline — must only ever fire while Play Type is Playback. That's exactly what the
+existing `panel.style.display !== 'none'` guard in `refreshRuleSelectForChannelChange()` already
+enforces (`#playback_control_calendar` is only ever shown when Play Type is Playback *and* SUNAPI is
+On — see FR-7.8's `updatePlaybackSunapiUIVisibility()`), so the new `refreshCalendarSearchForChannelChange()`
+(`playbackCalendar.ts`) reuses that identical guard rather than inventing a separate Play-Type check,
+and re-runs `runMonthSearch()` for whichever month/year the mounted `CalendarController` currently
+reports. Wired into `device.ts`'s `changechannel()` right alongside the existing Rule-dropdown refresh.
+See `docs/window-ui/SRS.md` FR-7.8.4 v1.21 / `DESIGN.md` v1.21.
+
+## Channel change during Playback: the Calendar-data refresh above was only 1 of 5 things that needed to reset
+
+Immediately after the fix above shipped, the user came back with the complete scenario they actually
+needed: switching `#channel` while Play Type is Playback should (1) refresh the Calendar's
+highlighted days for the new channel — the fix above — plus (2) hide `#timeline`, (3) reset
+Overlapped Id and hide its UI, (4) reset Manual Start/Manual End Time and hide their UI, and (5) stop
+the player, since it may still be playing/paused on the *previous* channel's recording.
+
+The interesting design question was scoping: FR-7.1–FR-7.7's manual Playback flow has its own
+Overlapped Id (`#overlapped_id_area`) and Start/End Time (`#start_date`/etc.) — should (2)-(5) reset
+those too, or only this Calendar panel's equivalents? Resolved by checking which targets actually
+have a show/hide mechanism to reset: `#timeline` and the player instance are genuinely **shared**
+between both Playback UIs (one element, one player, regardless of which flow last drove them), so
+(2) and (5) run whenever Play Type is Playback, unconditional on SUNAPI state. But the manual flow's
+`#overlapped_id_area`/`#start_date`/`#end_date`/etc. are static, always-visible field-rows with
+**no** show/hide toggle at all — they're core permanent controls, not a progressively-revealed
+search result like this Calendar panel's own `#calendar_search_area` (hidden until FR-7.8.4's first
+month search resolves). "Hiding" fields that were never hideable would be inventing new behavior
+nobody asked for, so (3) and (4) apply only when this Calendar panel is actually visible (SUNAPI On).
+
+Implementation replaced the previous entry's `refreshCalendarSearchForChannelChange()` with a
+broader `resetPlaybackSearchStateForChannelChange()` (`playbackCalendar.ts`) doing all 5 steps, same
+call site in `device.ts`'s `changechannel()`. One real wrinkle found while implementing it:
+`runMonthSearch()` (FR-7.8.4) already always re-shows `#calendar_search_area` once its own fetch
+resolves, by original design — completely reasonable for its two pre-existing callers (initial
+mount, month navigation), but it would have silently undone this new function's own step-4 hide a
+moment later, since re-fetching the month for the new channel is itself the tail end of this same
+reset. Fixed by giving `runMonthSearch()` a `revealSearchArea` parameter (default `true`, so both
+pre-existing callers are untouched) and passing `false` from this new function's own re-fetch call —
+refreshing highlighted days for the new channel should never re-reveal controls that have nothing to
+show yet, since no day has been clicked for that channel.
+
+See `docs/window-ui/SRS.md` FR-7.8.6 v1.22 and `DESIGN.md`'s new flow diagram (v1.22) for the full
+implementation.
+
+## Moving Rule into `#calendar_search_area` surfaced a day-click-vs-hidden-container race the previous entry's reset introduced
+
+Right after the 5-part channel-change reset above shipped, the user asked for a smaller, related fix:
+`#event_rules_type` (the Rule dropdown) lived in its own field-row next to `#event_rules_language`,
+both appearing the instant the Calendar panel opened. That's correct for Language (a device-wide
+`attributes.cgi` setting), but Rule is actually a Timeline search *filter* — read at day-click time by
+`runOverlappedAndTimelineSearch()` exactly like Overlapped Id and Manual Start/End Time. The user
+wanted it to appear at the same moment as those fields (once the Calendar has loaded, not immediately
+on panel open) and positioned visually right before Overlapped Id.
+
+The fix was structural, not behavioral: move `#event_rules_type`'s markup into `#calendar_search_area`
+(same id, same `getDynamicRules()` population, unaffected by DOM position), positioned first. Since
+that container already had exactly the show/hide timing being asked for (hidden until FR-7.8.4's month
+search resolves, hidden again by the previous entry's FR-7.8.6 channel-change reset), the move alone
+satisfied both the timing and positioning requests with no new visibility logic needed.
+
+But this exposed a genuine, previously-latent bug from the *previous* entry's own reset:
+`#calendar_search_area` is deliberately left hidden after a channel change until the next month
+navigation re-reveals it (so the reset doesn't immediately undo itself). A highlighted calendar day,
+however, stays clickable the entire time, completely independent of that container's own visibility —
+`onCalendarDayClick()` never checked it. Before this fix, clicking a day right after a channel change
+(with no month navigation in between) would populate Rule/Overlapped Id/Manual Start-End Time into a
+still-`display:none` container: the underlying state (player.overlappedId, the search results) would
+all be correct, but the user would see nothing, since the whole thing was invisible. This was a real,
+if narrow, timing window created by the previous entry's own fix, not a pre-existing issue — it only
+became reachable once `#calendar_search_area` could be left hidden across a day click at all (before
+that entry, the container was shown once early and never hidden again for the rest of the session).
+
+Fixed with one line: `onCalendarDayClick()` now unconditionally re-shows `#calendar_search_area` as
+its very first step, before touching any of the fields inside it. Cheap and idempotent when the
+container was already visible (the common case — a month navigation almost always precedes a day
+click), and correct in the one case it wasn't. See `docs/window-ui/SRS.md` FR-7.8.2/FR-7.8.5 v1.23 and
+`DESIGN.md`'s corresponding note.
+
+## Rule dropdown had no `change` listener at all -- changing it silently did nothing until the next day click
+
+Immediately after the Rule-move entry above, the user pointed out the actual functional gap it made
+visible: `#event_rules_type`'s value was only ever read inside `runOverlappedAndTimelineSearch()`, at
+day-click time. Changing the dropdown afterward — say, narrowing an already-searched day down to one
+specific Rule — had zero effect; the `#timeline` results already on screen (from whatever `Type` was
+selected at the last click) just sat there stale until the user clicked a day again. Reported directly
+by the user with the real `recording.cgi?msubmenu=timeline...&Type=All` request, pointing out `Type`
+should reflect the Rule dropdown's current selection.
+
+Fixed by splitting `runOverlappedAndTimelineSearch()` into three pieces: `buildCalendarSearchTimeRange()`
+(the existing `#calendar_start_date`/time + GMT-conversion logic, now shared, returning `null` when no
+day has been clicked yet so callers can silently no-op), `runCalendarTimelineSearch()` (just the
+`getTimeline()` call + `updateTimeline()` redraw, using whatever Overlapped Id/date range/Rule are
+currently set), and `runOverlappedAndTimelineSearch()` itself (day click) now just calls
+`getOverlappedIdList()` first — same digest-auth-race sequencing as before, see the `runMonthSearch()`/
+`getOverlappedIdList` entries above — then delegates to `runCalendarTimelineSearch()` as its tail step.
+`#event_rules_type` gained a `change` listener calling `runCalendarTimelineSearch()` directly.
+
+One deliberate scope decision: a Rule change does **not** re-fetch Overlapped Id. Overlapped Id
+identifies which overlapping recording session to search within, entirely independent of the
+Timeline's own `Type` filter — re-fetching it on every Rule change would just be a wasted, redundant
+request for data that hasn't changed. See `docs/window-ui/SRS.md`/`DESIGN.md` FR-7.8.2 v1.24.
+
+## A real device's Timeline response mixed in a different channel's Rule events -- `resolveEventLabel()`'s channel check wasn't enough on its own
+
+Reported directly by the user with a screenshot of the live app: with Channel 1 selected/queried
+(`ChannelIDList=0`), the rendered `#timeline` showed `Rule5`/`Rule6`/`Rule8`/`Rule9` rows alongside
+CH1's own `MD 1 (CH1)`/`MD 2 (CH1)` rows — but those four Rules are configured on Channel 2, per
+`eventrules.cgi`'s own `EventSources[].Channel`. The v1.19 fix a few entries above (channel-matching
+in `resolveEventLabel()`) only affects the *label* shown for a Rule# row/item — it doesn't stop the
+row/item from being built in the first place. Since `resolveEventLabel()` falls back to the raw
+`Type` string when no channel-matching rule is found, a cross-channel Rule event still rendered, just
+unresolved (`"Rule5"` instead of a real name) — exactly what the screenshot showed.
+
+The real question this raised: is a channel's Timeline response from the device itself supposed to
+be scoped by `ChannelIDList`, with these appearing due to a device-side quirk, or is this expected and
+purely a client-side filtering gap? Either way, the client has no way to *request* a narrower
+response than the device already returned, so the fix has to be client-side regardless: added
+`eventAppliesToChannel()` (`playback.ts`), using the exact same `state.dynamicRuleEntries` cache/
+0-based-offset lookup as `resolveEventLabel()`, and filtering `results[0].Results` down to
+`channelResults` at the very top of `updateTimeline()`, before either the row-building or
+item-building loop ever sees the array. Two deliberate "don't filter" cases, both erring toward
+showing rather than hiding when uncertain: `"Normal"` (never rule-triggered, always belongs to
+whichever channel was actually queried) and a `Rule<N>` with **no** entry in `state.dynamicRuleEntries`
+at all — as opposed to an entry that exists but for a different channel. The former is a genuine
+"can't tell" case (rules not cached yet, e.g., calendar panel not yet opened this session); filtering
+it would only ever hide data incorrectly, never correctly, since there's nothing to compare against.
+See `docs/window-ui/SRS.md` FR-7.6 v1.25.
+
+## v2.0 Playback search redesign: "move Manual Start/End Time into the widget" turned into retiring FR-7.1-7.3's entire manual search UI
+
+The user's original 5-item request (screenshot of the live Calendar panel) looked scoped to the
+Event Timeline widget alone: fix cross-channel leakage (the entry above), make its 1H/6H/1D/1W/1M/1Y
+buttons trigger a real re-fetch, and move "Manual Start Time"/"Manual End Time" into the widget as
+"Selected Time." Reading the existing code suggested `#start_date`/`#end_date` (FR-7.1's manual
+flow) served two roles at once — typed search-range input for `search_overlapped_id()`/
+`search_date()`/etc., *and* the display overwritten by a timeline item click — so a clarifying
+question was asked about how to handle the search-input role if the fields moved.
+
+The user's answer reframed the whole feature: *"start_time isn't a search feature ... search should
+default to 1 day, using the timeline's own preset buttons."* This wasn't just answering the question
+asked — it asserted the *target* design directly, which turned out to mean `#start_date`/`#end_date`
+were never meant to be a search-range input at all in the intended design, only ever the click-to-
+play display (their apparent dual-role in the *existing* code was incidental, not something to
+preserve). Tracing every call site confirmed the real scope: `search_overlapped_id()`/
+`search_date()`/`search_oneday_timeline()`/`search_three_month_timeline()`/
+`search_timeline_by_range()`/`runTimelineSearch()`/`onchangestarttime()`/`onchangeendtime()`/
+`onchangesupportendtime()` — essentially all of FR-7.1-7.4 — had no reason to keep existing once
+`#start_date`/`#end_date` were retired, since that was their *only* remaining role after the display
+role moved to the widget.
+
+Given the size of what this implied (retiring ~9 functions and ~10 markup elements, unifying two
+previously-separate Playback UIs onto one search mechanism, and — discovered only by grepping test
+files — rewriting roughly 40 Playwright assertions across `video-playback-audio.spec.ts` (29 refs),
+`event-timeline.spec.ts` (its `openNewPageWithTimeline()` helper and TC-3/TC-9), and
+`playback-calendar.spec.ts` (TC-28/31/32/34/36)), this went through `EnterPlanMode` before any code
+changed — the plan called out the scope explicitly rather than silently expanding a "move a UI
+element" request into a UI-removal one. Two more targeted questions during planning (the preset
+buttons' anchor point — "now," confirmed by the user — and whether to preserve open-ended/no-End-
+Time playback — yes, confirmed) filled in the remaining design gaps before implementation started.
+
+**What landed**: both Playback UIs (manual FR-7.1, Calendar FR-7.8) now source their search range
+from one mechanism — a default "1 day ending now" search auto-fires the moment either panel becomes
+visible (`playback.ts`'s `updateManualPlaybackPanelVisibility()`, mirroring
+`playbackCalendar.ts`'s existing `panelInitialized` pattern), and the Event Timeline's own preset
+buttons re-fire that same search for `[now-preset, now]` on click via a new `onRangePresetSelect`
+callback (`docs/event-timeline-component/SRS.md` FR-5 v2.0) — the component still makes no network
+calls itself (NFR-1 intact), it only hands the caller `Date` math. "Selected Time" (FR-13) is the
+widget's own input pair, used by `onSelect` (item click) and a new `onSelectedTimeChange` (manual
+edit) alike, string-based (`YYYY-MM-DD`/`HH:mm:ss`) to avoid a new timezone-conversion surface — the
+widget never becomes SUNAPI/GMT-aware, `playback.ts` still owns all of that. A genuine latent bug
+surfaced and got fixed as a side effect, not a separate task: the old `onSelect` handler always
+wrote to `#start_date`/`#end_date` (the *manual* flow's ids) regardless of which Playback UI was
+actually showing, so selecting an item while the Calendar panel was active silently updated hidden,
+wrong fields the entire time this feature existed. One canonical Selected Time, owned by the widget
+both flows share, makes that class of bug structurally impossible now.
+
+Since the widget is destroyed and rebuilt on every search (`docs/event-timeline-component/`'s own
+"not idempotent by design," unchanged), Selected Time would otherwise reset to "now, no end" on
+every single refresh (a Rule change, a preset click, ...) — `playback.ts`'s `lastSelectedTime`
+persists the last real selection and re-applies it via `setSelectedTime()` right after each remount,
+the same general pattern already used for the SUNAPI/GMT-agnostic split elsewhere in this codebase.
+
+See `docs/window-ui/SRS.md`/`DESIGN.md` v2.0, `docs/event-timeline-component/SRS.md`/`PRD.md`/
+`DESIGN.md`/`TC.md` v2.0, and the plan file this session used
+(`functional-seeking-milner.md`) for the full implementation.
+
+## v2.0's auto-fired search surfaced two real bugs that a user-triggered button had always masked
+
+Turning FR-7.1's manual search from "a button the user clicks" into "a search that fires
+automatically the instant Playback mode is entered" (the v2.0 redesign above) exposed two real,
+pre-existing assumptions in `search_overlapped_id()`'s own logic that a human clicking a button had
+always incidentally satisfied, but an unconditional auto-fire does not:
+
+1. **`state.deviceInformation.attributes.MaxChannel` threw when read before it existed.**
+   `state.deviceInformation.attributes` is only populated deep inside `initSunapiManager()`'s own
+   ~6-7-request async chain (`device.ts`) — that function is fire-and-forget (`void`, no Promise),
+   so `runManualTimelineSearch()`'s very next line, checking `Number(state.deviceInformation
+   .attributes.MaxChannel) === 1` to decide whether to omit the `channel` argument for single-
+   channel cameras, read `undefined.MaxChannel` and threw on this function's *first-ever* call each
+   session. The original `search_overlapped_id()` has the exact same code, but a human only ever
+   clicked it well after SUNAPI had already finished initializing via the checkbox flow, so the race
+   was never actually reachable in practice. Caught by the (pre-existing) try/catch, so the visible
+   symptom wasn't a crash — the search silently never ran, and `#timeline` never populated. Fixed
+   with optional chaining (`state.deviceInformation.attributes?.MaxChannel`), falling through to the
+   `else` branch (explicit `channel` argument) when not yet loaded — the same behavior every
+   multi-channel device already takes.
+2. **Auto-firing before any device is even selected surfaced real connection-error popups.**
+   Switching Play Type to Playback is a perfectly normal thing to do *before* picking a device row
+   (e.g., exploring the radio buttons first) — `state.getSelectedPlayer()` still returns a real,
+   non-null player element in that state, just with an empty `hostname`. Auto-firing
+   `initSunapiManager()`/`getOverlappedIdList()` against that blank device surfaced real
+   `SunapiError`/`RTSPOverWebSocketBaseError`/connection-failure `popup()` calls from deep inside
+   `initSunapiManager()`'s own chain, for a state that was never actually an error — found live via
+   Playwright (`#myModal` intercepting a later, unrelated click). A user-triggered button never hit
+   this either, for the same reason as bug 1: nobody clicks "Search Overlapped Id" before selecting
+   a device. Fixed with a guard in `updateManualPlaybackPanelVisibility()`:
+   `player !== null && player.hostname` before firing. Known remaining gap, not chased further
+   (no test needs it, and every realistic flow selects a device before touching Play Type): if the
+   user picks Playback *before* a device, the guard correctly skips the auto-search, but nothing
+   currently re-triggers it once a device is picked afterward — a manual mode switch (Live, then
+   back to Playback) would still self-heal, since `manualPanelInitialized` only flips `true` on the
+   guard's success branch.
+
+The general lesson: converting a user-gated action into an automatic one doesn't just change *when*
+it runs, it removes every implicit precondition a human satisfied by the sheer act of choosing to
+click it — both of these were "obviously fine" as written for a decade of manual clicks and only
+became reachable the moment the click was removed.
+
+## Draggable current-time marker (FR-14): a design error, corrected before it shipped
+
+`src/shared/window.ts` shows `#seeking_date`/`#seeking_time` (Playback's current-position readout)
+in the Video Control panel, driven by `ontimestamp()`'s `'playback'` case. The user asked for two
+things on top of that: (1) show that same position as a moving line inside `#timeline`, and (2)
+dragging that line should seek `rtsp-over-websocket`, updating `seeking_date`/`seeking_time` as it
+does. Implemented first, incorrectly, as: move the `#seeking_date`/`#seeking_time` *display itself*
+into the Event Timeline widget (a new "Current Time" readout inside `event-timeline.ts`), reasoning
+by analogy from the FR-13 Selected Time consolidation earlier that same session (which *was*
+explicitly requested — collapsing several scattered fields into one widget-owned control). That
+analogy did not hold here and the user rejected it sharply: "누구 맘대로 Current time 을 timeline
+에 넣으라고 했어... 내 의도를 모르면 물어봐라" (nobody told you to put Current Time in the
+timeline — if you don't understand my intent, ask). The actual request was narrower: leave
+`#seeking_date`/`#seeking_time` exactly where they already are; the timeline only gains a
+non-duplicating visual marker plus drag-to-seek behavior on it.
+
+Corrected design (see `docs/event-timeline-component/SRS.md` FR-14, v2.1): `setCustomTime()` now
+also accepts `null` to hide the marker; `playback.ts`'s `ontimestamp()` only updates it while
+`readyState === PLAYING`; `videoControl.ts`'s `onstatechange()` explicitly clears it
+(`setCustomTime(null)`) on `STOPPED`/`PAUSED`, since `ontimestamp()` simply stops firing once
+playback isn't `PLAYING` and nothing else would ever clear a stale line otherwise. Dragging the
+marker (`onCustomTimeSeek`, fires once on pointer release, matching an earlier
+"drag continuously vs. once on release" clarification from the same user) writes straight into the
+existing `#seeking_date`/`#seeking_time` inputs and calls `player.seekingTime`, mirroring the
+existing `onDoubleClick` handler's GMT-aware branching and `readyState === PLAYING` guard rather
+than inventing a new seek pathway.
+
+The general lesson, stated directly by the user: a consolidation pattern validated for one field
+(Selected Time) does not automatically license applying the same move to a different field (Current
+Time) just because they look structurally similar (both are "a time associated with the timeline").
+When a UI-placement decision isn't explicitly covered by what was asked, ask before moving something
+out of where it already lives — don't extend an approved pattern by analogy.
+
+## FR-14 follow-up: two more real bugs found testing the corrected design, one pre-existing and unrelated
+
+Testing the corrected FR-14 marker (above) surfaced two more real bugs, reported directly by the
+user, neither of which was actually caused by FR-14 itself:
+
+1. **`#seeking_date`/`#seeking_time` (and Forward/Backward/Speed/BestshotFilter) were invisible
+   whenever the Calendar/SUNAPI flow was active** — pre-existing since FR-7.8, just never reported
+   until someone went looking for Seeking Date/Time specifically. `updatePlaybackSunapiUIVisibility()`
+   hides all of `#playback_control` (`display:none`) whenever `showCalendar` is true, but that
+   container held more than manual-flow *search* UI — the "Control:" field-row (Forward/Backward/
+   Speed/ISO checkbox/Seeking Date/Seeking Time) and BestshotFilter are video-playback controls with
+   no relationship to which search flow found the recording. Fixed by extracting them into a new
+   sibling, `#playback_video_controls`, gated on `isPlayback` alone — the same "shared, gated only on
+   Playback mode itself" pattern `#timeline` already used (see FR-7.8's own DESIGN.md note), just not
+   yet applied to this block when the Calendar split was first built.
+2. **The marker didn't visually cover the "ALL EVENTS" overview row** — a real layout bug in the
+   FR-14 work itself, not a regression: `renderCustomTime()` appended the marker into `.event-timeline-rows`
+   (the detail-rows container), which is a *sibling* of the overview row's own element, not an
+   ancestor of it — so `top:0;bottom:0` only ever spanned the detail rows, even though visually
+   abutting the overview row above made it look like one continuous line. Fixed with a new
+   `.event-timeline-rows-wrapper` containing both the overview row and `.event-timeline-rows`; the
+   marker now positions/appends relative to that wrapper instead.
+
+Neither bug was caught by Playwright (`event-timeline.spec.ts`'s TC-6/7/TC-8 failures at the time
+were the unrelated pre-existing viewport/pointer-capture issues, not these) — both were found only
+by the user manually exercising Playback against a real device. General note for this pattern
+specifically: a `display:none` toggle on a *container* silently takes everything nested inside it
+down with it, including elements that have nothing to do with why the container exists — worth
+double-checking what's actually inside a panel before gating its visibility on a condition that only
+applies to *part* of its contents.
+
+## `#seeking_date`/`#seeking_time` retired: unified into the shared `#timestamp_date`/`#timestamp_time` readout
+
+Legacy `window.ts` has two functionally-identical but separately-implemented read-only current-
+position readouts in `ontimestamp()`: `'live'` mode lazily creates `#timestamp_date`/`#timestamp_time`
+in `#live_control`; `'playback'` mode writes to a separate, always-present static `#seeking_date`/
+`#seeking_time` pair instead. `src/shared-v2/` ported both mechanisms faithfully at first. The user
+asked, across several messages, to fully unify these into one pair — `playback.ts` now has a single
+`updateTimestampReadout(dateStr, timeStr)` helper (lazily creates `#timestamp_date`/`#timestamp_time`
+in `#live_control` exactly like `'live'` mode always did) that both `ontimestamp()` cases call, and
+the Event Timeline's `onCustomTimeSeek` (FR-14) drag-seek handler now writes into the same pair
+instead of the retired `#seeking_date`/`#seeking_time`, which were removed from `window.html`/
+`setupPlayback()` entirely (no longer referenced anywhere).
+
+Two things worth remembering about how this was reached:
+1. **The user's intent took several rounds to pin down exactly**, and I nearly misdiagnosed the
+   underlying report as a *visibility* bug (the `#playback_video_controls` fix above, which was real
+   and needed) when the user separately, explicitly wanted the two mechanisms *unified*, not just
+   made visible. When a user says a field "disappeared" and a plausible visibility bug exists, that
+   doesn't rule out the field also being the wrong mechanism entirely — confirm which one (or both)
+   before considering it resolved. `AskUserQuestion` correctly disambiguated Live vs. Playback here,
+   but the actual instruction ("route playback's readout through timestamp_date/timestamp_time") only
+   arrived once the user pasted the exact legacy code block and named the target fields directly —
+   worth reaching for that level of concreteness sooner when a Q&A round doesn't fully resolve intent.
+2. **A "reverse playback" symptom was reported for the new drag-seek feature** ("이걸 움직여 재생하면
+   역으로 재생됩니다") that I could not conclusively root-cause without real hardware (WSL2 can't
+   reach real devices — see CLAUDE.md). The most plausible cause found via code review: `#speed`'s
+   dropdown has negative options (`-0.25x`..`-256x`) for intentional reverse playback, and
+   `changespeed()` sets `player.playSpeed` from it directly with no reset on seek — a stale negative
+   selection from earlier testing would persist across an unrelated seek. Mitigated by having
+   `onCustomTimeSeek` force `#speed`/`player.playSpeed` back to `'1'` on every drag-seek. This is a
+   best-effort fix based on the most plausible mechanism identified, not a confirmed root cause —
+   flagged as such rather than claimed fixed, since it couldn't be verified against real hardware.
+
+## `npm run build:shared-v2` alone does NOT refresh `src/component/*` CSS in the shipped `dist/`
+
+Edited `src/component/switch/switch.css` (a new disabled-radio style, FR-12) and ran only
+`npm run build:shared-v2` to ship it — `dist/nodejs/examples/public/css/switch.css` stayed
+byte-for-byte the OLD version despite the build reporting success, no error anywhere. Root cause:
+`switch.css`/`disclosure.css` are copied into `dist/chrome-extension|nodejs`'s `css/` by
+`scripts/build.js`'s function for the **original** `src/shared/` page (`npm run build`'s own asset
+step) — they're genuinely shared components used by both pages (CLAUDE.md's switch-component note
+doesn't say "-v2 only" for a reason), copied once from `src/component/` since that lives outside
+`src/shared/`'s own `copyDir`. `buildSharedV2()`'s own dist-overwrite step (the thing that runs
+`npm run build:shared-v2` on its own actually touches) only overwrites `window.html`/`window.js`/
+`scripts/socket.js`/`css/calendar.css`/`css/event-timeline.css` per CLAUDE.md — it does **not**
+re-copy `switch.css`/`disclosure.css`/`window.css`, since those are assumed already current from a
+prior full `npm run build`. If that full build is stale (or was never run this session), editing a
+`src/component/*` CSS file and only re-running `build:shared-v2` ships nothing — confirmed via a
+direct `grep` on the dist output before vs. after adding a plain `npm run build` in between, which
+fixed it. Takeaway: any edit to `src/component/switch|disclosure|calendar|event-timeline` CSS needs
+a **plain `npm run build` first**, then `npm run build:shared-v2` on top, even though the CLAUDE.md
+build docs only explicitly warn about this ordering for `window.html`/`window.js` — CSS shared this
+way is silently subject to the exact same trap.
+
+## "Run discovery automatically" toggle: server-side background loop was fine, client never opened the WS
+
+Reported directly by the user: this toggle works in the Chrome Extension but not via the nodejs
+server as a plain web page. Traced by reading both sides of the transport (`docs/architecture.md`'s
+IS_EXTENSION split): `server.ts`'s background UDP discovery loop was already correct and running by
+default (`setAutoDiscoveryEnabled(AUTO_DISCOVERY_DEFAULT)` at boot, plus a proper "replay
+`knownDevices`, then run one round, then keep streaming" sequence on every new `/discover` WS
+connection — a deliberate mirror of `background.ts`'s `wisenet-request-known-devices` catch-up for
+the extension). The bug was entirely on the **client** side: `toolbar.ts`'s
+`applyAutoDiscoverySettingUI()` disabled `#init`/`#disconnect` when the setting was on, but never
+actually called `socket.start()` — for the extension this is fine (a real `chrome.runtime` connection
+already exists in `background.ts`'s own service worker, independent of whether `window.html` is even
+open, and `discovery.ts`'s `chrome.runtime.onMessage` listener picks it up unconditionally), but
+outside the extension nothing else opens this page's own `/discover` WebSocket. The net effect: the
+toggle defaulting to "on" left the discovery table permanently empty *and* the one button that could
+open the connection manually (`#init`) disabled — worse than doing nothing. Fixed by having
+`applyAutoDiscoverySettingUI()` call `socket.start()`/`socket.stop()` itself when `!IS_EXTENSION`.
+
+The general lesson: a toggle whose real effect lives in a background *process* (a service worker, a
+server) rather than in the toggle's own UI code is easy to half-port when adding a second transport —
+the extension case "worked" here because the process (`background.ts`) enforced the setting on its
+own regardless of what the toggle's change handler did; the web case had no such independent
+enforcer, so the toggle's UI code needed to be the actual enforcement, and wasn't.

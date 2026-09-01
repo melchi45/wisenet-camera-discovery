@@ -121,6 +121,16 @@ compiles to under `dist/`):
 * `src/component/disclosure/`: reusable collapsible ("∧∨") panel component built on native
   `<details>`/`<summary>`, used for the Debug Information/Discovery/RTSP log panels in
   `window.html` — see [docs/disclosure-component/DESIGN.md](docs/disclosure-component/DESIGN.md).
+* `src/component/calendar/`: reusable month-view calendar UI component (day highlighting, day
+  click), used by `src/shared-v2/`'s Playback panel when SUNAPI is On — see
+  [docs/calendar-component/DESIGN.md](docs/calendar-component/DESIGN.md).
+* `src/shared-v2/`: a from-scratch, independently-written reimplementation of `src/shared/`'s
+  `window.html`/`window.ts`, built directly from a full spec (`docs/window-ui/`). Builds to
+  `dist/shared-v2-preview/` via `npm run build:shared-v2`, and — run after `npm run build` — that
+  same command also overwrites the real `dist/chrome-extension/`/`dist/nodejs/` outputs above with
+  its `window.html`/`window.js`/`scripts/socket.js`/`css/calendar.css`. See
+  [docs/window-ui/MRD.md](docs/window-ui/MRD.md) for why the source tree stays parallel even though
+  the build output no longer does, and `CLAUDE.md` for how to build/test it.
 
 ## Discovery result views: table or star topology
 

@@ -21,7 +21,12 @@ npm install
 npm run build              # both dist/chrome-extension/ and dist/nodejs/
 npm run build:extension    # just the extension side (background.ts + shared window.ts/socket.ts + Vite bundle)
 npm run build:node         # just tsc -p tsconfig.node.json
-npm run start               # builds dist/nodejs/ then runs the example server (http://localhost:8080/)
+npm run build:shared-v2    # builds src/shared-v2/ to dist/shared-v2-preview/, and (if dist/chrome-extension/ or
+                            # dist/nodejs/examples/public/ already exist) also overwrites their window.html/
+                            # window.js/scripts/socket.js/css/calendar.css/css/event-timeline.css with it --
+                            # run AFTER npm run build
+npm run start               # builds dist/nodejs/, then dist/shared-v2-preview/ (overwriting dist/nodejs/'s shared
+                             # web assets per the above), then runs the example server (http://localhost:8080/)
 npm run clean               # removes dist/ and build/
 ```
 
@@ -107,18 +112,45 @@ see [`src/chrome-extension/native-host/README.md`](src/chrome-extension/native-h
   `aria-expanded` widget — read [`docs/disclosure-component/`](docs/disclosure-component/)
   (MRD/PRD/SRS/DESIGN/TC) before adding a new collapsible panel or a new header control to an
   existing one.
+- The Playback recording timeline (`#timeline` in `window.html`, `updateTimeline()` in
+  `src/shared-v2/modules/playback.ts`) is a hand-rolled widget mounted via
+  `src/component/event-timeline/`'s `mountEventTimeline()` — a collapsible "ALL EVENTS" overview/
+  zoom-scrubber row plus one detail row per distinct Rule#, no charting library, replacing the
+  vendored `vis` package's `vis.Timeline` used here previously. Read
+  [`docs/event-timeline-component/`](docs/event-timeline-component/) (MRD/PRD/SRS/DESIGN/TC) before
+  changing its zoom/pan/row/coloring behavior. `vis` itself is still a real dependency — Star
+  Topology's `vis.Network` (`docs/star-topology/`) is unaffected and unchanged.
 - `src/shared-v2/` is a from-scratch, independently-written reimplementation of `src/shared/`'s
   `window.html`/`window.ts`, built directly from a full SDD spec — read
-  [`docs/window-ui/`](docs/window-ui/) (MRD/PRD/SRS/DESIGN/TC) before touching it. It builds to a
-  side, non-shipping `dist/shared-v2-preview/` via `npm run build:shared-v2` (also part of
-  `npm run build`) — never wired into `dist/chrome-extension/`/`dist/nodejs/`. Verified against the
-  original for functional equivalence by `tests/window-ui-equivalence/` (Playwright; run
-  `npx playwright test`, needs `npm run build && npm run build:shared-v2` first), backed by
-  `tools/mock-sunapi-server/` (canned SUNAPI responses) and `tools/equivalence-test-server/`
-  (serves either page + a fixture WS `/discover` feed). A handful of intentional, documented
-  deviations from the original's behavior exist (e.g. two real legacy crash bugs are *not*
-  reproduced) — see `docs/window-ui/DESIGN.md`'s "Deviations from legacy behavior" and the
-  corresponding test cases in `docs/window-ui/TC.md`/`tests/window-ui-equivalence/` before assuming
-  a mismatch is a new bug rather than a known, asserted-on-purpose asymmetry. `src/shared/` remains
-  the one actually shipped in `dist/chrome-extension/`/`dist/nodejs/` — this is a parallel
-  spec-driven build, not a replacement (see `docs/window-ui/MRD.md`).
+  [`docs/window-ui/`](docs/window-ui/) (MRD/PRD/SRS/DESIGN/TC) before touching it. `src/shared/`
+  itself is untouched (still a separate source tree, `npm run build:shared-v2` is still its own
+  build target, not part of plain `npm run build`), but its **build output is no longer isolated**:
+  `npm run build:shared-v2`, run after `npm run build` (or `npm run start`, which chains both),
+  overwrites `dist/chrome-extension/`'s and `dist/nodejs/examples/public/`'s `window.html`/
+  `window.js`/`scripts/socket.js` (and adds `css/calendar.css`/`css/event-timeline.css`) with the
+  `src/shared-v2/` build —
+  see `scripts/build.js`'s `buildSharedV2()` and `docs/window-ui/MRD.md`'s History (this reverses
+  that doc's original "parallel, not in-place" call, per explicit user instruction). A standalone
+  `npm run build:shared-v2` (no prior `npm run build`) still just produces the side,
+  non-shipping `dist/shared-v2-preview/` alone, unharmed. Verified against the original for
+  functional equivalence by `tests/window-ui-equivalence/` (Playwright; run `npx playwright test`,
+  needs `npm run build && npm run build:shared-v2` first), backed by `tools/mock-sunapi-server/`
+  (canned SUNAPI responses) and `tools/equivalence-test-server/` (serves either page + a fixture WS
+  `/discover` feed). A handful of intentional, documented deviations from the original's behavior
+  exist (e.g. two real legacy crash bugs are *not* reproduced) — see `docs/window-ui/DESIGN.md`'s
+  "Deviations from legacy behavior" and the corresponding test cases in
+  `docs/window-ui/TC.md`/`tests/window-ui-equivalence/` before assuming a mismatch is a new bug
+  rather than a known, asserted-on-purpose asymmetry. Playwright only ever drove the nodejs runtime
+  target (`IS_EXTENSION=false`) — the extension-only `IS_EXTENSION`-gated code paths (native-host
+  bypass checkbox, `chrome.*` APIs) are untested by that suite and are now load-bearing in the real
+  shipped extension; see `docs/window-ui/PRD.md`'s Non-Goals.
+- Playback + SUNAPI On shows a Calendar-driven search flow (Language/Rule pickers feeding
+  `eventrules.cgi`, a month calendar highlighting days with recordings, day-click → automatic
+  Overlapped Id/Timeline search) instead of the manual date-range flow. This is `src/shared-v2/`-
+  only in *source* (no equivalent code in `src/shared/`), but since `npm run build:shared-v2`
+  overwrites the shipped `dist/` outputs (see above), it's what actually ships in
+  `dist/chrome-extension/`/`dist/nodejs/` once that step has run. Read
+  [`docs/window-ui/SRS.md`](docs/window-ui/SRS.md)'s FR-7.8 and
+  [`docs/calendar-component/`](docs/calendar-component/) (MRD/PRD/SRS/DESIGN/TC, the new
+  `src/component/calendar/` this uses) before touching `src/shared-v2/modules/playbackCalendar.ts`
+  or the old manual-flow `#playback_control` panel it sits alongside.
