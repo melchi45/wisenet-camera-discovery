@@ -189,6 +189,16 @@ function copySharedWebAssets(destDir) {
     path.join(ROOT, 'node_modules', '@melchi45', 'rtsp-over-websocket', 'dist', 'player', 'rtsp-over-websocket.esm.js'),
     path.join(destDir, 'external-lib', 'rtsp-over-websocket', 'rtsp-over-websocket.esm.js')
   );
+  // Sibling sourcemap -- the bundle's own trailing `//# sourceMappingURL=`
+  // comment points at this filename, so without it the browser devtools show
+  // "Source map failed to load" and step through the minified bundle instead
+  // of the original src/player/**/*.ts. Guarded (not a plain copyFile()) for
+  // the same reason as buildSharedV2()'s copy of this same file below: older
+  // installed @melchi45/rtsp-over-websocket versions may not emit it.
+  const rtspEsmMapForSharedAssets = path.join(ROOT, 'node_modules', '@melchi45', 'rtsp-over-websocket', 'dist', 'player', 'rtsp-over-websocket.esm.js.map');
+  if (fs.existsSync(rtspEsmMapForSharedAssets)) {
+    copyFile(rtspEsmMapForSharedAssets, path.join(destDir, 'external-lib', 'rtsp-over-websocket', 'rtsp-over-websocket.esm.js.map'));
+  }
   copyDir(
     path.join(ROOT, 'node_modules', '@melchi45', 'rtsp-over-websocket', 'dist', 'player', 'assets'),
     path.join(destDir, 'external-lib', 'rtsp-over-websocket', 'assets')

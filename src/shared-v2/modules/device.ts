@@ -164,14 +164,6 @@ export function onchangetimezone(timezone: any): void {
   }
 }
 
-export function set_use_universal_time(): void {
-  try {
-    state.getSelectedPlayer().coordinatedUniversalTime = (document.getElementById('universaltime_checkbox') as HTMLInputElement).checked;
-  } catch (error) {
-    console.error(error);
-  }
-}
-
 export function onchangeandroid(): void {
   state.getSelectedPlayer().android = (document.getElementById('is_android') as HTMLInputElement).checked;
 }
@@ -420,7 +412,6 @@ export function setupDevice(): void {
 
   document.getElementById('use_gmt')!.addEventListener('change', changeusegmt);
   document.getElementById('timezone')!.addEventListener('change', changetimezone);
-  document.getElementById('universaltime_checkbox')!.addEventListener('change', set_use_universal_time);
 
   document.getElementById('use_sunapi_client_checkbox')!.addEventListener('click', on_change_use_sunapi_client);
   mountSwitch({

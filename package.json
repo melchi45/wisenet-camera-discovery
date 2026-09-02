@@ -1,7 +1,7 @@
 {
   "name": "wisenet-chrome-ip-installer",
-  "version": "1.0.2",
-  "description": "WiseNet/Hanwha Chrome IP Installer extension, plus a Node.js port of its UDP camera discovery protocol (see src/nodejs/, built on the shared SUNAPI wire-format implementation in src/sunapi/). TypeScript sources live under src/ and build to dist/chrome-extension/ + dist/nodejs/ — this package itself is private (the Chrome extension isn't published to npm); dist/nodejs/'s own package.json (name: @melchi45/wisenet-udp-discovery) is the one actually published to GitHub Packages by .github/workflows/publish-npm.yml.",
+  "version": "1.1.0",
+  "description": "WiseNet/Hanwha IPTV discovery extension, plus a Node.js port of its UDP camera discovery protocol (see src/nodejs/, built on the shared SUNAPI wire-format implementation in src/sunapi/). TypeScript sources live under src/ and build to dist/chrome-extension/ + dist/nodejs/ — this package itself is private (the Chrome extension isn't published to npm); dist/nodejs/'s own package.json (name: @melchi45/wisenet-udp-discovery) is the one actually published to GitHub Packages by .github/workflows/publish-npm.yml.",
   "private": true,
   "main": "dist/nodejs/udpDiscovery.js",
   "files": [
@@ -31,7 +31,7 @@
     "start": "node scripts/build.js node && node scripts/build.js shared-v2 && node dist/nodejs/examples/server.js"
   },
   "dependencies": {
-    "@melchi45/rtsp-over-websocket": "^1.1.9",
+    "@melchi45/rtsp-over-websocket": "file:../rtsp-over-websocket",
     "moment": "^2.30.1",
     "moment-timezone": "^0.5.48",
     "vis": "^4.20.1-SNAPSHOT",

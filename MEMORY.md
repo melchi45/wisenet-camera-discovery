@@ -2204,3 +2204,206 @@ this checkbox was never wired to anything to begin with (confirmed by grep, same
 untouched, per this repo's own out-of-scope convention for that tree.
 
 See `docs/window-ui/SRS.md` FR-7.7.1 v2.29 and `docs/window-ui/DESIGN.md` v1.46.
+
+## Frame-step buttons crashed on a null player mid-stream — root cause was in `@melchi45/rtsp-over-websocket`, fix landed on both sides
+
+Reported by the user from a live browser console trace: clicking `#forward` (FR-6.11) repeatedly
+during camera playback eventually threw `TypeError: Cannot read properties of null (reading
+'forward')`, surfacing in this repo at `videoControl.ts:68`'s `forward()` catch block, but rooted
+several layers down in `@melchi45/rtsp-over-websocket`'s `MediaRouter.ts`. The user also noticed
+Pause/Resume flipping to "playing" state around the same crashes — a real but separate symptom
+(the camera's own Play/Pause ACKs for the forward-then-auto-pause step-request pair), not the cause;
+see that package's own `MEMORY.md` entry for the full trace connecting the two.
+
+Root cause: `MediaRouter.ts`'s `onWaiting()` (RTP-packet-loss handler) can `close()` and null its
+internal player at any time video packets are reported lost (privacy/covert-mode teardown, gated on
+`supportCovertAndOff`) — independent of the step-request state machine `forward`/`backward` reason
+about. Those two `sendCommandData()` cases used a non-null assertion instead of a guard, so a step
+click landing in that window crashed instead of no-op-ing.
+
+Fixed in `@melchi45/rtsp-over-websocket` (both halves needed, not just the null-guard): the
+`forward`/`backward` cases now guard on `player !== null` like every sibling case; separately,
+`onWaiting()`'s `0x0107` notice now carries a `playerClosed: boolean` field, forwarded onto the
+public `'waiting'` DOM event. This repo's half: `videoControl.ts`'s `onWaiting()` (previously a
+debug-log-only no-op — FR-6.10) now disables `#forward`/`#backward` when it sees
+`waiting.detail.playerClosed === true` for `media === 'video'`. No matching re-enable was added
+here — the next `'statechange'` `PLAYING` event (already handled by `onstatechange()`'s existing
+FR-6.9 logic once a new frame recreates the decoder) already re-enables both buttons for
+`PLAYBACK`, so nothing else needed to change on this side.
+
+See `docs/window-ui/SRS.md` FR-6.11 (this session's addendum) and `docs/window-ui/DESIGN.md`'s
+"Deviations from legacy behavior" for the `src/shared-v2/`-side detail, and
+`@melchi45/rtsp-over-websocket`'s own `MEMORY.md`/`docs/player/03-mediaSession-core-video.md` for
+the underlying library fix.
+
+## Frame-step buttons still flooded overlapping `forward()` calls after the null-crash fix above — rapid clicks/held-key repeat race a single shared step state machine
+
+Direct same-day follow-up to the entry above, from a second live console trace taken right after
+that fix shipped: the null-player `TypeError` was confirmed gone, but the trace showed a new
+pattern — dozens of `[forward] request` log lines per second for several seconds straight,
+`currentTimestamp` advancing by only ~50-100ms between each. Too fast and too regular to be
+discrete human clicks; almost certainly a focused `#forward` button's held-key auto-repeat (Chrome
+re-fires `click` on each repeated keydown while Space/Enter is held on a focused `<button>`), or
+rapid manual re-clicking during testing.
+
+Asked the user whether this was intentional stress-testing or a real problem to fix; they asked
+for a fix rather than treating the flood as expected. Root cause: `@melchi45/rtsp-over-websocket`'s
+`MediaRouter.ts` step state (`stepFlag`/`stepCmd`/`stepStatus`) is a single machine shared between
+`forward()` and `backward()`, not one per direction — nothing in this repo's `videoControl.ts` (or
+that library) previously stopped a second click from firing while a step was still in flight, so
+overlapping calls could stomp which direction the in-flight step resolves as, and in the worst case
+(held key) queue up an unbounded RTSP request flood.
+
+Fixed entirely on this repo's side (no `@melchi45/rtsp-over-websocket` change needed this time):
+`videoControl.ts`'s `forward()`/`backward()` now disable both `#forward`/`#backward` immediately
+after a *successful* call — placed after the call, not before or in the `catch`, so a click
+rejected for the wrong `playType` (still throws) never leaves the buttons stuck disabled with no
+event left to re-enable them. Re-enabled by `onstatechange()`'s `STEP` case (this step actually
+completed — previously only touched `#resume_button`/`#capture_button`/`#capture2_button`) or its
+existing `PLAYING` case (already covers the v2.31-fix's stalled/player-teardown path above, so no
+separate handling was needed there).
+
+See `docs/window-ui/SRS.md` FR-6.11/FR-6.10 v2.32 and `docs/window-ui/DESIGN.md` v1.49.
+
+## The debounce above still let a null-player crash through — an unrelated Pause ack could re-enable step buttons mid-buffer-refill, closed with a dedicated player-availability event
+
+Direct same-day follow-up, from a fresh live console trace taken right after the debounce fix
+above shipped: `backward()` still hit `Cannot read properties of null (reading 'backward')`, this
+time after five successful backward steps and an RTSP `'Pause'` ack.
+
+Root cause, worked out with the user: the debounce (disable-on-click, re-enable-on-STEP/PLAYING)
+only closes the race *between a click and its own step's completion*. It does nothing about a
+*second*, independent race: a step's own auto-`pause()` (`onRTSPOverWebSocketStep('complete')`,
+`@melchi45/rtsp-over-websocket`) triggers a real PAUSED ack, and `onstatechange()`'s PAUSED case
+*legitimately* re-enables the step buttons on any PAUSED (needed so a user who manually pauses,
+not mid-step, can still start stepping) — but that PAUSED ack can arrive while a *separate*,
+still-in-flight buffer-refill re-seek (triggered by an *earlier* step exhausting its local frame
+buffer, via the same `stepRequestCallback('request', ...)` mechanism the very first click's
+`stepRequest()` uses — not "first click only," as `@melchi45/rtsp-over-websocket`'s own docs
+previously undersold it) still has `MediaRouter.player` null. There is no ordering guarantee
+between two independently-timed async completions, so no amount of gating on `'statechange'`
+readyState alone can close this — confirmed by asking the user directly whether the null-player
+window itself could be eliminated: not at the object level (a new decoder can only be constructed
+once new stream data confirms its parameters), so the fix instead had to make the *UI* provably
+race-free regardless of event ordering.
+
+Fixed with a new signal from `@melchi45/rtsp-over-websocket`: `MediaRouter.ts`'s `player`
+getter/setter now fires a `playerAvailabilityCallback` on every null <-> non-null transition
+(covering *both* ways it goes null — `onWaiting()`'s covert-mode teardown, and `initVideoPlayer()`
+from `stepRequest()`/the `resume`/`seek` commands — since every internal assignment already went
+through this one setter), forwarded as a new public `'playerstatechange'` DOM event. This repo's
+`videoControl.ts` tracks it as a module-level `playerAvailable` flag (`onPlayerStateChange()`) and
+routes every place that would enable `#forward`/`#backward` (`onstatechange()`'s PLAYING/PAUSED/
+STEP cases) through a new shared `updateStepButtonsEnabled(playType)`, which only enables when
+`playerAvailable && playType === PLAYBACK` — a plain synchronous check at the moment of each
+enable attempt, not a race between two event streams. The earlier v2.31 fix's `onWaiting()`-
+specific `playerClosed` disable was removed as fully redundant (same underlying setter call now
+covered generically, and more correctly — the old special-case had no protection against a later
+PAUSED/PLAYING/STEP re-enabling before the player actually came back).
+
+See `docs/window-ui/SRS.md` FR-6.11/FR-6.10 v2.33 and `docs/window-ui/DESIGN.md` v1.50, and
+`@melchi45/rtsp-over-websocket`'s own `MEMORY.md` for the library-side signal.
+
+## Step buttons could still get stuck disabled after the player-availability fix above — added a frame-render fallback instead of chasing event ordering further
+
+Direct same-day follow-up, reported by the user in plain terms: "Forward/Backward 버튼이
+disabled 되고 영상이 보였는데도 여전히 disabled 입니다. 영상이 보이면 다시 해제 해야 합니다."
+(the buttons got disabled and stayed that way even once video was visibly playing again).
+
+The v2.33 fix (`playerAvailable`, sourced from `'playerstatechange'`) is correct in principle, but
+depends on `'playerstatechange'`/`'statechange'` events being processed in a particular relative
+order across two independently-dispatched event streams — exactly the class of problem v2.33 itself
+was fixing between PAUSED and player-availability. Chasing this further with *more* event-ordering
+logic would just relocate the same risk rather than remove it.
+
+Fixed instead with a self-correcting fallback that doesn't depend on ordering at all:
+`ontimestamp()`'s (`playback.ts`) `'playback'` case now calls a new `onPlayerFrameRendered(playType)`
+(`videoControl.ts`) on every rendered frame, which unconditionally forces `playerAvailable` back to
+`true` and re-runs `updateStepButtonsEnabled()`. The reasoning: a frame actually being decoded and
+rendered is direct, first-hand proof a live player instance exists *right now* — stronger and
+simpler evidence than any inference from a sequence of state-change events, and impossible to get
+out of order relative to itself. This is additive, not a replacement — `onPlayerStateChange()`
+still does the prompt disabling the moment the player actually goes away; this only ever pulls the
+flag back to `true`, and only when there's real proof.
+
+See `docs/window-ui/SRS.md` FR-6.11/FR-6.10/FR-7.7 v2.34 and `docs/window-ui/DESIGN.md` v1.51.
+
+## Event Timeline's channel filter, added to fix a reported "cross-channel leak," turned out to be hiding real data -- reverted after a second look at real device data
+
+Direct same-day follow-up. The earlier fix at `docs/window-ui/SRS.md` FR-7.6 v1.19/v1.25/v2.12
+(`resolveEventLabel()`/`eventAppliesToChannel()` in `playback.ts`, `populateRuleSelect()`'s own
+channel filter in `playbackCalendar.ts`) was built on a specific real-device report: querying
+Channel 1's Timeline returned `Results[]` rows for `Rule5`/`Rule6`/`Rule8`/`Rule9`, Rules configured
+(per `eventrules.cgi?msubmenu=dynamicrules`) on Channel 2. That was read as the device leaking a
+different channel's events into the wrong query, so both the Rule dropdown and the rendered
+timeline were filtered down to only the currently-selected channel's own Rules.
+
+The user came back with the full `eventrules.cgi?msubmenu=dynamicrules` response for the device in
+question (9 Rules: `Rule 0-3` on CH1 — EFD 1/2, MD 1/2 — `Rule 4-8` on CH2 — TD 1/2, Diff 1, MD 1/2)
+and a live screenshot, and confirmed directly: those CH2-configured Rules showing up while CH1 was
+queried are not a leak to filter out — they're real events that belong on CH1's own rendered
+timeline. The device in question is a dual-sensor (optical + thermal) camera where both logical
+channels share one physical recording/timeline; a Rule's *configured* channel (which lens/sensor
+triggers it) is unrelated to which channel's Timeline query surfaces its results.
+
+Reverted across three places: `resolveEventLabel()` now matches a `"Rule<N>"` Type to its
+`RuleName` by Rule number alone, no channel check; `eventAppliesToChannel()` (the
+`Results[]`-filtering helper) is deleted outright, so `updateTimeline()` renders every result the
+device returns; and `populateRuleSelect()`'s Rule dropdown lists every configured Rule regardless
+of channel, not just the selected one. `refreshRuleSelectForChannelChange()` still re-fetches on
+channel change (kept for parity with `resetPlaybackSearchStateForChannelChange()`'s existing reset
+ordering), even though the resulting list no longer actually differs by channel.
+
+The lesson: a plausible-looking "cross-channel leak" diagnosis, even one that matched a real,
+reproducible symptom, was wrong about *which* side was buggy — the device's actual behavior (shared
+timeline across sensor channels) was correct, and the client-side filter added to "fix" it was the
+real bug. Confirming against the device's own configuration data (the full Rule list, not just the
+one symptom) before filtering is what caught it.
+
+See `docs/window-ui/SRS.md` FR-7.6/FR-7.8.2 v2.35 and `docs/window-ui/DESIGN.md` v1.52, and
+`docs/event-timeline-component/`'s own point-marker fix earlier the same day for the unrelated CSS
+bug found while investigating this same screenshot.
+
+## Event Timeline point (diamond) markers drew 5px right of their real time — vertical centering existed, horizontal did not
+
+Reported directly by the user, from a real device's Timeline response and a screenshot: zero-
+duration events (`StartTime === EndTime`, e.g. instantaneous Rule triggers) render as a small
+rotated-square "diamond" marker (`event-timeline.ts`'s `buildItemEl()`, `isPoint` branch) rather
+than a bar, and at a high zoom level (the reported case was ~x32) their positions visibly didn't
+line up with the underlying data.
+
+Root cause: `buildItemEl()` sets the point marker's `left` to the item's exact time (`timeToRatio(
+item.start, ...) * widthPx`), same as a bar item's left edge. But unlike a bar, a point marker is a
+fixed 10px×10px box meant to be *centered* on that time, not left-aligned to it.
+`.event-timeline-item-point` (event-timeline.css) already did this correctly on the vertical axis
+(`top: 50%; margin-top: -5px;`) but had no horizontal counterpart — no `margin-left: -5px;` — so
+`left` landed on the box's left edge, and the marker's actual visual center (what a user reads as
+"the event's time") sat 5px to the *right* of the real time. Bar items were unaffected — their
+`left`/`width` are both computed from real start/end edges, not a fixed centered box. The pattern
+this was missing already existed elsewhere in the same file for the same reason:
+`.event-timeline-custom-time-hit` (the current-time marker's drag hit-target) uses `margin-left:
+-3.5px` specifically so its own `left` targets the exact playhead position despite being wider than
+1px.
+
+Fixed by adding the missing `margin-left: -5px;` to `.event-timeline-item-point`.
+
+See `docs/event-timeline-component/SRS.md` FR-3 v2.16, `DESIGN.md` v2.12, and `TC.md` TC-21.
+
+## `#forward`/`#backward` stuck disabled forever on some cameras — real fix landed in `@melchi45/rtsp-over-websocket`
+
+Reported live: after stepping, `#forward`/`#backward` never re-enabled, with no crash and no
+RTSP-level error visible in either the console or `#rtsp`. The root cause was entirely on the
+`@melchi45/rtsp-over-websocket` side — `StepBufferList.setBufferingLength()` never guarded against a
+`NaN` input (a camera whose SDP has no optional `a=framerate:` line leaves `videoInfo.framerate`
+`undefined`, and `undefined * 4` propagated as `NaN` forever, since `NaN` fails every clamp
+comparison) — so a step's local frame buffer could never reach its (nonsensical, unreachable)
+target size, `stepStatus` never reached `'complete'`, and the `STEP` statechange this app's own
+`updateStepButtonsEnabled()` relies on to re-enable the buttons never fired. See that package's own
+`MEMORY.md` for the full chain.
+
+Temporary `console.log` diagnostics were added to `videoControl.ts`'s `onPlayerStateChange()`,
+`onPlayerFrameRendered()`, and `onstatechange()`'s `STEP` case while investigating (real
+`console.log`, not `changedebug()` — that only writes to the `#debug` textarea, invisible unless
+that panel is open, so it wouldn't have shown up in the console trace the user was pasting). Left in
+place for now, same reasoning as the upstream package's own diagnostics — cheap to keep, worth
+confirming the real fix against the actual reporting device before stripping them.

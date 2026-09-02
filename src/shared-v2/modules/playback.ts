@@ -14,6 +14,7 @@ import { mountEventTimeline, EventTimelineItem, EventTimelineRow } from '../../c
 import { state } from './state';
 import { changedebug, fastJsonStringfy, gettimezonestring } from './helpers';
 import { initSunapiManager } from './device';
+import { onPlayerFrameRendered } from './videoControl';
 
 declare var SunapiError: any;
 declare var RTSPOverWebSocketBaseError: any;
@@ -270,75 +271,33 @@ const EVENT_COLOR_CLASSES = [
  *  state.dynamicRuleEntries -- the same getDynamicRules() entries
  *  playbackCalendar.ts's populateRuleSelect() uses for the Rule dropdown,
  *  with the same `Rule<N>` = entry's 0-based `Rule` field + 1 offset (see
- *  the comment there / MEMORY.md). Also requires the candidate entry's
- *  EventSources to include `channel` (the same 0-based value sent as the
- *  Timeline request's own `ChannelIDList` -- see playbackCalendar.ts's
- *  `channel` computation) -- getDynamicRules() returns every configured
- *  rule device-wide, not scoped to one channel, and `Rule` numbering is
- *  not guaranteed unique across channels, so matching on `Rule` alone
- *  could resolve to a different channel's same-numbered rule. Falls back
- *  to the raw type string when no matching/named rule for this channel is
- *  cached (e.g. the calendar panel hasn't been opened yet this session, or
- *  SUNAPI is Off). "Normal" is not rule-triggered data and is returned
- *  unchanged, never looked up. */
-function resolveEventLabel(type: string, channel: number): string {
-  const key = (type ?? '').toLowerCase();
-  if (key === '' || key === 'normal') {
-    return type;
-  }
-  const ruleNumber = parseInt(key.match(/^rule(\d+)$/)?.[1] ?? '', 10);
-  if (Number.isNaN(ruleNumber)) {
-    return type;
-  }
-  const entry = state.dynamicRuleEntries.find((candidate: any) => {
-    return Number(candidate?.Rule) === ruleNumber - 1
-      && (candidate.EventSources ?? []).some((source: any) => Number(source.Channel) === channel);
-  });
-  return typeof entry?.RuleName === 'string' && entry.RuleName !== '' ? entry.RuleName : type;
-}
-
-/** Whether a Timeline result's raw Type belongs to the currently-selected
- *  channel, per state.dynamicRuleEntries -- the same cache/offset
- *  resolveEventLabel() uses. A real device's Timeline endpoint has been
- *  observed returning `Results[]` rows for a Rule configured on a
- *  *different* channel than the one actually requested via `ChannelIDList`
- *  (reported directly by the user, e.g. Channel 2's Rule5/Rule6/Rule8/
- *  Rule9 showing up while Channel 1 was selected/queried) -- this filters
- *  those out client-side before they ever reach updateTimeline()'s
- *  rows/items, rather than just resolving to a mislabeled/unlabeled entry
- *  the way resolveEventLabel() alone would. "Normal" (not rule-triggered)
- *  always belongs to whichever channel was actually queried, so it's never
- *  filtered. A `Rule<N>` with no matching entry in state.dynamicRuleEntries
- *  at all (not even for a different channel -- e.g. rules not loaded yet
- *  this session) is also kept, not filtered: there's nothing to compare
- *  against, so filtering here could only ever hide data incorrectly,
- *  never correctly.
+ *  the comment there / MEMORY.md). Falls back to the raw type string when
+ *  no matching/named rule is cached (e.g. the calendar panel hasn't been
+ *  opened yet this session, or SUNAPI is Off). "Normal" is not
+ *  rule-triggered data and is returned unchanged, never looked up.
  *
- *  Checks EVERY entry sharing this Rule number, not just the first one
- *  found -- `getDynamicRules()` can list the same numeric Rule configured
- *  separately per channel (the exact cross-channel-leak report above only
- *  makes sense if it does), so a single `.find()` keyed on Rule number
- *  alone can land on a different channel's entry than the one actually
- *  queried and wrongly reject a legitimate same-channel event whose own
- *  entry sits elsewhere in the array. Reported directly by the user as a
- *  real device's timeline looking suspiciously sparse compared to the raw
- *  recording.cgi response -- resolveEventLabel() already avoided this by
- *  matching Rule number AND channel together in one predicate; this now
- *  does the same. */
-function eventAppliesToChannel(type: string, channel: number): boolean {
+ *  Matches purely by Rule number, with no channel constraint -- a real
+ *  device's Timeline response for one channel legitimately includes
+ *  another channel's configured Rules (e.g. a dual-sensor camera whose
+ *  optical/thermal channels share one physical recording timeline), so an
+ *  earlier version of this lookup requiring the candidate's `EventSources`
+ *  to include the currently-selected channel wrongly left those results
+ *  unlabeled/dropped. Reported directly by the user comparing a real
+ *  device's `eventrules.cgi`/`recording.cgi` responses: Channel 2's
+ *  `Rule5`/`Rule6`/`Rule8`/`Rule9` (TD/Diff/MD) are real events that
+ *  belong on Channel 1's timeline too, not a cross-channel leak to filter
+ *  out. See MEMORY.md. */
+function resolveEventLabel(type: string): string {
   const key = (type ?? '').toLowerCase();
   if (key === '' || key === 'normal') {
-    return true;
+    return type;
   }
   const ruleNumber = parseInt(key.match(/^rule(\d+)$/)?.[1] ?? '', 10);
   if (Number.isNaN(ruleNumber)) {
-    return true;
+    return type;
   }
-  const matchingEntries = state.dynamicRuleEntries.filter((candidate: any) => Number(candidate?.Rule) === ruleNumber - 1);
-  if (matchingEntries.length === 0) {
-    return true;
-  }
-  return matchingEntries.some((entry: any) => (entry.EventSources ?? []).some((source: any) => Number(source.Channel) === channel));
+  const entry = state.dynamicRuleEntries.find((candidate: any) => Number(candidate?.Rule) === ruleNumber - 1);
+  return typeof entry?.RuleName === 'string' && entry.RuleName !== '' ? entry.RuleName : type;
 }
 
 /** Collapses runs of overlapping/touching same-`Type` Timeline rows into a
@@ -504,22 +463,16 @@ export function updateTimeline(
       state.eventTimeline = null;
     }
 
-    // Same 0-based channel numbering already sent as this search's own
-    // `ChannelIDList` (see playback.ts's/playbackCalendar.ts's `channel`
-    // computation) -- resolveEventLabel()/eventAppliesToChannel() need it
-    // to disambiguate same-numbered Rules configured on different
-    // channels.
-    const channel = Number(state.getSelectedPlayer().channel) - 1;
-
-    // A real device's Timeline response has been observed including
-    // Results[] rows for Rules configured on a DIFFERENT channel than the
-    // one actually queried via ChannelIDList -- filtered out here, before
-    // anything below ever sees them, rather than left to render mislabeled
-    // (see eventAppliesToChannel()'s own doc comment). Reported directly
-    // by the user.
-    const channelResults = mergeOverlappingSameTypeResults(
-      (results[0].Results ?? []).filter((timeline_element: any) => eventAppliesToChannel(timeline_element.Type, channel)),
-    );
+    // No channel filtering here -- a real device's Timeline response for
+    // one channel legitimately includes another channel's configured Rules
+    // (e.g. a dual-sensor camera whose optical/thermal channels share one
+    // physical recording timeline), so every result the device returns is
+    // shown. An earlier version filtered results down to the currently
+    // selected player's channel (via EventSources[].Channel); reverted
+    // after the user confirmed those "other-channel" results (Channel 2's
+    // TD/Diff/MD Rules while Channel 1 was queried) are real events that
+    // belong on this timeline, not a cross-channel leak. See MEMORY.md.
+    const mergedResults = mergeOverlappingSameTypeResults(results[0].Results ?? []);
 
     // "All" stays one combined line -- Normal + every Rule# event together,
     // colored per rule type. Each distinct Rule# additionally gets its own
@@ -529,7 +482,7 @@ export function updateTimeline(
     // v1.16 / docs/event-timeline-component/.
     const ruleGroupIds: string[] = [];
     const seenRuleGroups = new Set<string>();
-    channelResults.forEach((timeline_element: any) => {
+    mergedResults.forEach((timeline_element: any) => {
       const type = timeline_element.Type;
       const key = (type ?? '').toLowerCase();
       if (key !== '' && key !== 'normal' && !seenRuleGroups.has(key)) {
@@ -548,20 +501,20 @@ export function updateTimeline(
 
     // Normal (not rule-triggered) additionally gets its own detail row,
     // same as every distinct Rule# does above -- only added when at least
-    // one Normal-classed item is actually present in this channel's
-    // results, matching how a Rule# row only appears for rules that
-    // actually occur. Requested directly by the user.
-    const hasNormal = channelResults.some((timeline_element: any) => ((timeline_element.Type ?? '').toLowerCase()) === 'normal');
+    // one Normal-classed item is actually present in these results,
+    // matching how a Rule# row only appears for rules that actually occur.
+    // Requested directly by the user.
+    const hasNormal = mergedResults.some((timeline_element: any) => ((timeline_element.Type ?? '').toLowerCase()) === 'normal');
 
     const colorAssignments = new Map<string, string>();
     const rows: EventTimelineRow[] = [
       { id: 'All', label: 'ALL EVENTS', overview: true },
       ...(hasNormal ? [{ id: 'Normal', label: 'Normal', colorClass: 'evt-normal' }] : []),
-      ...ruleGroupIds.map((type) => ({ id: type, label: resolveEventLabel(type, channel), colorClass: assignEventColorClass(colorAssignments, type) })),
+      ...ruleGroupIds.map((type) => ({ id: type, label: resolveEventLabel(type), colorClass: assignEventColorClass(colorAssignments, type) })),
     ];
 
     const items: EventTimelineItem[] = [];
-    channelResults.forEach((timeline_element: any) => {
+    mergedResults.forEach((timeline_element: any) => {
       try {
         const start = new Date(timeline_element.StartTime);
         const end = new Date(timeline_element.EndTime);
@@ -571,7 +524,7 @@ export function updateTimeline(
           rowId: 'All',
           start,
           end,
-          label: resolveEventLabel(timeline_element.Type, channel),
+          label: resolveEventLabel(timeline_element.Type),
           className: colorClass,
           raw: timeline_element,
         };
@@ -618,25 +571,25 @@ export function updateTimeline(
       // special-cased 'normal' to null out endTime, with no documented
       // rationale (see MEMORY.md); reported by the user as unwanted, so not
       // reproduced here.
+      // rtsp-over-websocket's startTime/endTime/seekingTime now normalize
+      // unconditionally to true UTC at the setter, regardless of device
+      // type (see that repo's MEMORY.md) -- no more camera/nvr branch
+      // needed when writing them. The UI display fields below are no
+      // longer read back from the player (that would now show UTC digits,
+      // not local ones); they're computed independently from `item.start`/
+      // `item.end` via `moment(...).utcOffset(...)`, same as this file's
+      // string-`item.start` handling elsewhere.
       const player = state.getSelectedPlayer();
-      if (player.device === 'camera') {
-        player.startTime = moment(item.start).utcOffset(state.localGmtOffset).format('YYYY-MM-DD[T]HH:mm:ss') + 'Z';
-      } else {
-        player.startTime = item.start.toISOString();
-      }
-      const startDate = player.startTime.split('T')[0];
-      const startTime = player.startTime.split('T')[1].replace(/Z/gi, '');
+      player.startTime = item.start.toISOString();
+      const startDate = moment(item.start).utcOffset(state.localGmtOffset).format('YYYY-MM-DD');
+      const startTime = moment(item.start).utcOffset(state.localGmtOffset).format('HH:mm:ss');
 
       let endDate: string | null = null;
       let endTime: string | null = null;
       if (item.end) {
-        if (player.device === 'camera') {
-          player.endTime = moment(item.end).utcOffset(state.localGmtOffset).format('YYYY-MM-DD[T]HH:mm:ss') + 'Z';
-        } else {
-          player.endTime = item.end.toISOString();
-        }
-        endDate = player.endTime.split('T')[0];
-        endTime = player.endTime.split('T')[1].replace(/Z/gi, '');
+        player.endTime = item.end.toISOString();
+        endDate = moment(item.end).utcOffset(state.localGmtOffset).format('YYYY-MM-DD');
+        endTime = moment(item.end).utcOffset(state.localGmtOffset).format('HH:mm:ss');
       } else {
         player.endTime = null;
       }
@@ -688,14 +641,12 @@ export function updateTimeline(
           if (item !== undefined) {
             applyItemToSelectedTime(item);
           }
+          // rtsp-over-websocket's seekingTime now normalizes unconditionally
+          // to true UTC at the setter regardless of device type (see that
+          // repo's MEMORY.md) -- no more camera-only/#use_gmt-gated branch
+          // needed here.
           const seekTarget = item !== undefined ? item.start : time;
-          if (!(document.getElementById('use_gmt') as HTMLInputElement).checked) {
-            if (player.device === 'camera') {
-              player.seekingTime = moment(seekTarget).utcOffset(state.localGmtOffset).format('YYYY-MM-DD[T]HH:mm:ss') + 'Z';
-            }
-          } else {
-            player.seekingTime = seekTarget.toISOString();
-          }
+          player.seekingTime = seekTarget.toISOString();
         } catch (error) {
           console.error('timeline double-click seek error:', error);
         }
@@ -716,17 +667,13 @@ export function updateTimeline(
           if (player.readyState !== RTSPOverWebSocketPlayState.PLAYING) {
             return;
           }
-          let seekingTime: string | null = null;
-          if (!(document.getElementById('use_gmt') as HTMLInputElement).checked) {
-            if (player.device === 'camera') {
-              seekingTime = moment(time).utcOffset(state.localGmtOffset).format('YYYY-MM-DD[T]HH:mm:ss') + 'Z';
-            }
-          } else {
-            seekingTime = time.toISOString();
-          }
-          if (seekingTime === null) {
-            return;
-          }
+          // rtsp-over-websocket's seekingTime now normalizes unconditionally
+          // to true UTC at the setter regardless of device type (see that
+          // repo's MEMORY.md) -- no more camera-only/#use_gmt-gated branch
+          // needed here. `displayTime` is the separate, purely-local string
+          // used below for updateTimestampReadout()'s own display.
+          const seekingTime = time.toISOString();
+          const displayTime = moment(time).utcOffset(state.localGmtOffset).format('YYYY-MM-DD[T]HH:mm:ss');
           // Reported directly by the user: dragging the marker backward
           // (to an earlier point) and resuming played the stream in
           // reverse instead of forward from the new position. The most
@@ -760,7 +707,7 @@ export function updateTimeline(
             player.playSpeed = '1';
           }
           player.seekingTime = seekingTime;
-          updateTimestampReadout(seekingTime.split('T')[0], seekingTime.split('T')[1].replace(/Z/gi, ''));
+          updateTimestampReadout(displayTime.split('T')[0], displayTime.split('T')[1].replace(/Z/gi, ''), false);
         } catch (error) {
           console.error('custom time seek error:', error);
         }
@@ -772,8 +719,13 @@ export function updateTimeline(
         // event-timeline.ts's own doc comment on why that's safe).
         try {
           const player = state.getSelectedPlayer();
-          player.startTime = startDate + 'T' + startTime + 'Z';
-          player.endTime = endDate !== null && endTime !== null ? endDate + 'T' + endTime + 'Z' : null;
+          // Naive (no trailing 'Z') -- these are raw local-wall-clock DOM
+          // input values, not UTC. rtsp-over-websocket's setter now
+          // GMT-converts a naive string itself (see that repo's MEMORY.md);
+          // appending 'Z' here would instead have it wrongly trusted as
+          // literal UTC.
+          player.startTime = startDate + 'T' + startTime;
+          player.endTime = endDate !== null && endTime !== null ? endDate + 'T' + endTime : null;
           lastSelectedTime = { startDate, startTime, endDate, endTime };
         } catch (error) {
           console.error('selected time change error:', error);
@@ -820,26 +772,28 @@ export function updateTimeline(
  *  clears it on PAUSED/STOPPED) -- every other caller (the 'live' case,
  *  `onCustomTimeSeek`'s drag-seek) just wants it moved.
  *
- *  Reconstructed with or without a trailing `'Z'` depending on
- *  `#universaltime_checkbox` (`player.coordinatedUniversalTime`) -- checked
- *  means this device's own timestamps are being treated as true UTC
- *  (`'Z'` appended, matching `dateStr`/`timeStr`'s own origin: every caller
- *  splits a `'Z'`-suffixed `toISOString()` string), unchecked means they're
- *  local-styled digits instead, same convention this component's own
- *  timeline items already use (`updateTimeline()`'s
- *  `new Date(timeline_element.StartTime)` parses SUNAPI's bare,
- *  timezone-less `"YYYY-MM-DD HH:mm:ss"` wire format as LOCAL time --
- *  standard JS Date parsing of an unsuffixed string, see
+ *  Reconstructed with or without a trailing `'Z'` depending on the explicit
+ *  `isUtcDigits` parameter -- `true` means `dateStr`/`timeStr` are true-UTC
+ *  digits (`'Z'` appended), `false` means they're local-styled digits
+ *  instead (same convention this component's own timeline items already
+ *  use: `updateTimeline()`'s `new Date(timeline_element.StartTime)` parses
+ *  SUNAPI's bare, timezone-less `"YYYY-MM-DD HH:mm:ss"` wire format as LOCAL
+ *  time -- standard JS Date parsing of an unsuffixed string, see
  *  `tools/mock-sunapi-server/server.js`'s `formatLocalSunapiTime()` comment,
  *  confirmed against a real device). Getting this wrong in either direction
  *  shifts the reconstructed instant by this machine's own UTC offset
  *  relative to how the surrounding items are positioned -- reported
  *  directly by the user with a screenshot after an initial version of this
- *  fix always appended `'Z'`, unconditionally. Logged to the console on
- *  every move so the resolved instant can be checked directly against
- *  `#universaltime_checkbox`'s state live in the browser, per the user's
- *  own request. */
-function updateTimestampReadout(dateStr: string, timeStr: string, moveTimelineMarker = true): void {
+ *  fix always appended `'Z'`, unconditionally. Previously read a
+ *  `#universaltime_checkbox` (`player.coordinatedUniversalTime`) global
+ *  toggle instead of an explicit parameter -- removed along with that
+ *  property (see rtsp-over-websocket's MEMORY.md): a single checkbox
+ *  couldn't correctly describe every caller anyway, since `ontimestamp()`'s
+ *  own two branches below pass local (`timestamp.detail.local`) or true-UTC
+ *  (`timestamp.detail.timestamp`) digits interchangeably depending on which
+ *  the player happened to report -- each caller now declares which shape
+ *  it's passing directly. */
+function updateTimestampReadout(dateStr: string, timeStr: string, isUtcDigits: boolean, moveTimelineMarker = true): void {
   if (document.getElementById('timestamp_date') === null) {
     const dateInput = document.createElement('input');
     dateInput.id = 'timestamp_date';
@@ -872,8 +826,7 @@ function updateTimestampReadout(dateStr: string, timeStr: string, moveTimelineMa
   (document.getElementById('timestamp_date') as HTMLInputElement).value = dateStr;
   (document.getElementById('timestamp_time') as HTMLInputElement).value = timeStr;
 
-  const isUniversalTime = (document.getElementById('universaltime_checkbox') as HTMLInputElement).checked;
-  const markerDate = new Date(dateStr + 'T' + timeStr + (isUniversalTime ? 'Z' : ''));
+  const markerDate = new Date(dateStr + 'T' + timeStr + (isUtcDigits ? 'Z' : ''));
   state.eventTimeline?.setCustomTime(moveTimelineMarker ? markerDate : null);
 }
 
@@ -887,11 +840,13 @@ export function ontimestamp(timestamp: any): void {
           updateTimestampReadout(
             new Date(timestamp.detail.local).toISOString().split('T')[0],
             new Date(timestamp.detail.local).toISOString().split('T')[1].replace(/Z/gi, ''),
+            false,
           );
         } else {
           updateTimestampReadout(
             new Date(timestamp.detail.timestamp).toISOString().split('T')[0],
             new Date(timestamp.detail.timestamp).toISOString().split('T')[1].replace(/Z/gi, ''),
+            true,
           );
         }
         break;
@@ -909,16 +864,24 @@ export function ontimestamp(timestamp: any): void {
         // dateStr/timeStr -- see updateTimestampReadout()'s own comment for
         // why that could drift from what this readout displays.
         const isPlaying = elementPlayer.readyState === RTSPOverWebSocketPlayState.PLAYING;
+        // FR-6.11 v2.34: a frame actually being rendered is proof a live
+        // player instance exists -- self-corrects #forward/#backward back
+        // to enabled if a 'playerstatechange'/'statechange' ordering hiccup
+        // left them stuck disabled after playback actually resumed. See
+        // videoControl.ts's onPlayerFrameRendered() and MEMORY.md.
+        onPlayerFrameRendered(elementPlayer.playType);
         if (timestamp.detail.local !== undefined && timestamp.detail.local !== null) {
           updateTimestampReadout(
             new Date(timestamp.detail.local).toISOString().split('T')[0],
             new Date(timestamp.detail.local).toISOString().split('T')[1].replace(/Z/gi, ''),
+            false,
             isPlaying,
           );
         } else {
           updateTimestampReadout(
             new Date(timestamp.detail.timestamp).toISOString().split('T')[0],
             new Date(timestamp.detail.timestamp).toISOString().split('T')[1].replace(/Z/gi, ''),
+            true,
             isPlaying,
           );
         }

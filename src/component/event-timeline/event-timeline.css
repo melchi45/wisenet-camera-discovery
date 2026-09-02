@@ -440,6 +440,7 @@
   top: 50%;
   bottom: auto;
   margin-top: -5px;
+  margin-left: -5px;
   transform: rotate(45deg);
   border-radius: 2px;
 }
@@ -498,6 +499,43 @@
   cursor: ew-resize;
   touch-action: none;
   z-index: 5;
+}
+
+/* Hover/drag affordance for the hit-target above (FR-14 v2.17): a small
+   pill showing an inline-SVG left-right arrow icon (a Unicode glyph such as
+   U+2194 renders as an illegible dash at this size in the default UI font),
+   pinned to the top of the detail-rows track (`rowsContainer`, this element's own positioning
+   parent -- see event-timeline.ts's `wireCustomTimeDrag()`), invisible
+   until `:hover`/`:active`. `.event-timeline-custom-time-hit` has no box
+   of its own to draw into that's wider than the 9px hit area, so this is a
+   pseudo-element on it rather than a further child -- keeps the affordance
+   tied to the exact same hover/active states without extra DOM/JS. Fixed
+   at a static position (not following the pointer mid-drag) since the line
+   and hit area already move with the pointer via `wireCustomTimeDrag()`'s
+   own `left` updates, which this pseudo-element inherits for free by being
+   centered on `left: 50%` of its `::before`-hosting parent. */
+.event-timeline-custom-time-hit::before {
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: 50%;
+  transform: translate(-50%, -100%);
+  width: 18px;
+  height: 14px;
+  background-color: var(--danger);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='%23fff' d='M1 8l4-4v2.5h6V4l4 4-4 4V9.5H5V12z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 12px 12px;
+  border-radius: 3px;
+  opacity: 0;
+  transition: opacity 0.1s ease;
+  pointer-events: none;
+}
+
+.event-timeline-custom-time-hit:hover::before,
+.event-timeline-custom-time-hit:active::before {
+  opacity: 1;
 }
 
 /* Axis */

@@ -30,6 +30,8 @@
 | 2.13 | 2026-09-01 | Youngho Kim | FR-9: the current-time marker's overview ("ALL EVENTS") portion is now a separate element (`customTimeOverviewEl`, inside the overview row's own `.event-timeline-overview-track`) positioned on the overview's own `dataStart`/`dataEnd` basis, instead of one element spanning both rows via a single `left` computed only from the detail rows' `windowStart`/`windowEnd`. Since v2.2, that single `left` put the overview copy at the wrong position once zoomed in, because the overview row's own items are always laid out on the full data extent (same basis `renderOverviewHighlight()` uses), not the current zoom window. The detail-rows marker (`#event_timeline_custom_time`) and its drag hit-target (`#event_timeline_custom_time_hit`, FR-14) are unchanged in behavior, just now appended into `.event-timeline-rows` directly rather than `.event-timeline-rows-wrapper`. Reported directly by the user. |
 | 2.14 | 2026-09-01 | Youngho Kim | FR-8: `onDoubleClick` now also receives the double-clicked `item` when one was hit, and fixes a real ratio-conversion bug in the pixel→time math it already had — the header-column width wasn't subtracted from the double-click listener's own element before computing the click ratio, unlike every other such conversion in this file, so `time` was always shifted later than the actual clicked position. Reported directly by the user: double-clicking inside a 4-minute item during active playback seeked ~3 minutes past that item's own end instead of into it, because `playback.ts`'s `onSelect` (which would normally set `startTime`/`endTime` to the item's real range) also silently no-ops while `PLAYING`. See `docs/window-ui/SRS.md`'s corresponding entry for the caller-side fix. |
 | 2.15 | 2026-09-01 | Youngho Kim | Two changes requested directly by the user: (1) FR-10 (per-row Hide) is removed outright — no row (overview or detail) has its own Hide/Show button any more. (2) FR-3's overview-row collapse button is retargeted: clicking it no longer folds the overview ("ALL EVENTS") row's own track (that stays visible either way) — it now collapses/expands the detail-rows list (`.event-timeline-rows`, every per-Rule row) instead. `.event-timeline-overview-collapsed`/`.event-timeline-hide-btn`/`.event-timeline-row-hidden` are all removed from event-timeline.css; `.event-timeline-rows-collapsed` (applied to `.event-timeline-rows` itself) replaces the former. |
+| 2.16 | 2026-09-02 | Youngho Kim | FR-3: fixed the diamond point-marker's horizontal centering. `.event-timeline-item-point` already centered the 10px box vertically (`top: 50%; margin-top: -5px;`) but had no `margin-left: -5px;` counterpart, so `left` (set to the item's exact time) landed on the box's left edge rather than its center — every point marker (zero-duration event, `end` absent or `<= start`) rendered 5px right of its true time. Bar items were unaffected. Reported directly by the user. |
+| 2.17 | 2026-09-02 | Youngho Kim | FR-14: hovering (or actively dragging) `#event_timeline_custom_time_hit` now shows a small red pill above the marker with a left-right arrow icon, requested directly by the user as a clearer hover cue that the current-time marker can be dragged left/right — `cursor: ew-resize` on its own wasn't an obvious enough affordance for a thin 2px line. Pure CSS (`::before` pseudo-element on the existing hit-target, opacity toggled by `:hover`/`:active`), no DOM/JS change. An inline-SVG icon is used instead of a Unicode arrow glyph (e.g. U+2194) — the glyph rendered as an illegible dash at the pill's small size in the page's default UI font. |
 
 ## Interface
 
@@ -109,7 +111,9 @@ export function mountEventTimeline(config: MountEventTimelineOptions): EventTime
   the actual data happens to fall. Requested directly by the user.
 - **FR-3 (overview row)**: items are drawn on the overview row scaled to the *full data extent*
   (never zooms), one absolutely-positioned element per item — a bar for a real `start`/`end` span,
-  a small rotated-square "diamond" marker for a point item (no `end`, or `end` <= `start`). A
+  a small rotated-square "diamond" marker for a point item (no `end`, or `end` <= `start`), its 10px
+  box centered on the item's exact time both vertically and horizontally (`margin-top`/`margin-left:
+  -5px` — see v2.16, a horizontal-centering bug fixed after being reported directly by the user). A
   draggable, edge-resizable highlight rectangle over this row shows the current zoom window,
   positioned on the same full-extent scale; dragging its body pans the zoom window, dragging either
   edge resizes it (zooms). **As of v2.3/v2.6**, the highlight rectangle and its two edge-handles are
@@ -210,6 +214,10 @@ export function mountEventTimeline(config: MountEventTimelineOptions): EventTime
   readout, in the Video Control panel — **not** `#seeking_date`/`#seeking_time`, an earlier, now-
   retired separate field pair unified into the same readout per the user's explicit request) — this
   component has no SUNAPI/GMT awareness (NFR-1) and does not duplicate that display itself.
+  **v2.17**: hovering (or actively dragging) the drag-hit element also reveals a small pill above the
+  marker showing a left-right arrow icon, purely as a discoverability affordance for the drag —
+  `cursor: ew-resize` alone wasn't an obvious enough cue that the thin 2px line is draggable at all.
+  CSS-only (`.event-timeline-custom-time-hit::before`), no new DOM/JS.
 
 - **FR-15 (Overlapped Id, v2.11)**: the component renders its own "Overlapped Id" select in the
   toolbar, immediately to the left of the 1H/6H/1D/1W/1M/1Y preset buttons (`#overlapped_id`,

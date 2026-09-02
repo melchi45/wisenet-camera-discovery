@@ -61,6 +61,12 @@
 | 1.44 | 2026-09-02 | Youngho Kim | SRS.md FR-7.5 v2.27: `#speed`'s `<option value="1">1x</option>` now carries `selected` — with no `<option>` marked `selected`, the native `<select>` defaulted to whichever came first in DOM order (`0.25x`), disagreeing with `RTSPOverWebSocket.ts`'s own internal `_playSpeed` default (`speed_1x`, value `1`). v2.23's self-correction dispatch only fires on a mismatch between the device's echoed `Scale` and `_playSpeed` — on a fresh page load or a brand-new playback open, the device's `Scale: 1` response matched `_playSpeed`'s already-`1` default exactly, so no mismatch was ever detected and `#speed` stayed on `0.25x` indefinitely despite `1x` actually playing. Reported directly by the user with a real RTSP transcript (`Scale: 1.000000` requested and echoed back), after tracing the entire v2.23 callback chain (`RtspClient.ts` Scale parsing → `errorCallbackFunc` → `onRTSPOverWebSocketError`'s mismatch check) end-to-end and confirming it was working correctly — isolating the bug to this HTML default instead. `src/shared/window.html`'s equivalent markup has the identical missing-`selected` issue; left as-is since that tree is untouched by this reimplementation. See MEMORY.md. |
 | 1.45 | 2026-09-02 | Youngho Kim | SRS.md FR-7.8.6 v2.28: `resetPlaybackSearchStateForChannelChange()`'s `state.getSelectedPlayer().stop()` call individually `try`/`catch`-guarded — it throws `RTSPOverWebSocketError` 0x1000 ("player object is not exist") whenever Play was never clicked yet for the current device (the element's internal player instance is only created lazily inside `play()`), a throw this function's own outer `try`/`catch` previously caught, silently skipping every step after it — including the Calendar's `getCalendarSearch()` re-fetch for the new channel. Same general failure class as several `@melchi45/rtsp-over-websocket`-side fixes this session (an unguarded call that can throw, positioned mid-function, silently aborting everything after it), just on this repo's own calling code instead. Reported directly by the user: `recording.cgi`'s `msubmenu=calendarsearch` request never fired after a channel change. See MEMORY.md. |
 | 1.46 | 2026-09-02 | Youngho Kim | SRS.md FR-7.7.1 retired (v2.29): `#iso_date_time_checkbox`/`onchangeisodatetime()`/`player.useIsoTimeFormat` removed. A review of every `_useIso`-gated branch in `@melchi45/rtsp-over-websocket` (requested by the user, prompted by "isn't `_useIso` unnecessary?") found its `true` state was a dead TODO stub for camera devices in `generateRTSPURL()` (produced a URL with no start/end embedded) and had no principled reason to be configurable for nvr (only affected millisecond-fraction inclusion). That package now always behaves the way `useIsoTimeFormat: true` used to. See `@melchi45/rtsp-over-websocket`'s own `MEMORY.md` and `docs/player/01-elements-interface-exceptions.md` for the underlying change. |
+| 1.47 | 2026-09-02 | Youngho Kim | SRS.md FR-4.6.1 retired (v2.30): `#universaltime_checkbox`/`set_use_universal_time()`/`player.coordinatedUniversalTime` removed, a direct user follow-up to v1.46's `_useIso` removal above. `@melchi45/rtsp-over-websocket`'s `startTime`/`endTime`/`seekingTime` now normalize any input to true UTC unconditionally at the setter, eliminating the "is this already UTC?" ambiguity the checkbox existed to let the user manually resolve. `playback.ts`'s device-branching writes (`applyItemToSelectedTime()`, `onDoubleClick`, `onCustomTimeSeek`) collapse to always `.toISOString()`; `onSelectedTimeChange` now writes a naive (no `'Z'`) string so the player's setter GMT-converts it instead of wrongly trusting it as literal UTC; Selected Time's UI display fields are computed independently from `item.start`/`item.end` (`moment(...).utcOffset(state.localGmtOffset)`) instead of being read back from the player, which would now show UTC digits instead of local ones. `updateTimestampReadout()` (v1.35/v1.36's FR-7.7 note) takes an explicit `isUtcDigits` parameter per caller instead of reading the removed checkbox — a real correctness fix on its own, not just a mechanical swap: a single global checkbox could never correctly describe `ontimestamp()`'s two branches (`timestamp.detail.local` vs. `timestamp.detail.timestamp`), which pass local and true-UTC digits respectively depending on which the player happened to report. See `@melchi45/rtsp-over-websocket`'s own `MEMORY.md` and `docs/player/01-elements-interface-exceptions.md`'s new "Time normalization" section for the underlying change. |
+| 1.48 | 2026-09-02 | Youngho Kim | SRS.md FR-6.11/FR-6.10 v2.31: fixed `#forward`/`#backward` crashing (`Cannot read properties of null (reading 'forward')`, caught by `videoControl.ts`'s own `try`/`catch`) when a step click landed while `@melchi45/rtsp-over-websocket`'s internal `MediaRouter.player` was momentarily `null` from an unrelated RTP-packet-loss teardown. Root cause and fix both landed in that package (a `player !== null` guard replacing a non-null assertion in `MediaRouter.sendCommandData()`, plus a new `playerClosed` field on its `0x0107` error/`'waiting'` event — see its own `MEMORY.md`); this repo's `videoControl.ts`'s `onWaiting()` (previously debug-log-only, FR-6.10) now also disables `#forward`/`#backward` when it sees `playerClosed === true` for the video track, so the UI doesn't leave them clickable into a window where the library-side guard would just silently no-op. Reported directly by the user with a live console trace, which also surfaced an unrelated, already-expected Pause/Resume button-state flip (the camera's own Play/Pause ACKs for the step's forward-then-auto-pause pair) traced to a separate cause. See MEMORY.md. |
+| 1.49 | 2026-09-02 | Youngho Kim | SRS.md FR-6.11/FR-6.10 v2.32, direct follow-up to v1.48: `forward()`/`backward()` (`videoControl.ts`) now disable both `#forward`/`#backward` right after a successful call, re-enabled only by the next `'statechange'` STEP (step completed) or PLAYING (covers v1.48's stalled-step path) event. A fresh console trace after v1.48 shipped showed the null-crash was gone but a new pattern: dozens of overlapping `forward()` calls per second (a focused button's held-key auto-repeat, or rapid re-clicking), which `MediaRouter.ts`'s single shared step state machine doesn't queue — an overlapping click can stomp which direction an in-flight step resolves as. Reported directly by the user with that trace; user chose the debounce fix over treating the flood as intentional test input. See MEMORY.md. |
+| 1.50 | 2026-09-02 | Youngho Kim | SRS.md FR-6.11/FR-6.10 v2.33, direct follow-up to v1.49: fixed a second null-player crash the debounce didn't close — a step's own auto-pause ack could re-enable `#forward`/`#backward` while a separate, still-in-flight buffer-refill re-seek (from an earlier step) had `MediaRouter.player` still `null`; no `'statechange'`-only gate can close a race between two independently-timed async events. `@melchi45/rtsp-over-websocket` now exposes a `'playerstatechange'` event sourced directly from `MediaRouter.ts`'s `player` setter, and `videoControl.ts` routes every step-button-enabling case through a new shared `updateStepButtonsEnabled()` gated on it. Also removed `onWaiting()`'s v2.31 `playerClosed`-specific disable as redundant (same underlying setter call now covered generically) and, as a side effect, made all three enabling cases correctly *disable* (not just leave alone) the step buttons for any non-PLAYBACK `playType`. Reported directly by the user with a fresh live console trace (a `backward()` crash) after v1.49 shipped, who also directly asked whether the null-player window could be eliminated entirely — answered as: not eliminable at the object level, but made fully race-free at the UI level. See MEMORY.md. |
+| 1.51 | 2026-09-02 | Youngho Kim | SRS.md FR-6.11/FR-6.10/FR-7.7 v2.34, direct follow-up to v1.50: fixed `#forward`/`#backward` occasionally staying stuck `disabled` even after video had visibly resumed — an ordering hiccup between the `'playerstatechange'`/`'statechange'` events driving v1.50's `playerAvailable` flag could leave it `false` past the point the player was actually usable again. `ontimestamp()` (`playback.ts`) now calls a new `onPlayerFrameRendered(playType)` (`videoControl.ts`) on every rendered `'playback'`-mode frame, forcing `playerAvailable` back to `true` — a frame being rendered at all is direct proof a live player exists, so this is a safe self-correcting fallback on top of v1.50's event-driven mechanism, not a replacement for it. Reported directly by the user: "video is showing but the buttons never re-enabled." See MEMORY.md. |
+| 1.52 | 2026-09-02 | Youngho Kim | SRS.md FR-7.6/FR-7.8.2 v2.35: reverted v1.19/v1.25/v2.12's channel filtering of Timeline results/Rule dropdown entries. `resolveEventLabel()` (`playback.ts`) now matches a `"Rule<N>"` Type to its `RuleName` purely by Rule number, `eventAppliesToChannel()` is deleted outright (no more `Results[]` filtering before rows/items are built), and `populateRuleSelect()` (`playbackCalendar.ts`) lists every configured Rule regardless of channel. Reported directly by the user with a real device's `eventrules.cgi?msubmenu=dynamicrules` response (9 Rules split across CH1/CH2) and a live screenshot: Channel 2's `Rule5`/`Rule6`/`Rule8`/`Rule9` (TD/Diff/MD) appearing while Channel 1 was queried is real Timeline data for a dual-sensor camera whose channels share one physical recording timeline, not the cross-channel leak the original v1.25 fix assumed it was. `refreshRuleSelectForChannelChange()` still re-fetches on channel change (kept for parity with `resetPlaybackSearchStateForChannelChange()`'s existing reset ordering — see that function's own doc comment) even though the resulting list no longer differs by channel. See MEMORY.md for the full reversal narrative. |
 
 ## `src/shared-v2/` module structure
 
@@ -762,6 +768,20 @@ go through the native host's Digest logic at all; the mock server just returns `
   outgoing `rangeClock`) had no known reason to be configurable. That package now always behaves the
   way `useIsoTimeFormat: true` used to, unconditionally, so no UI control is needed for it anymore.
   This deviation entry is left in place as the historical record of why the control existed at all.
+- **`#universaltime_checkbox` ("Coordinate UTC Time") and `player.coordinatedUniversalTime` removed
+  (SRS.md FR-4.6.1 v2.30) — `src/shared-v2/`-only, unlike `#iso_date_time_checkbox` above.**
+  `src/shared/window.ts` still has this checkbox and still wires it
+  (`getSelectedPlayer().coordinatedUniversalTime = ...checked`, `set_use_universal_time`) — that tree
+  is explicitly untouched per this session's scoping (confirmed with the user). Since
+  `getSelectedPlayer(): any` there, TypeScript doesn't catch the now-nonexistent property at compile
+  time, and at runtime the assignment is a harmless no-op (JS silently creates a plain own-property
+  on the element instead of erroring) — `npm run build` (which still compiles `src/shared/`) is
+  unaffected. Practically: on the legacy page, checking/unchecking this box no longer has any effect
+  on player behavior, since `@melchi45/rtsp-over-websocket` no longer has any code path that reads
+  `coordinatedUniversalTime` — its `true` state is now the only behavior, unconditionally, for both
+  pages. `src/shared-v2/` removes the checkbox and its wiring entirely rather than leaving it as dead
+  markup, per the same "`_useIso`'s `true` state is the only correct one now" reasoning that dropped
+  `#iso_date_time_checkbox` above.
 - **`#forward`/`#backward` are wired to `player.forward()`/`.backward()` (SRS.md FR-6.11 v2.25) —
   no longer a "Known dead control".** `src/shared/`'s original never wires these either (confirmed
   by grep — the buttons only ever have their `disabled` state toggled, no `addEventListener`
@@ -777,3 +797,57 @@ go through the native host's Digest logic at all; the mock server just returns `
   `ontimestamp()`/`updateTimestampReadout()` pipeline (FR-7.7) that FR-6.9 v1.28's
   resume-from-stop-point logic reads from — no changes needed there. `src/shared/`'s own untouched
   original is unaffected and stays fully dead.
+- **`onWaiting()` (`videoControl.ts`, FR-6.10 v2.31) proactively disabled `#forward`/`#backward` on
+  a player-teardown waiting event — not present in `src/shared/`. Removed again at v2.33, not a
+  revert.** `src/shared/`'s own `waiting` handler (equivalent to this repo's `onWaiting()`) stays
+  debug-log-only, same as this file's own FR-6.10 was before v2.31. Following this
+  reimplementation's usual policy of picking up real library-side fixes rather than reproducing
+  `src/shared/`'s exact original behavior (see the `#forward`/`#backward` wiring itself, just
+  above), v2.31 had `onWaiting()` disable the step buttons when `media === 'video' && playerClosed
+  === true`. v2.33 removed this special-case again: `playerClosed` and v2.33's own
+  `'playerstatechange'` event are both sourced from the exact same `MediaRouter.player` setter
+  call, so the newer, general signal already covers this — and, unlike this narrower special-case,
+  does so without a stale re-enable gap (see the v2.33 entry below).
+- **`forward()`/`backward()` (`videoControl.ts`, FR-6.11/FR-6.10 v2.32) debounce themselves via
+  `disabled` — not present in `src/shared/`.** Same "no `src/shared/` equivalent, pick up the
+  real fix rather than reproduce dead-control parity" policy as the two entries just above. After
+  v1.48's null-guard/teardown-disable fix shipped, a follow-up live trace showed the crash was
+  gone but rapid-fire clicks (or a focused button's held-key auto-repeat) still fired dozens of
+  overlapping `forward()`/`backward()` calls per second — `MediaRouter.ts`'s step state machine is
+  one shared `stepFlag`/`stepCmd`/`stepStatus`, not per-direction, so overlapping calls don't
+  queue, they race. Both buttons now disable immediately after a *successful* call (placed after
+  the call, not before or on a thrown error, so a click rejected for the wrong `playType` never
+  gets stuck disabled with nothing left to re-enable it) and re-enable on the next `'statechange'`
+  STEP event — added to `onstatechange()`'s existing STEP case, which previously only touched
+  `#resume_button`/`#capture_button`/`#capture2_button` — or PLAYING event (already covers v1.48's
+  stalled/player-teardown path, so no separate handling needed there).
+- **`onPlayerStateChange()`/`updateStepButtonsEnabled()` (`videoControl.ts`, FR-6.11/FR-6.10 v2.33)
+  make step-button enabling player-availability-aware — not present in `src/shared/`.** Direct
+  follow-up to v1.49: that debounce closed the *click-time* race but not this one — a step's own
+  auto-`pause()` ack (PAUSED `'statechange'`) legitimately re-enables the step buttons (needed so a
+  manually-paused user can still step), but can arrive *while* a separate, still-in-flight
+  buffer-refill re-seek (from an *earlier* step exhausting its local frame buffer) has
+  `MediaRouter.player` still `null` — there's no ordering guarantee between an unrelated pause ack
+  and the re-seek's own completion, so no amount of `'statechange'`-only gating closes it.
+  `@melchi45/rtsp-over-websocket` now sources a `'playerstatechange'` event directly from
+  `MediaRouter.ts`'s `player` getter/setter (ground truth for "does a decoder exist," independent
+  of readyState). `onPlayerStateChange()` tracks this as a module-level `playerAvailable` flag;
+  `updateStepButtonsEnabled(playType)` — now the single choke point every `onstatechange()` case
+  that would touch `#forward`/`#backward` goes through — only enables them when `playerAvailable
+  && playType === PLAYBACK`, and (a side effect, not the point of this fix) unconditionally
+  disables them otherwise, closing a narrower pre-existing gap where those cases previously only
+  ever *set* `disabled = false` inside their own PLAYBACK check and never explicitly cleared it for
+  any other `playType`. Reported directly by the user with a fresh live console trace after v1.49
+  shipped, who also asked directly whether the null-player window could be eliminated at the
+  source; answered as not eliminable at the object level (a new decoder can only be constructed
+  once new stream data confirms its parameters) but now closed at the UI level instead.
+- **`onPlayerFrameRendered()` (`videoControl.ts`, `ontimestamp()`'s `'playback'` case in
+  `playback.ts`, FR-6.11/FR-6.10/FR-7.7 v2.34) — not present in `src/shared/`.** Direct follow-up
+  to v1.50: even with the event-driven `playerAvailable` flag, an ordering hiccup between
+  `'playerstatechange'` and `'statechange'` could leave `#forward`/`#backward` stuck `disabled`
+  after video had visibly resumed — reported directly by the user in exactly those terms. Rather
+  than trying to more tightly sequence two independent event streams, `ontimestamp()` now calls
+  this on every rendered frame during `'playback'` mode, forcing `playerAvailable` back to `true`:
+  a rendered frame is unambiguous, first-hand proof a live player exists, so this self-corrects
+  regardless of what the event-driven path did or didn't do. Purely additive — `onPlayerStateChange()`
+  (v1.50) still does the prompt, immediate disabling; this only ever pulls the flag back to `true`.

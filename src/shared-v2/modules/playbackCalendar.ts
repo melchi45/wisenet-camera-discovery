@@ -155,17 +155,18 @@ export function fetchDeviceLanguage(): void {
     });
 }
 
-/** FR-7.8.2: getDynamicRules(language) -> #event_rules_type, filtered to
- *  the currently-selected channel. Also called when #event_rules_language
- *  changes, and (via refreshRuleSelectForChannelChange()) when the channel
- *  selector changes while this panel is visible. */
+/** FR-7.8.2: getDynamicRules(language) -> #event_rules_type, listing every
+ *  Rule configured on the device (not scoped to the currently-selected
+ *  channel -- see populateRuleSelect()). Also called when
+ *  #event_rules_language changes, and (via
+ *  refreshRuleSelectForChannelChange()) when the channel selector changes
+ *  while this panel is visible. */
 function refreshEventRules(): void {
   const language = (document.getElementById('event_rules_language') as HTMLSelectElement).value;
-  const channel = Number(state.getSelectedPlayer().channel) - 1;
   state.getSunapiManager().getDynamicRules(language)
     .then((ruleEntries: any) => {
       state.dynamicRuleEntries = ruleEntries ?? [];
-      populateRuleSelect(ruleEntries, channel);
+      populateRuleSelect(ruleEntries);
     })
     .catch((error: any) => {
       changedebug('getDynamicRules (playback calendar) error: ' + fastJsonStringfy(error));
@@ -225,19 +226,30 @@ function ensureEventTimelineShell(): void {
 
 /** getDynamicRules() returns each *configured* rule as a whole
  *  (`{Rule: <number>, RuleName: <localized display name>, EventSources:
- *  [{Channel, ...}], ...}`) -- one option per rule whose EventSources
- *  include the selected channel, value `'Rule' + (Rule + 1)` (what
- *  recording.cgi's Timeline search actually expects as its `Type` param --
- *  the endpoint's `Rule<N>` numbering is 1-based, one higher than
- *  `getDynamicRules()`'s own 0-based `Rule` field, e.g. `Rule: 0` ->
- *  `Type=Rule1`), label `RuleName`. Confirmed against a real device's
+ *  [{Channel, ...}], ...}`) -- one option per rule (every rule configured
+ *  on the device, not filtered to the currently-selected channel -- see
+ *  below), value `'Rule' + (Rule + 1)` (what recording.cgi's Timeline
+ *  search actually expects as its `Type` param -- the endpoint's
+ *  `Rule<N>` numbering is 1-based, one higher than `getDynamicRules()`'s
+ *  own 0-based `Rule` field, e.g. `Rule: 0` -> `Type=Rule1`), label
+ *  `RuleName`. Confirmed against a real device's
  *  `eventrules.cgi?msubmenu=dynamicrules` response and a real
  *  `recording.cgi?msubmenu=timeline` request -- see MEMORY.md; this
  *  replaces an earlier, real-device-unverified design that built the list
  *  from EventSources[].Type (e.g. `MotionDetection`) merged across
  *  getDynamicRulesOptions()/getDynamicRules(), which doesn't match what
- *  the Timeline endpoint's `Type` param actually accepts. */
-function populateRuleSelect(ruleEntries: any[], channel: number): void {
+ *  the Timeline endpoint's `Type` param actually accepts.
+ *
+ *  Not filtered by channel: an earlier version only listed rules whose
+ *  `EventSources[]` included the currently-selected channel, on the
+ *  assumption that a Rule configured on a different channel could never
+ *  produce a result relevant to this one. Reverted after the user
+ *  confirmed a real device's Timeline response for one channel legitimately
+ *  includes another channel's configured Rules (e.g. a dual-sensor camera
+ *  whose optical/thermal channels share one physical recording timeline)
+ *  -- every configured Rule can appear in the Timeline regardless of which
+ *  channel is currently selected, so every one is offered here. */
+function populateRuleSelect(ruleEntries: any[]): void {
   // getTimeline()'s own `type` parameter defaults to 'All' when omitted
   // (SunapiManager.ts's buildTimelineUri()) -- offered here explicitly, as
   // the first/default option, so the user can search every event type
@@ -246,10 +258,6 @@ function populateRuleSelect(ruleEntries: any[], channel: number): void {
 
   for (const entry of ruleEntries ?? []) {
     if (typeof entry.Rule !== 'number') {
-      continue;
-    }
-    const appliesToChannel = (entry.EventSources ?? []).some((source: any) => Number(source.Channel) === channel);
-    if (!appliesToChannel) {
       continue;
     }
     options.push({
@@ -266,12 +274,15 @@ function populateRuleSelect(ruleEntries: any[], channel: number): void {
   state.eventTimeline?.setRuleTypes(currentRuleTypeOptions, currentRuleTypeValue);
 }
 
-/** Called from device.ts's changechannel() -- the Rule list is
- *  channel-filtered (see populateRuleSelect()), so switching channels
- *  while this panel is visible needs a fresh getDynamicRules() fetch, not
- *  just a re-render of already-fetched data. No-op while the panel isn't
- *  showing (Live mode, or Playback with SUNAPI Off) to avoid a wasted
- *  request. */
+/** Called from device.ts's changechannel(). The Rule list itself is no
+ *  longer channel-filtered (see populateRuleSelect()) so its content
+ *  doesn't actually change across channels, but this still re-fetches
+ *  (rather than just re-rendering already-fetched data) to keep this in
+ *  sync with resetPlaybackSearchStateForChannelChange()'s own "Rule's
+ *  options/value are repopulated shortly after channel change" reasoning
+ *  (see that function's doc comment) without relying on channel-scoped
+ *  caching assumptions. No-op while the panel isn't showing (Live mode, or
+ *  Playback with SUNAPI Off) to avoid a wasted request. */
 export function refreshRuleSelectForChannelChange(): void {
   const panel = document.getElementById('playback_control_calendar') as HTMLElement | null;
   if (panel !== null && panel.style.display !== 'none') {

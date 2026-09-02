@@ -118,41 +118,50 @@ test.describe('FR-7.8 SUNAPI-driven Calendar search (new page only)', () => {
     await page.context().close();
   });
 
-  test('TC-30: Rule dropdown lists getDynamicRules() entries for the selected channel (value Rule<Rule+1>, label RuleName), and refilters on channel change', async ({ browser }) => {
+  test('TC-30: Rule dropdown lists every getDynamicRules() entry regardless of channel (value Rule<Rule+1>, label RuleName), and stays unchanged across a channel switch', async ({ browser }) => {
     const page = await openNewPageInPlaybackSunapiMode(browser);
 
     // tools/mock-sunapi-server's DYNAMIC_RULES fixture: Rule 0/1 target
-    // Channel 0 (CH1), Rule 2/3/4 target Channel 1 (CH2). #channel defaults
-    // to "1" (window.html) => channel index 0 => only Rule 0/1 should show.
+    // Channel 0 (CH1), Rule 2/3/4 target Channel 1 (CH2). As of SRS.md
+    // FR-7.8.2 v2.35, the dropdown is NOT filtered to the selected channel
+    // -- a real device's Timeline response for one channel legitimately
+    // includes another channel's configured Rules (e.g. a dual-sensor
+    // camera whose channels share one physical recording timeline), so
+    // every configured Rule is offered regardless of `#channel`.
     // recording.cgi's Timeline `Type=Rule<N>` numbering is 1-based (one
     // higher than getDynamicRules()'s own 0-based `Rule` field), so the
-    // dropdown values are Rule1/Rule2, not Rule0/Rule1.
+    // dropdown values are Rule1..Rule5, not Rule0-based.
     // getTimeline()'s own default `type` ('All', SunapiManager.ts's
-    // buildTimelineUri()) is always offered first, ahead of any
-    // channel-filtered Rule options.
-    const initialOptions = await page.locator('#event_rules_type option').evaluateAll(
-      (opts) => opts.map((o) => ({ value: (o as HTMLOptionElement).value, label: o.textContent })),
-    );
-    expect(initialOptions).toEqual([
+    // buildTimelineUri()) is always offered first.
+    const expectedOptions = [
       { value: 'All', label: 'All' },
       { value: 'Rule1', label: '움직임 감지 (CH1)' },
       { value: 'Rule2', label: '화재 조기 감지 (CH1)' },
-    ]);
+      { value: 'Rule3', label: '온도감지 (CH2)' },
+      { value: 'Rule4', label: '움직임 감지 (CH2)' },
+      { value: 'Rule5', label: '온도 차이 (CH2)' },
+    ];
+    const initialOptions = await page.locator('#event_rules_type option').evaluateAll(
+      (opts) => opts.map((o) => ({ value: (o as HTMLOptionElement).value, label: o.textContent })),
+    );
+    expect(initialOptions).toEqual(expectedOptions);
 
     let dynamicRulesRequests = 0;
     page.on('request', (req) => {
       if (req.url().includes('msubmenu=dynamicrules')) dynamicRulesRequests += 1;
     });
 
-    // Switch to channel 2 (index 1) -- Rule dropdown should refetch and
-    // refilter to Rule 2/3/4 (CH2, i.e. Rule3/Rule4/Rule5 once offset), not
-    // just keep showing CH1's rules. tools/mock-sunapi-server's device only
-    // reports 1 real channel (VIDEO_SOURCES/MaxChannel), so #channel (a
-    // <select> here -- videoProfile.ts's populateChannelSelect() swaps it
-    // from <input> once SUNAPI reports channel info) only has a "1" option;
-    // add a "2" option here, test-side only, so this test can exercise the
-    // channel-change codepath without widening the mock fixture (and every
-    // other test that assumes a single channel) just for this one case.
+    // Switch to channel 2 (index 1) -- still re-fetches (kept for parity
+    // with resetPlaybackSearchStateForChannelChange()'s existing reset
+    // ordering, see refreshRuleSelectForChannelChange()'s own doc comment)
+    // but the resulting option list is identical, since it's no longer
+    // channel-scoped. tools/mock-sunapi-server's device only reports 1 real
+    // channel (VIDEO_SOURCES/MaxChannel), so #channel (a <select> here --
+    // videoProfile.ts's populateChannelSelect() swaps it from <input> once
+    // SUNAPI reports channel info) only has a "1" option; add a "2" option
+    // here, test-side only, so this test can exercise the channel-change
+    // codepath without widening the mock fixture (and every other test that
+    // assumes a single channel) just for this one case.
     await page.locator('#channel').evaluate((el: HTMLSelectElement) => {
       const option = document.createElement('option');
       option.value = '2';
@@ -160,20 +169,13 @@ test.describe('FR-7.8 SUNAPI-driven Calendar search (new page only)', () => {
       el.append(option);
     });
     await page.selectOption('#channel', '2');
-    await page.waitForFunction(
-      () => (document.getElementById('event_rules_type') as HTMLSelectElement | null)?.options[1]?.value === 'Rule3',
-    );
+    await page.waitForFunction(() => (document.getElementById('event_rules_type') as HTMLSelectElement | null)?.options.length === 6);
     expect(dynamicRulesRequests).toBeGreaterThan(0);
 
     const ch2Options = await page.locator('#event_rules_type option').evaluateAll(
       (opts) => opts.map((o) => ({ value: (o as HTMLOptionElement).value, label: o.textContent })),
     );
-    expect(ch2Options).toEqual([
-      { value: 'All', label: 'All' },
-      { value: 'Rule3', label: '온도감지 (CH2)' },
-      { value: 'Rule4', label: '움직임 감지 (CH2)' },
-      { value: 'Rule5', label: '온도 차이 (CH2)' },
-    ]);
+    expect(ch2Options).toEqual(expectedOptions);
 
     await page.context().close();
   });

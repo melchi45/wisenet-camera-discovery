@@ -10,6 +10,86 @@ declare var RTSPOverWebSocketBaseError: any;
 declare var RTSPOverWebSocketPlayState: any;
 declare var RTSPOverWebSocketPlayType: any;
 
+/** FR-6.10/FR-6.11 v2.33: ground truth for whether the selected player's
+ *  underlying `MediaRouter.player` (its canvas/video decoder instance)
+ *  currently exists, sourced from the `'playerstatechange'` event
+ *  (`onPlayerStateChange()` below) -- the one signal `@melchi45/rtsp-over-
+ *  websocket` reports directly off that field going null <-> non-null,
+ *  independent of readyState/statechange semantics. Defaults `true`
+ *  because `#forward`/`#backward` start globally disabled (setupPlayback(),
+ *  playback.ts) until the first real PLAYING/PAUSED/STEP statechange, by
+ *  which point a genuine `play()` call has already created a player -- so
+ *  there's no real window before the first `'playerstatechange'` event
+ *  where this default could incorrectly permit a click through.
+ *
+ *  Every place that would enable `#forward`/`#backward` (the PLAYING/
+ *  PAUSED/STEP cases in `onstatechange()` below) now goes through
+ *  `updateStepButtonsEnabled()` instead of setting `.disabled` directly, so
+ *  none of them can re-enable the buttons while this flag says the player
+ *  is momentarily gone -- closing a race the click-time debounce in
+ *  `forward()`/`backward()` alone couldn't: a step's own auto-`pause()` ack
+ *  (PAUSED statechange) can arrive, and previously re-enabled the buttons,
+ *  *while* an unrelated buffer-refill re-seek (triggered by an *earlier*
+ *  step exhausting the local frame buffer) is still in flight and
+ *  `MediaRouter.player` is still null -- a click landing in that specific
+ *  window is exactly the `Cannot read properties of null (reading
+ *  'backward')` crash reported live by the user, with a trace showing the
+ *  disable/re-enable racing exactly as described. See MEMORY.md. */
+let playerAvailable = true;
+
+/** Shared by every `onstatechange()` case that would enable `#forward`/
+ *  `#backward` -- see `playerAvailable`'s own comment above for why this
+ *  needs to be the single choke point rather than each case setting
+ *  `.disabled = false` directly. */
+function updateStepButtonsEnabled(playType: unknown): void {
+  const enabled = playerAvailable && playType === RTSPOverWebSocketPlayType.PLAYBACK;
+  (document.getElementById('forward') as HTMLButtonElement).disabled = !enabled;
+  (document.getElementById('backward') as HTMLButtonElement).disabled = !enabled;
+}
+
+/** FR-6.10/FR-6.11 v2.34: called from `ontimestamp()`'s `'playback'` case
+ *  (playback.ts) on every rendered frame -- a frame actually being rendered
+ *  is direct proof a live player instance exists, independent of whether
+ *  the `'playerstatechange'` event that *should* say so has arrived/been
+ *  processed yet. Added because a real player-teardown/recreate cycle
+ *  (buffer-refill re-seek, resume-from-step, etc.) can hop through more
+ *  than one `MediaRouter.player` reassignment in quick succession, and any
+ *  ordering hiccup between those and the `'statechange'` events that also
+ *  drive `updateStepButtonsEnabled()` could leave `#forward`/`#backward`
+ *  stuck disabled even once video is visibly playing again. This is a
+ *  correcting fallback, not the primary mechanism -- `onPlayerStateChange()`
+ *  below still does the real work of disabling promptly; this only ever
+ *  forces `playerAvailable` *back* to `true` when frames prove it should
+ *  be. Reported directly by the user: buttons stayed disabled after video
+ *  resumed. See MEMORY.md. */
+export function onPlayerFrameRendered(playType: unknown): void {
+  // Temporary diagnostic (2026-09-02): investigating a live report of
+  // #forward/#backward staying disabled forever after a step. changedebug()
+  // only writes to the #debug textarea (invisible unless that panel's
+  // open), so this adds a real console.log to see the actual sequence.
+  console.log('[videoControl] onPlayerFrameRendered:', { playType, playerAvailable: true });
+  playerAvailable = true;
+  updateStepButtonsEnabled(playType);
+}
+
+/** FR-6.10/FR-6.11 v2.33, see `playerAvailable` above. */
+export function onPlayerStateChange(evt: any): void {
+  changedebug('onplayerstatechange: ' + fastJsonStringfy(evt.detail));
+  console.log('[videoControl] onPlayerStateChange:', evt.detail);
+  playerAvailable = evt.detail.available === true;
+  if (!playerAvailable) {
+    (document.getElementById('forward') as HTMLButtonElement).disabled = true;
+    (document.getElementById('backward') as HTMLButtonElement).disabled = true;
+  } else {
+    try {
+      const playType = (document.getElementById(evt.detail.elementId) as any).playType;
+      updateStepButtonsEnabled(playType);
+    } catch (error) {
+      console.error(error);
+    }
+  }
+}
+
 export function play(): void {
   try {
     if (state.getSelectedPlayer().device === 'camera') {
@@ -60,10 +140,27 @@ export function resume(): void {
  *  step's resulting `timestamp` event updates `#timestamp_date`/
  *  `#timestamp_time` via the existing `ontimestamp()` pipeline
  *  (playback.ts), which is what FR-6.9's resume-from-stop-point logic reads
- *  on the next Stop -> Play. Requested directly by the user. */
+ *  on the next Stop -> Play. Requested directly by the user.
+ *
+ *  v2.32: both buttons are now disabled immediately after a successful call
+ *  (not on a thrown error -- that means no request was actually sent, e.g.
+ *  wrong playType, and nothing would ever come back to re-enable them) --
+ *  found live via a console trace showing a focused button's held-key
+ *  auto-repeat (or rapid re-clicking) firing dozens of overlapping
+ *  `forward()`/`backward()` calls per second. `MediaRouter.ts`'s step state
+ *  (`stepFlag`/`stepCmd`/`stepStatus`) is a single shared machine, not
+ *  per-direction, so a `backward()` landing mid-`forward()`-step doesn't
+ *  queue -- it stomps `stepCmd`, corrupting which direction the in-flight
+ *  step resolves as; either button is disabled by either click. Re-enabled
+ *  by `onstatechange()`'s STEP case (this step actually completed) and its
+ *  existing PLAYING case (covers the FR-6.10 v2.31 player-teardown path,
+ *  where no STEP ever fires for the stalled step -- the next PLAYING once a
+ *  new decoder is recreated is what recovers there too). */
 export function forward(): void {
   try {
     state.getSelectedPlayer().forward();
+    (document.getElementById('forward') as HTMLButtonElement).disabled = true;
+    (document.getElementById('backward') as HTMLButtonElement).disabled = true;
   } catch (error) {
     console.error('forward error:', error);
   }
@@ -73,6 +170,8 @@ export function forward(): void {
 export function backward(): void {
   try {
     state.getSelectedPlayer().backward();
+    (document.getElementById('forward') as HTMLButtonElement).disabled = true;
+    (document.getElementById('backward') as HTMLButtonElement).disabled = true;
   } catch (error) {
     console.error('backward error:', error);
   }
@@ -198,9 +297,9 @@ export function onstatechange(evt: any): void {
         console.error(error);
       }
 
-      if ((document.getElementById(evt.detail.elementId) as any).playType === RTSPOverWebSocketPlayType.PLAYBACK) {
-        (document.getElementById('forward') as HTMLButtonElement).disabled = false;
-        (document.getElementById('backward') as HTMLButtonElement).disabled = false;
+      const playTypePlaying = (document.getElementById(evt.detail.elementId) as any).playType;
+      updateStepButtonsEnabled(playTypePlaying);
+      if (playTypePlaying === RTSPOverWebSocketPlayType.PLAYBACK) {
         (document.getElementById('speed') as HTMLSelectElement).disabled = false;
       }
       break;
@@ -242,7 +341,14 @@ export function onstatechange(evt: any): void {
       // is cheap, correct insurance against the next one).
       if ((document.getElementById(evt.detail.elementId) as any)?.playType === RTSPOverWebSocketPlayType.PLAYBACK) {
         try {
-          state.getSelectedPlayer().startTime = lastTimestampDate && lastTimestampTime ? `${lastTimestampDate}T${lastTimestampTime}Z` : null;
+          // Naive (no trailing 'Z') -- #timestamp_date/#timestamp_time hold
+          // local-wall-clock digits (updateTimestampReadout() populates them
+          // from the player's GMT-shifted `local` timestamp field, see
+          // playback.ts), not UTC. rtsp-over-websocket's setter now
+          // GMT-converts a naive string itself (see that repo's MEMORY.md);
+          // appending 'Z' here would instead have it wrongly trusted as
+          // literal UTC.
+          state.getSelectedPlayer().startTime = lastTimestampDate && lastTimestampTime ? `${lastTimestampDate}T${lastTimestampTime}` : null;
           state.getSelectedPlayer().endTime = null;
         } catch (error) {
           console.error('onstatechange STOPPED: resetting startTime/endTime failed:', error);
@@ -288,17 +394,28 @@ export function onstatechange(evt: any): void {
       (document.getElementById('capture_button') as HTMLButtonElement).disabled = false;
       (document.getElementById('capture2_button') as HTMLButtonElement).disabled = false;
 
-      if ((document.getElementById(evt.detail.elementId) as any).playType === RTSPOverWebSocketPlayType.PLAYBACK) {
-        (document.getElementById('forward') as HTMLButtonElement).disabled = false;
-        (document.getElementById('backward') as HTMLButtonElement).disabled = false;
+      const playTypePaused = (document.getElementById(evt.detail.elementId) as any).playType;
+      updateStepButtonsEnabled(playTypePaused);
+      if (playTypePaused === RTSPOverWebSocketPlayType.PLAYBACK) {
         (document.getElementById('speed') as HTMLSelectElement).disabled = true;
       }
       break;
     }
     case RTSPOverWebSocketPlayState.STEP: {
+      // Temporary diagnostic (2026-09-02): investigating a live report of
+      // #forward/#backward staying disabled forever -- if this never logs,
+      // the step is getting stuck before ever completing (see
+      // MediaRouter.ts's/StepBufferList.ts's matching diagnostics).
+      console.log('[videoControl] onstatechange STEP fired');
       (document.getElementById('resume_button') as HTMLButtonElement).disabled = false;
       (document.getElementById('capture_button') as HTMLButtonElement).disabled = false;
       (document.getElementById('capture2_button') as HTMLButtonElement).disabled = false;
+      // v2.32: this step actually completed -- re-enable the debounce disable
+      // forward()/backward() (above) applied when it was kicked off. v2.33:
+      // routed through updateStepButtonsEnabled() like the other cases, so
+      // this doesn't override a concurrent playerAvailable === false (a
+      // buffer-refill re-seek from an *earlier* step, still in flight).
+      updateStepButtonsEnabled((document.getElementById(evt.detail.elementId) as any).playType);
       break;
     }
   }
@@ -325,6 +442,26 @@ export function onClose(message: any): void {
   changedebug('onclose: ' + fastJsonStringfy(message.detail));
 }
 
+/** FR-6.11 follow-up: `@melchi45/rtsp-over-websocket`'s MediaRouter can tear
+ *  down its internal decoder (close()+null) on RTP packet loss during video
+ *  playback (MediaRouter.ts's onWaiting(), gated on supportCovertAndOff) --
+ *  independent of this element's own Play/Pause readyState, which is what
+ *  onstatechange() below actually reads to enable/disable buttons. Without
+ *  this, forward/backward stay clickable during that gap and crash
+ *  (`Cannot read properties of null (reading 'forward')` in MediaRouter.ts).
+ *  `waiting.detail.playerClosed` (added alongside this fix) flags that gap;
+ *  disabling here needs no matching re-enable because the next 'statechange'
+ *  PLAYING event (fired once a new frame recreates the decoder) already
+ *  re-enables both buttons for PLAYBACK, per onstatechange()'s PLAYING case. */
+/** FR-6.10. v2.31 added a `waiting.detail.playerClosed`-gated disable of
+ *  `#forward`/`#backward` here; v2.33 removed it again as redundant, not a
+ *  revert -- `playerClosed` and `onPlayerStateChange()`'s `'playerstatechange'`
+ *  event are now both sourced from the exact same `MediaRouter.player`
+ *  setter call (`onWaiting()`'s covert-mode teardown does `this.player =
+ *  null`, which fires both), so `onPlayerStateChange()` already covers this
+ *  case -- and, unlike this removed special-case, also correctly keeps the
+ *  buttons disabled through any later PAUSED/PLAYING/STEP statechange that
+ *  arrives before the player actually comes back. See MEMORY.md. */
 export function onWaiting(waiting: any): void {
   changedebug('onwaiting: ' + fastJsonStringfy(waiting.detail));
 }

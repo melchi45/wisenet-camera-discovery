@@ -6,7 +6,7 @@
 
 import { createEl, changedebug, fastJsonStringfy, changertsp } from './helpers';
 import { state } from './state';
-import { onError, onmeta, onClose, onResize, onstatechange, oncapture, onstatistics, onWaiting } from './videoControl';
+import { onError, onmeta, onClose, onResize, onstatechange, oncapture, onstatistics, onWaiting, onPlayerStateChange } from './videoControl';
 import { ontimestamp, onchangespeed } from './playback';
 import { onchangemute, onchangevolume } from './audio';
 import { onchangefullscreen } from './screen';
@@ -122,6 +122,7 @@ export function setupPlayerEvents(): void {
     element.addEventListener('capture', oncapture);
     element.addEventListener('statistics', onstatistics);
     element.addEventListener('waiting', onWaiting);
+    element.addEventListener('playerstatechange', onPlayerStateChange);
     element.addEventListener('rtsp', onrtsp);
 
     element.addEventListener('changedevicetype', onchangedevicetype);
