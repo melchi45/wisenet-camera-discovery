@@ -956,6 +956,23 @@ yet. If it comes up again, sequencing (as done twice here) is the known, tested 
 fix requires a version bump + republish of the vendored library, which has been deferred twice now
 in favor of the immediate, real-device-blocking fix.
 
+**A third occurrence, predicted by the takeaway above, this time predating both of the fixes
+already in place**: the user reported the identical symptom (real device, `attributes.cgi` AND
+`system.cgi?msubmenu=deviceinfo` both `401`) one step earlier in the flow than either prior
+instance — `initSunapiManager()`'s own `attributes.cgi` probe (`SunapiManager.init()`) racing
+`fetchDeviceLanguage()`'s `getDeviceInfo()` (`system.cgi`). Root cause: SRS.md v2.16 moved
+`fetchDeviceLanguage()` to fire "as soon as SUNAPI turns On" — `device.ts`'s
+`on_change_use_sunapi_client()` calls `initSunapiManager()` then `fetchDeviceLanguage()`
+back-to-back, synchronously — without accounting for `initSunapiManager()` itself needing a fresh
+digest challenge for `attributes.cgi` at that exact moment (turning SUNAPI on is, by definition,
+always a "cold" digest-cache moment for that device). Same fix pattern as before: `fetchDeviceLanguage()`
+now fires from inside `initSunapiManager()`'s own `attributes.cgi` success handler (`device.ts`)
+instead of from `on_change_use_sunapi_client()` directly, so it's sequenced *after* the request that
+was already guaranteed to need a fresh challenge, rather than racing it. See docs/window-ui/DESIGN.md
+v1.43/SRS.md v2.26. This confirms the takeaway's warning generalizes beyond the two call sites
+already fixed — worth checking any future new SUNAPI call site fired at/near SUNAPI turning On,
+not just ones added inside the Calendar panel.
+
 ## Playback Calendar's own grid was laid out horizontally — a stray `class="field"`, not a component bug
 
 The user reported (with a screenshot): the month/weekday header and the day-number grid inside
@@ -2111,3 +2128,31 @@ still apply.
 
 See `docs/event-timeline-component/SRS.md` FR-3/FR-10 v2.15, DESIGN.md v2.11, TC.md v1.12, and
 PRD.md v2.1.
+
+## `#speed` still showed a stale speed after the v2.23 device-Scale self-correction fix
+
+A follow-up to "`#speed` never reflected a device-corrected RTSP `Scale`" above. Reported directly
+by the user with another real RTSP transcript, `Scale: 1.000000` requested and echoed back in the
+`200 OK` this time -- not a clamped/rejected value, plain normal-speed playback -- yet `#speed`
+still showed `0.25x`. Tracing the entire v2.23 callback chain end-to-end (`RtspClient.ts`'s `Scale`
+header parsing -> the unconditional `errorCallbackFunc` call in the matching `RtspResponseHandler()`
+branch -> the direct, unwrapped `info.callback.error` reference threaded through
+`StreamPlayer.ts`/`RtspClient.SetErrorCallback()` -> `onRTSPOverWebSocketError()`'s `'0x0000'` case)
+found no dropped step anywhere -- `error.scale` reliably arrives intact.
+
+The actual bug was in `src/shared-v2/window.html`, not the callback chain: `#speed`'s `<option>`
+list had no `selected` attribute on any entry, so a native `<select>` defaults to whichever
+`<option>` comes first in DOM order -- `0.25x`, not `1x`. That default silently disagreed with
+`RTSPOverWebSocket.ts`'s own internal `_playSpeed` default (`speed_1x`, value `1`). Since v2.23's
+self-correction only dispatches `changespeed` when the device's echoed `Scale` *differs* from
+`_playSpeed`, a fresh page load or a brand-new playback open -- where the device predictably echoes
+back `Scale: 1`, matching `_playSpeed`'s already-`1` default -- never produced a mismatch for it to
+catch. `#speed`'s wrong HTML-level default was therefore never touched by any code path, and stayed
+on `0.25x` indefinitely regardless of how many times a correctly-`1x` PLAY response came back.
+
+Fixed with one attribute: `<option value="1">1x</option>` now carries `selected`, matching
+`_playSpeed`'s own programmatic default. `src/shared/window.html` has the identical missing-
+`selected` issue in its own `#speed` markup -- left as-is, since that tree is untouched by this
+reimplementation (see CLAUDE.md).
+
+See `docs/window-ui/SRS.md` FR-7.5 v2.27 and `docs/window-ui/DESIGN.md` v1.44.

@@ -66,6 +66,8 @@
 | 2.23 | 2026-09-01 | Youngho Kim | FR-7.5: `#speed` now also updates in the reverse direction — a device-corrected RTSP `Scale` (the device rejects/clamps the requested speed and reports back what it actually applied) is reflected in the dropdown via a new `changespeed` player event, `onchangespeed()`. Root cause and fix live entirely in `@melchi45/rtsp-over-websocket` (`Scale` response-header parsing plus a `resolvePlaySpeedEntry()`-based self-correction, no re-send); this repo only adds the listener. Reported directly by the user with a real RTSP transcript. See MEMORY.md. |
 | 2.24 | 2026-09-01 | Youngho Kim | FR-7.6: `onDoubleClick` (line 368) now prefers the double-clicked item's own real `start`/`end` over the pixel-derived `time` whenever the double-click actually landed on an item — extracted the shared `applyItemToSelectedTime()` from `onSelect`'s body so `onDoubleClick` can also apply it (bypassing `onSelect`'s own `readyState === PLAYING` skip, which otherwise left Selected Time/`startTime`/`endTime` on a stale range during a double-click seek). Root cause was two-fold: `docs/event-timeline-component/SRS.md` FR-8 v2.14's pixel-ratio bug in the widget itself (fixed there), and this module's `onSelect`/`onDoubleClick` never coordinating when a double-click landed directly on an item. Reported directly by the user with a console trace: double-clicking a 4-minute event during active playback left `startTime`/`endTime` unchanged and seeked to neither the old range nor the double-clicked event. See `docs/event-timeline-component/DESIGN.md` v2.10/SRS.md v2.14. |
 | 2.25 | 2026-09-01 | Youngho Kim | Added FR-6.11: `#forward`/`#backward` wired to the player's already-implemented `.forward()`/`.backward()` frame-stepping — removed from § Known dead controls accordingly. Reported directly by the user (Pause worked, but Forward/Backward never did anything); code review found the real methods already existed in `@melchi45/rtsp-over-websocket`, just never called from either `src/shared/` or `src/shared-v2/`. Per the user's explicit request, works independent of Pause/Resume, and Play after a subsequent Stop resumes from the stepped-to position via FR-6.9's existing v1.28 logic. See DESIGN.md's "Deviations from legacy behavior". |
+| 2.26 | 2026-09-02 | Youngho Kim | FR-4.5/FR-7.8.1: `fetchDeviceLanguage()` no longer fires directly from `on_change_use_sunapi_client()`, synchronously alongside `initSunapiManager()` — moved into `initSunapiManager()`'s own `attributes.cgi` success handler instead, so `getDeviceInfo()`'s `system.cgi` request only fires once `attributes.cgi` has actually settled. Firing both concurrently hit the same vendored `@melchi45/rtsp-over-websocket` digest-auth race already documented at FR-7.8.4 (shared, unscoped `authCount` — whichever 401 is processed second gives up instead of retrying with credentials), reported directly by the user against a real device as both `attributes.cgi` and `system.cgi?msubmenu=deviceinfo` coming back `401` together. See DESIGN.md v1.43. |
+| 2.27 | 2026-09-02 | Youngho Kim | FR-7.5: `#speed`'s `<option value="1">1x</option>` now carries `selected` — with none marked `selected`, the native `<select>` defaulted to `0.25x` (first in DOM order), silently disagreeing with `RTSPOverWebSocket.ts`'s own internal `_playSpeed` default (`1`). Since v2.23's self-correction only updates `#speed` on a mismatch between the device's echoed `Scale` and `_playSpeed`, a fresh page load or new playback open (device echoes `Scale: 1`, matching `_playSpeed`'s already-`1` default) never triggered it, leaving `#speed` stuck on `0.25x` indefinitely despite `1x` actually playing. Reported directly by the user with a real RTSP transcript, after the v2.23 path was traced end-to-end and confirmed working — isolating the bug to this HTML default. See DESIGN.md v1.44. |
 
 ## Conventions
 
@@ -311,7 +313,17 @@
   showing the requested speed even when the device was actually playing at a different one — reported
   directly by the user with a real RTSP transcript (`Scale: 0.75` requested, `Scale: 1` echoed back
   in the `200 OK`). A corrected value with no matching `<option>` is a normal native `<select>`
-  no-op.
+  no-op. **v2.27**: `<option value="1">1x</option>` now carries `selected` — with no `<option>`
+  marked `selected`, a native `<select>` defaults to whichever is first in DOM order, which for
+  `#speed` is `0.25x`, not `1x`. That default silently disagreed with
+  `RTSPOverWebSocket.ts`'s own internal `_playSpeed` default (`speed_1x`, value `1`), so on a fresh
+  page load or a brand-new playback open, the device's `Scale: 1` response matched `_playSpeed`
+  exactly — no mismatch for v2.23's self-correction to detect — and `#speed` was left showing
+  `0.25x` indefinitely even though playback was actually running at `1x`. Reported directly by the
+  user with a real RTSP transcript (`Scale: 1.000000` requested and echoed back) after the v2.23
+  self-correction path was traced end-to-end and found to be working correctly, isolating the bug
+  to this HTML default instead. `src/shared/window.html`'s equivalent `#speed` markup has the
+  identical missing-`selected` issue, left as-is since that tree is untouched by this reimplementation.
 - **FR-7.6**: `updateTimeline(results)` builds and mounts a custom event-timeline widget
   (`src/component/event-timeline/`'s `mountEventTimeline()`) — **not** `vis.Timeline` as of v1.16;
   see [`docs/event-timeline-component/`](../event-timeline-component/) (MRD/PRD/SRS/DESIGN/TC) for
@@ -468,7 +480,9 @@
   - **FR-7.8.1 — Language**: `#event_rules_language` itself lives in the Device panel (next to
     `#is_android`), not inside `#playback_control_calendar` — `getDeviceInfo()` is called and its
     selection set to the response's `Language` field as soon as SUNAPI turns On
-    (`device.ts`'s `on_change_use_sunapi_client()` → `playbackCalendar.ts`'s `fetchDeviceLanguage()`),
+    (`device.ts`'s `on_change_use_sunapi_client()` → `initSunapiManager()`'s own `attributes.cgi`
+    success handler → `playbackCalendar.ts`'s `fetchDeviceLanguage()`, **as of v2.21** — not fired
+    directly from `on_change_use_sunapi_client()` itself, see that version's row below),
     regardless of Play Type, rather than waiting for this Calendar panel to first become visible —
     moved directly per the user's explicit request. FR-7.8.2's Rule fetch (below) still reads this
     same select's value once the Calendar panel does show; `initPlaybackCalendarPanel()` reuses

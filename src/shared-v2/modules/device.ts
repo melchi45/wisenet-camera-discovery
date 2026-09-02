@@ -244,6 +244,16 @@ export function initSunapiManager(): void {
           (document.getElementById('is_android') as HTMLInputElement).checked = state.deviceInformation.attributes.IsAndroid;
           player.android = state.deviceInformation.attributes.IsAndroid;
           applySearchByUTCTimeCapability(attributes, changeusegmt);
+          // FR-7.8.1 v2: fired here, only once attributes.cgi's 200 OK is in
+          // hand, not synchronously alongside init() from
+          // on_change_use_sunapi_client() -- see this function's own history:
+          // firing concurrently with attributes.cgi hit the same vendored
+          // SunapiClient digest-auth race documented in playbackCalendar.ts's
+          // runMonthSearch() (shared, unscoped `authCount`; whichever 401 is
+          // processed second gives up instead of retrying with credentials),
+          // reported against a real device as both attributes.cgi and
+          // system.cgi?msubmenu=deviceinfo coming back 401 together.
+          fetchDeviceLanguage();
           return state.getSunapiManager().getVideoSource();
         } else {
           (window as any).popup('<div><h4>Device attributes not ready.</h4></div>');
@@ -373,11 +383,13 @@ export function on_change_use_sunapi_client(): void {
     renderVideoProfileInfo();
   } else {
     state.getSelectedPlayer().sunapiClient = null;
-    initSunapiManager();
     // FR-7.8.1 v2 (src/shared-v2/-only): #event_rules_language now lives in
     // the Device panel (next to Is Android?), fetched as soon as SUNAPI
     // turns On regardless of Play Type -- requested directly by the user.
-    fetchDeviceLanguage();
+    // fetchDeviceLanguage() itself is called from inside
+    // initSunapiManager()'s own attributes.cgi success handler below, not
+    // fired here concurrently with it -- see that call site's comment.
+    initSunapiManager();
   }
   // FR-7.8 (src/shared-v2/-only): switches #playback_control /
   // #playback_control_calendar based on this checkbox + Playback mode.
