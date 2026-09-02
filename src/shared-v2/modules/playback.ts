@@ -738,8 +738,27 @@ export function updateTimeline(
           // whatever speed was last selected. Scoped to this drag-seek
           // path only (not onDoubleClick above) since that's what was
           // reported; not verified against real hardware.
-          (document.getElementById('speed') as HTMLSelectElement).value = '1';
-          player.playSpeed = '1';
+          //
+          // Real bug fix, found live via a console trace the user
+          // captured: `player.playSpeed = '1'`'s own setter calls through
+          // to `speed()` (a real, separate RTSP PLAY request) whenever the
+          // player is actively playing -- which it always is here, this
+          // handler already returned above otherwise. Setting it
+          // unconditionally on every drag-seek meant every single seek
+          // fired *two* requests back-to-back (this one, immediately
+          // followed by the `seekingTime` seek two lines down), each
+          // tearing down and rebuilding the underlying video/audio
+          // decoder -- a redundant, visibly wasteful round trip on the
+          // overwhelmingly common case where speed was already 1x (i.e.
+          // no prior reverse-playback testing happened at all). Skipping
+          // the write entirely when it wouldn't change anything preserves
+          // the original fix's actual intent (still resets a genuinely
+          // stale reverse speed before the seek) while cutting the
+          // request in half for ordinary forward-speed dragging.
+          if (player.playSpeed !== 1) {
+            (document.getElementById('speed') as HTMLSelectElement).value = '1';
+            player.playSpeed = '1';
+          }
           player.seekingTime = seekingTime;
           updateTimestampReadout(seekingTime.split('T')[0], seekingTime.split('T')[1].replace(/Z/gi, ''));
         } catch (error) {

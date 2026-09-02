@@ -326,7 +326,23 @@ export function resetPlaybackSearchStateForChannelChange(): void {
     }
 
     (document.getElementById('timeline') as HTMLElement).style.display = 'none';
-    state.getSelectedPlayer().stop();
+    // Real bug fix (found live, same class of issue as FR-6.9's
+    // onstatechange() STOPPED-branch guards in videoControl.ts): stop()
+    // throws RTSPOverWebSocketError 0x1000 ("player object is not exist")
+    // when Play was never clicked yet -- this element's internal player
+    // instance is only created lazily inside play(). Changing channel
+    // before ever playing (e.g. picking a channel while just browsing the
+    // Calendar) hit that throw here, which this function's own outer
+    // try/catch swallowed -- silently skipping every step below,
+    // including the getCalendarSearch() re-fetch for the new channel.
+    // Reported directly by the user: recording.cgi's calendarsearch
+    // request never fired after a channel change. Guarded so a harmless
+    // "nothing to stop" failure can't abort the rest of this reset.
+    try {
+      state.getSelectedPlayer().stop();
+    } catch (error) {
+      console.error('resetPlaybackSearchStateForChannelChange: stop() failed:', error);
+    }
 
     const panel = document.getElementById('playback_control_calendar') as HTMLElement | null;
     if (panel === null || panel.style.display === 'none') {

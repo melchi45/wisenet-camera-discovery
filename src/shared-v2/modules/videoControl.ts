@@ -156,28 +156,6 @@ export function onchangebestshot(): void {
   }
 }
 
-/** FR-7.7.1: previously a "Known dead control" (no listener at all, see
- *  docs/window-ui/SRS.md). Real bug found via a live console.log trace
- *  (`RTSPOverWebSocket.ts`'s `seeking()`): for camera devices, playback seek
- *  only ever writes the actual outgoing `rangeClock` when
- *  `player.useIsoTimeFormat` is truthy -- otherwise that branch is a no-op
- *  and the previous `rangeClock` value (stale, unrelated to the just-
- *  requested seek target) is resent as-is, so every Event Timeline drag-seek
- *  (FR-14, docs/event-timeline-component/SRS.md) silently landed on the same
- *  wrong position regardless of where the marker was dropped. Reported
- *  directly by the user with the exact console trace. `#iso_date_time_checkbox`
- *  stays unchecked by default (matching legacy's own markup -- no `checked`
- *  attribute), so camera playback seek requires checking it manually; see
- *  `docs/window-ui/DESIGN.md`'s "Deviations from legacy behavior" for why
- *  this wasn't instead defaulted on automatically. */
-export function onchangeisodatetime(): void {
-  try {
-    state.getSelectedPlayer().useIsoTimeFormat = (document.getElementById('iso_date_time_checkbox') as HTMLInputElement).checked;
-  } catch (error) {
-    console.error(error);
-  }
-}
-
 export function setrenderertype(): void {
   try {
     state.getSelectedPlayer().type = (document.getElementById('renderer_type') as HTMLSelectElement).value;
@@ -408,6 +386,5 @@ export function setupVideoControl(): void {
   document.getElementById('framedrop')!.addEventListener('change', onchangeframedrop);
   document.getElementById('iframe')!.addEventListener('change', onchangeframedrop);
   document.getElementById('bestshot')!.addEventListener('change', onchangebestshot);
-  document.getElementById('iso_date_time_checkbox')!.addEventListener('change', onchangeisodatetime);
   document.getElementById('renderer_type')!.addEventListener('change', setrenderertype);
 }

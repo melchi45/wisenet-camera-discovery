@@ -68,6 +68,8 @@
 | 2.25 | 2026-09-01 | Youngho Kim | Added FR-6.11: `#forward`/`#backward` wired to the player's already-implemented `.forward()`/`.backward()` frame-stepping — removed from § Known dead controls accordingly. Reported directly by the user (Pause worked, but Forward/Backward never did anything); code review found the real methods already existed in `@melchi45/rtsp-over-websocket`, just never called from either `src/shared/` or `src/shared-v2/`. Per the user's explicit request, works independent of Pause/Resume, and Play after a subsequent Stop resumes from the stepped-to position via FR-6.9's existing v1.28 logic. See DESIGN.md's "Deviations from legacy behavior". |
 | 2.26 | 2026-09-02 | Youngho Kim | FR-4.5/FR-7.8.1: `fetchDeviceLanguage()` no longer fires directly from `on_change_use_sunapi_client()`, synchronously alongside `initSunapiManager()` — moved into `initSunapiManager()`'s own `attributes.cgi` success handler instead, so `getDeviceInfo()`'s `system.cgi` request only fires once `attributes.cgi` has actually settled. Firing both concurrently hit the same vendored `@melchi45/rtsp-over-websocket` digest-auth race already documented at FR-7.8.4 (shared, unscoped `authCount` — whichever 401 is processed second gives up instead of retrying with credentials), reported directly by the user against a real device as both `attributes.cgi` and `system.cgi?msubmenu=deviceinfo` coming back `401` together. See DESIGN.md v1.43. |
 | 2.27 | 2026-09-02 | Youngho Kim | FR-7.5: `#speed`'s `<option value="1">1x</option>` now carries `selected` — with none marked `selected`, the native `<select>` defaulted to `0.25x` (first in DOM order), silently disagreeing with `RTSPOverWebSocket.ts`'s own internal `_playSpeed` default (`1`). Since v2.23's self-correction only updates `#speed` on a mismatch between the device's echoed `Scale` and `_playSpeed`, a fresh page load or new playback open (device echoes `Scale: 1`, matching `_playSpeed`'s already-`1` default) never triggered it, leaving `#speed` stuck on `0.25x` indefinitely despite `1x` actually playing. Reported directly by the user with a real RTSP transcript, after the v2.23 path was traced end-to-end and confirmed working — isolating the bug to this HTML default. See DESIGN.md v1.44. |
+| 2.28 | 2026-09-02 | Youngho Kim | FR-7.8.6: `resetPlaybackSearchStateForChannelChange()`'s `state.getSelectedPlayer().stop()` call is now individually `try`/`catch`-guarded — it throws 0x1000 ("player object is not exist") whenever Play was never clicked yet for the current device, which this function's own outer `try`/`catch` previously caught, silently skipping every step after it, including the Calendar's `getCalendarSearch()` re-fetch for the new channel. Reported directly by the user: `recording.cgi`'s `msubmenu=calendarsearch` request never fired after a channel change. |
+| 2.29 | 2026-09-02 | Youngho Kim | FR-7.7.1 retired: `#iso_date_time_checkbox`, `onchangeisodatetime()`, and the underlying `player.useIsoTimeFormat` property are removed — a review requested by the user of every `_useIso`-gated branch in `@melchi45/rtsp-over-websocket` found checking the box could produce a camera URL with no start/end embedded (a dead `TODO: camera iso time style generate` stub), and its only real nvr-side effect (millisecond-fraction inclusion) had no known reason to be configurable. That package now always behaves the way `useIsoTimeFormat: true` used to. See DESIGN.md's closing entry and `@melchi45/rtsp-over-websocket`'s own `MEMORY.md`. |
 
 ## Conventions
 
@@ -447,20 +449,20 @@
   is removed — it served its purpose diagnosing the FR-7.7.1 seek bug below and firing on every
   timestamp update (many times a second during playback) was pure noise once that diagnosis was
   done. Removed directly at the user's request.
-- **FR-7.7.1 (v2.19, real behavior — no longer a "Known dead control")**: `#iso_date_time_checkbox`'s
-  `change` event now writes `player.useIsoTimeFormat` (`onchangeisodatetime()`, `videoControl.ts`).
-  Root cause of a real seek bug, found via a live console trace the user added at the reporter's
-  request (`RTSPOverWebSocket.ts`'s `seeking()`): for camera devices, playback seek only writes the
-  actual outgoing `rangeClock` when `player.useIsoTimeFormat` is truthy — the non-ISO branch is a
-  no-op (legacy dead code, preserved as-is in the vendored `@melchi45/rtsp-over-websocket`), so with
-  this property never set, every Event Timeline drag-seek (FR-14,
-  `docs/event-timeline-component/SRS.md`) resent whatever stale `rangeClock` value already existed
-  instead of the just-requested target — camera playback seek silently landed on the same wrong
-  position regardless of where the marker was dropped, confirmed live: `useIso: null` in the console
-  trace while `rangeClock` held a leftover value unrelated to the requested seek time. The checkbox
-  stays unchecked by default (matching legacy's own markup, no `checked` attribute) — camera seek
-  requires checking it manually; see DESIGN.md's "Deviations from legacy behavior" for why this
-  wasn't instead defaulted on automatically.
+- **FR-7.7.1 — retired (v2.29).** `#iso_date_time_checkbox`/`onchangeisodatetime()` (`videoControl.ts`)
+  and the underlying `player.useIsoTimeFormat`/`_useIso` property it wrote have both been removed.
+  This requirement originally existed (v2.19) to work around a real camera seek bug in
+  `@melchi45/rtsp-over-websocket`'s `seeking()`, but DESIGN.md v1.37 already established the actual
+  fix landed entirely in that package and the checkbox's own wiring was "no longer load-bearing."
+  A further review of every `_useIso`-gated branch in that package (requested by the user) found the
+  flag's `true` state was a literal `// TODO: camera iso time style generate (legacy: unimplemented)`
+  no-op for camera devices in `generateRTSPURL()` — checking the box could produce a URL with no
+  start/end embedded in the path at all — and its only real effect for nvr devices (whether a
+  millisecond fraction was included in the outgoing `rangeClock`) had no known reason to be
+  configurable. `@melchi45/rtsp-over-websocket` now always behaves the way `useIsoTimeFormat: true`
+  used to (drop the fraction; for camera, always the real implementation, never the TODO stub) — see
+  that package's own `MEMORY.md` and `docs/player/01-elements-interface-exceptions.md`. See DESIGN.md's
+  "Deviations from legacy behavior" for the closing entry.
 - **FR-7.8 (new, `src/shared-v2/` only — no equivalent in `src/shared/`): SUNAPI-driven Calendar
   search.** When both `#playback_radio` is selected **and** SUNAPI is On, `#playback_control_calendar`
   replaces `#playback_control` entirely (FR-7.1–FR-7.4's manual buttons/fields); every other state
@@ -605,6 +607,14 @@
     FR-7.8.4's month search re-runs (`revealSearchArea: false`) for the new channel. Since Overlapped
     Id is now the shared widget's own single control (FR-15), this same reset also covers FR-7.1's
     manual flow — there's no longer a separate manual-flow Overlapped Id state to reset independently.
+    **v2.28 real bug fix**: item 5's `state.getSelectedPlayer().stop()` call is now individually
+    `try`/`catch`-guarded — `stop()` throws `RTSPOverWebSocketError` 0x1000 ("player object is not
+    exist") whenever Play was never clicked yet for the current device (the element's internal player
+    instance is only created lazily inside `play()`), and that throw was previously caught by this
+    whole function's own outer `try`/`catch`, silently skipping every step *after* it — including
+    item 1's `getCalendarSearch()` re-fetch, so the Calendar's highlighted days never actually
+    refreshed for the new channel. Reported directly by the user: `recording.cgi`'s
+    `msubmenu=calendarsearch` request never fired after a channel change.
   - **FR-7.8.5 — Day click**: only reachable for a highlighted (has-recordings) day. As of v1.23,
     unconditionally re-shows `#calendar_search_area` first (`display: ''`) — defensive, since a day
     stays clickable independently of that container's own visibility, and FR-7.8.6's channel-change

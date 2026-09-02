@@ -2156,3 +2156,51 @@ Fixed with one attribute: `<option value="1">1x</option>` now carries `selected`
 reimplementation (see CLAUDE.md).
 
 See `docs/window-ui/SRS.md` FR-7.5 v2.27 and `docs/window-ui/DESIGN.md` v1.44.
+
+## Channel change during Playback stopped refreshing the Calendar — an unguarded `stop()` call aborted the rest of the reset function
+
+Reported symptom: after switching `#channel` while in Playback + SUNAPI-on mode, `recording.cgi`'s
+`msubmenu=calendarsearch` request (the Calendar's highlighted-recorded-days refresh) never fired at all —
+confirmed by the user watching network traffic directly.
+
+Root cause: `playbackCalendar.ts`'s `resetPlaybackSearchStateForChannelChange()` (called unconditionally from
+`device.ts`'s `changechannel()`) calls `state.getSelectedPlayer().stop()` partway through, unguarded, followed
+by the Calendar-refresh steps (`runMonthSearch()` etc.) later in the same function — all inside one shared
+`try`/`catch` at the function's own top level. `RTSPOverWebSocket.stop()` throws `RTSPOverWebSocketError` 0x1000
+("player object is not exist") whenever the element's internal `player` instance hasn't been created yet — which
+only happens lazily inside `play()` — so changing channel *before ever clicking Play* for the currently selected
+device (e.g. picking a channel while just browsing the Calendar, never having started playback) threw here, and
+the function's own outer `catch` swallowed it silently, skipping every step written after `stop()` — including
+the `getCalendarSearch()` re-fetch that was supposed to refresh the Calendar for the new channel.
+
+This is the same general failure class as several fixes already made this session on the
+`@melchi45/rtsp-over-websocket` side (an unguarded call that can throw, sitting mid-function, silently aborting
+every step written after it) — just on this repo's own calling code this time, not the vendored player library.
+
+Fix: wrapped the `stop()` call in its own local `try`/`catch` (logging and continuing) so a harmless "nothing to
+stop yet" failure can't abort the rest of the channel-change reset. Matches this codebase's existing pattern for
+"a throw here would abort every step below it" bugs — see `videoControl.ts`'s `onstatechange()` STOPPED-branch
+guards (FR-6.9).
+
+See `docs/window-ui/SRS.md` FR-7.8.6 v2.28 and `docs/window-ui/DESIGN.md` v1.45.
+
+## `#iso_date_time_checkbox`/`player.useIsoTimeFormat` removed — the underlying property no longer exists
+
+FR-7.7.1 (v2.19) originally wired this checkbox to work around a real camera drag-seek bug in
+`@melchi45/rtsp-over-websocket`'s `seeking()`. DESIGN.md v1.37 already established the actual fix
+landed entirely in that package, not in this checkbox's wiring, which stayed "correct but no longer
+load-bearing." A further review this session (the user asking "isn't `_useIso` unnecessary?" while
+auditing that package's `rangeClock`/`generateRTSPURL()` construction for possible consolidation)
+found `_useIso === true` was a dead `// TODO: camera iso time style generate (legacy: unimplemented)`
+stub in `generateRTSPURL()`'s camera branches — checking this box could produce a URL with no
+start/end embedded in the path at all — and its only real nvr-side effect (millisecond-fraction
+inclusion in the outgoing `rangeClock`) had no known real-device rationale.
+
+`@melchi45/rtsp-over-websocket` removed `_useIso`/`useIsoTimeFormat` entirely and made every former
+`false`-branch site behave the way `true` always did (see that package's own `MEMORY.md`). With the
+underlying property gone, `#iso_date_time_checkbox`/`onchangeisodatetime()` (`videoControl.ts`) are
+removed from `src/shared-v2/` — there is nothing left for them to control. `src/shared/`'s own copy of
+this checkbox was never wired to anything to begin with (confirmed by grep, same as always) and stays
+untouched, per this repo's own out-of-scope convention for that tree.
+
+See `docs/window-ui/SRS.md` FR-7.7.1 v2.29 and `docs/window-ui/DESIGN.md` v1.46.
