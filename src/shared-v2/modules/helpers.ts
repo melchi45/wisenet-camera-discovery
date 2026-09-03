@@ -98,19 +98,26 @@ function pad(n: number, size: number): string {
   return sign + new Array(size).concat([Math.abs(n)]).join('0').slice(-size);
 }
 
-/** Formats a numeric GMT offset for SUNAPI's Z-suffixed timestamps.
- *  Preserved exactly, including its asymmetry (no colon for a positive
- *  offset, a colon for zero/negative) and its always-"00"-minutes behavior
- *  (the original's own minute-detection regex matches virtually any input,
- *  so the "30" branch is effectively unreachable in practice) -- see
- *  DESIGN.md; not listed as an intentional deviation, so kept as-is. */
+/** Formats a numeric GMT offset (hours, possibly fractional -- e.g. `5.5` for
+ *  GMT+05:30, `5.75` for GMT+05:45) as a `+HH:MM`/`-HH:MM` string for
+ *  SUNAPI's Z-suffixed timestamps. DEVIATION from `src/shared/window.ts`'s
+ *  original `gettimezonestring()` (DESIGN.md): the original's own
+ *  minute-detection regex (`/\d*.?(\w{2})?/`) is fully optional end to end,
+ *  so it matches every input including the empty string -- the "30" branch
+ *  it guards was dead code, and every half/45-minute timezone (GMT+05:30,
+ *  GMT-03:30, GMT+05:45, ...) silently rendered as `:00` instead, which fed
+ *  straight into `moment(...).utcOffset(...)` in playback.ts/
+ *  playbackCalendar.ts and shifted real SUNAPI search queries by up to 45
+ *  minutes. The original also only added a `:` separator for the
+ *  zero/negative branch, producing malformed strings like `+0500` (no
+ *  colon) for positive offsets. Fixed here by computing minutes directly
+ *  from the fractional part instead of pattern-matching the input string. */
 export function gettimezonestring(timezone: number | string): string {
-  let temp = '';
-  const n = timezone as number;
-  temp += n >= 0 ? '+' : '';
-  temp += n > 0 ? pad(Math.floor(parseFloat(String(timezone))), 2) : pad(Math.round(parseFloat(String(timezone))), 2) + ':';
-  temp += /\d*.?(\w{2})?/.test(String(timezone)) ? '00' : '30';
-  return temp;
+  const n = parseFloat(String(timezone));
+  const sign = n < 0 ? '-' : '+';
+  const hours = Math.floor(Math.abs(n));
+  const minutes = Math.round((Math.abs(n) - hours) * 60);
+  return sign + pad(hours, 2) + ':' + pad(minutes, 2);
 }
 
 /** `attributes` (the resolved /stw-cgi/attributes.cgi response) is either a

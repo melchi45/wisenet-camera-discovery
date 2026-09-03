@@ -2449,3 +2449,38 @@ CSS changes afterward.
 
 See `docs/window-ui/DESIGN.md`'s new "Mobile layout" section for the full rule list.
 
+## `gettimezonestring()`'s half/45-minute GMT offset bug (`src/shared-v2/` only)
+
+`src/shared/window.ts`'s original `gettimezonestring()` (line ~2689) and `src/shared-v2/modules/
+helpers.ts`'s port of it both built a SUNAPI-ready `±HH:MM` offset string by pattern-matching the
+input rather than actually computing minutes. The "is this a 30-minute zone" regex
+(`/\d*.?(\w{2})?/`) has every component optional, so it matches literally any string including the
+empty one — the `"30"` branch it guarded was unreachable dead code, and every half-hour-offset
+timezone (GMT+05:30, GMT-03:30, GMT+09:30, ...) silently rendered with `:00` minutes. Positive
+offsets also came out with no `:` separator at all (`+0500`, not `+05:00`) since the original only
+added the colon in the zero/negative branch. This fed straight into `moment(...).utcOffset(...)`
+in `playback.ts`'s `formatManualSearchTime()`/`formatTick()` and `playbackCalendar.ts`'s
+equivalent, so selecting a half-hour timezone silently shifted real SUNAPI search queries by up to
+30 minutes.
+
+A previous session had already found this (see the comment history at `helpers.ts`) but
+deliberately preserved it bug-for-bug, since it wasn't listed in `docs/window-ui/DESIGN.md`'s
+"Deviations from legacy behavior" and the equivalence-testing convention is to not "fix" undocumented
+differences. The user later pasted a full Windows 101-entry GMT timezone list and asked directly
+how to make `_gmt` (which behaved like a plain int) support real GMT offsets, which is the trigger
+to actually fix it. Rewrote `gettimezonestring()` to compute `HH`/`MM` straight from the fractional
+hour value (`Math.floor`/remainder×60) instead of regex-sniffing the input — correct for any
+offset, not just 30-minute ones. Also fixed `device.ts`'s camera-reported-timezone parser (the
+`dateInfo.TimeZoneIndex` branch), which had the same class of bug: it added a flat `+0.5` for any
+non-zero minute part, which is wrong-signed for negative offsets (GMT-03:30 became `-2.5`, not
+`-3.5`) and indistinguishable between 30- and 45-minute zones; now computed as a sign-aware
+`hours + minutes/60`. Added the one 45-minute zone missing from `window.html`'s `#timezone` list
+(`GMT+05:45`, Kathmandu, `value="5.75"`).
+
+`src/shared/window.ts`'s original is left with the bug untouched — it's a frozen source tree per
+repo convention, and this fix is `src/shared-v2/`-only. Checked `tests/window-ui-equivalence/`'s
+TC-11 (the only spec touching `#use_gmt`/`#timezone`) before changing anything: it only asserts
+`#timezone`'s own `value`/`disabled` DOM state, never the resulting query string, so this fix
+needed no test rewrite — just a DEVIATION note added to TC-11's row and DESIGN.md's deviations
+list so a future test targeting the query string itself doesn't get written expecting parity with
+the legacy page. See `docs/window-ui/DESIGN.md` v1.56 and `docs/window-ui/TC.md` v2.13.

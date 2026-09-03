@@ -126,7 +126,7 @@ export function onchangeprotocol(event: any): void {
     }
     (document.getElementById('https_radio') as HTMLInputElement).checked = !!event.detail.https;
     (document.getElementById('http_radio') as HTMLInputElement).checked = !event.detail.https;
-  } catch (error) {
+} catch (error) {
     console.error(error);
   }
 }
@@ -305,11 +305,19 @@ export function initSunapiManager(): void {
           }
 
           if (tmpTimezone.indexOf(':') !== -1) {
-            let timezoneHour: number = parseInt(tmpTimezone.split(':')[0]);
+            // DEVIATION from the original (DESIGN.md): the original
+            // unconditionally added a flat 0.5 for any non-zero minute part,
+            // which is wrong both for negative offsets (adding brings the
+            // magnitude *down*, e.g. GMT-03:30 became -2.5 instead of -3.5)
+            // and for 45-minute zones like GMT+05:45 (Kathmandu), which
+            // collapsed to the same 5.5 as a 30-minute zone. Computed here
+            // as an actual minutes/60 ratio applied in the offset's own
+            // sign direction instead.
+            const isNegative = tmpTimezone.trim().startsWith('-');
+            const timezoneHourPart = Math.abs(parseInt(tmpTimezone.split(':')[0]));
             const timezoneMinute = parseInt(tmpTimezone.split(':')[1]);
-            if (timezoneMinute !== 0) {
-              timezoneHour += 0.5;
-            }
+            const magnitude = timezoneHourPart + timezoneMinute / 60;
+            const timezoneHour: number = isNegative ? -magnitude : magnitude;
             player.GMT = timezoneHour;
             (document.getElementById('timezone') as HTMLInputElement).value = String(timezoneHour);
           }
