@@ -8,7 +8,7 @@ import { NativeSunapiClient } from '../../shared/scripts/nativeSunapiClient';
 import { createNativeTransportFactory } from '../../shared/scripts/nativeWebSocketTransport';
 import { state } from './state';
 import { changedebug, checkUserAccount, applySearchByUTCTimeCapability, fastJsonStringfy } from './helpers';
-import { populateChannelSelect, renderVideoProfileInfo, setChannelWidgetMode } from './videoProfile';
+import { populateChannelSelect, renderVideoProfileInfo, setChannelWidgetMode, setProfileWidgetMode } from './videoProfile';
 import { updatePlaybackSunapiUIVisibility, refreshRuleSelectForChannelChange, resetPlaybackSearchStateForChannelChange, fetchDeviceLanguage } from './playbackCalendar';
 
 declare var IS_EXTENSION: boolean;
@@ -377,8 +377,9 @@ export function on_change_use_sunapi_client(): void {
   const checkbox = document.getElementById('use_sunapi_client_checkbox') as HTMLInputElement;
   if (checkbox.checked === false) {
     state.getSelectedPlayer().sunapiClient = null;
-    // No SUNAPI channel list to choose from anymore.
+    // No SUNAPI channel/profile list to choose from anymore.
     setChannelWidgetMode(false);
+    setProfileWidgetMode(false);
     state.deviceInformation.channels = undefined;
     renderVideoProfileInfo();
   } else {

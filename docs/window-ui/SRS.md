@@ -77,6 +77,8 @@
 | 2.34 | 2026-09-02 | Youngho Kim | FR-6.11/FR-6.10 follow-up to v2.33: `#forward`/`#backward` could still get stuck `disabled` after v2.33's fix — reported directly by the user: "video is visibly playing again but the buttons never re-enabled." `ontimestamp()`'s (`playback.ts`) `'playback'` case now calls a new `onPlayerFrameRendered(playType)` (`videoControl.ts`) on every rendered frame, which forces `playerAvailable` back to `true` and re-runs `updateStepButtonsEnabled()` — a frame actually being rendered is direct proof a live player exists, independent of whether `'playerstatechange'`/`'statechange'` fired and were processed in the expected order. This is a self-correcting fallback layered on top of v2.33's mechanism, not a replacement for it — `onPlayerStateChange()` still does the prompt disabling. |
 | 2.35 | 2026-09-02 | Youngho Kim | FR-7.6/FR-7.8.2: reverted v1.19/v1.25/v2.12's channel filtering — `resolveEventLabel()` now matches purely by Rule number (no `EventSources[].Channel` check), `updateTimeline()` no longer filters `Results[]` by channel at all (the `eventAppliesToChannel()` helper is removed), and FR-7.8.2's Rule dropdown (`populateRuleSelect()`) lists every configured Rule regardless of channel. Reported directly by the user with a real device's `eventrules.cgi?msubmenu=dynamicrules` response (9 Rules across CH1/CH2) and a live screenshot: Channel 2's `Rule5`/`Rule6`/`Rule8`/`Rule9` (TD/Diff/MD) appearing while Channel 1 was selected/queried is not a cross-channel leak to hide — it's real Timeline data for a dual-sensor camera whose channels share one physical recording timeline, and both the Rule dropdown and the rendered results should show it. See MEMORY.md for the full reversal narrative. |
 | 2.36 | 2026-09-03 | Youngho Kim | Added NFR-1 (Mobile layout) below, requested directly by the user. CSS-only (`css/window.css`/`css/table.css`, `src/component/event-timeline/event-timeline.css`) — no control, id, or module behavior changed, so no other FR needed updating. See `docs/window-ui/DESIGN.md`'s new "Mobile layout" section for the full rule list. |
+| 2.37 | 2026-09-03 | Youngho Kim | FR-5.3 updated: the click-vs-`change`-event gap is now fixed here (no longer "preserved as-is") — reported directly by the user (a profile picked in Video Source wasn't taking effect on the player). See `docs/window-ui/DESIGN.md`'s new "Deviations from legacy behavior" entry (v1.57) for the full rationale; `docs/control-panel-data-binding.md` §4 is unchanged and still describes `src/shared/`'s own untouched gap. |
+| 2.38 | 2026-09-03 | Youngho Kim | FR-5.1/FR-5.3 updated: `#profile` becomes a real `<select>` of the channel's profile Names once any exist, mirroring `#channel`'s own input-vs-select swap — requested directly by the user. See `docs/window-ui/DESIGN.md`'s new "Deviations from legacy behavior" entry (v1.58). |
 
 ## Conventions
 
@@ -201,15 +203,43 @@
 
 - **FR-5.1**: `setChannelWidgetMode(useSelect)` swaps `#channel` between a plain `<input>` and a
   `<select>` in place, preserving its current value and re-binding the `change` listener.
+  `setProfileWidgetMode(useSelect)` (v2.38, `src/shared-v2/`-only — see DESIGN.md's "Deviations from
+  legacy behavior" v1.58) mirrors this exactly for `#profile`: swaps it between the original typed
+  `<input>` and a `<select>` of the selected channel's profile Names, re-binding `change` to
+  `onProfileFieldChange`/`changeprofile` as appropriate. Called from `renderVideoProfileInfo()` (below)
+  with `useSelect = profiles.length > 0` for the selected channel, and with `false` from
+  `on_change_use_sunapi_client()`'s SUNAPI-Off branch alongside its existing
+  `setChannelWidgetMode(false)` call. Unlike `setChannelWidgetMode()`'s own input→select swap (whose
+  captured pre-swap value is never re-applied — dead on that path, since a brand-new `<select>` starts
+  with no options to match it against), `renderVideoProfileInfo()` captures `#profile`'s pre-swap value
+  and re-applies it once the new `<option>`s exist, so a value already there (typed manually, or
+  restored from `player.profile`/`.profile_number` by session.ts's `on_player_select()`) carries over
+  instead of being silently discarded. A native `<select>` always has *some* option selected, so with
+  no prior value to restore, `#profile` silently defaults to the channel's first profile (highlighting
+  its row) without firing `change` — same precedent `#channel`'s own select already set.
 - **FR-5.2**: `renderVideoProfileInfo()` is a pure render from `deviceInformation.channels` (no
   network call): populates `#video_source_summary` and one `.profile-row` per profile in
   `#video_profile_list`, each showing Default/Event/Record badges (compared against the channel's
   `ProfilePolicy.DefaultProfile`/`EventProfile`/`RecordProfile` — non-exclusive, a profile can carry
   multiple badges) and an encoding-summary line; the row matching `#profile`'s current value gets
   `.selected`. Full badge-meaning spec: [`docs/control-panel-data-binding.md`](../control-panel-data-binding.md) §4.
-- **FR-5.3**: Clicking a profile row sets `#profile`'s value via direct `.value =` assignment (does
-  **not** fire `change`, so `changeprofile()`/FR-4.4 does not run as a side effect of the click — a
-  known, documented gap, preserved as-is per [`docs/control-panel-data-binding.md`](../control-panel-data-binding.md) §4).
+  Also rebuilds `#profile`'s own `<option>`s when it's in `<select>` mode (FR-5.1), so the row list and
+  the compact `#profile` field always reflect the same profile set.
+- **FR-5.3**: Picking a profile — via `#profile`'s own `<select>` (FR-5.1, v2.38) or by clicking a
+  profile row — applies to the player through one shared `applyProfileSelection()` helper: it calls
+  `changeprofile()` (FR-4.4), then, if a Live stream is already playing, restarts it
+  (`player.stop(); player.play();`) so the new profile takes effect immediately instead of only on the
+  next explicit Play; not applicable to Playback, where `#video_source_group` is already hidden
+  (v1.34). Clicking a profile row still sets `#profile`'s value via direct `.value =` assignment
+  first (works whether `#profile` is currently an `<input>` or `<select>`) — since that never fires
+  the native `change` event, the row-click handler calls `applyProfileSelection()` directly instead of
+  depending on one. `#profile`'s own `<select>` mode doesn't have this gap (a real user selection
+  always fires a genuine `change`, wired to `onProfileFieldChange()`, which calls
+  `applyProfileSelection()` then re-renders the row list to keep its `.selected` highlight in sync).
+  This is a fixed deviation from `src/shared/`'s own gap, documented in
+  [`docs/control-panel-data-binding.md`](../control-panel-data-binding.md) §4 (that doc still
+  describes `src/shared/`'s untouched original, where `#profile` also never becomes a `<select>`) —
+  see `docs/window-ui/DESIGN.md`'s "Deviations from legacy behavior" (v1.57/v1.58).
 
 ## FR-6: Video Control
 

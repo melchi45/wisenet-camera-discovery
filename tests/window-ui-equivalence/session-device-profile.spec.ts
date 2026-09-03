@@ -130,7 +130,11 @@ test.describe('FR-4.5/FR-5 Device SUNAPI bootstrap + Video Profile List (mock SU
     await expectSameState(pages, '#channel', ['tagName', 'value']);
     await expectSameState(pages, '#channel option', ['textContent']);
     await expectSameState(pages, '#video_source_summary', ['textContent']);
-    await expectSameState(pages, '#video_profile_list', ['innerHTML']);
+    // #video_profile_list's innerHTML is NOT compared here -- see TC-13's
+    // own dedicated assertion of the #profile select-vs-input deviation
+    // this now causes (new page: <select> auto-defaults to the channel's
+    // first profile, highlighting its row; old page: #profile stays an
+    // empty <input>, no row highlighted).
     await expectSameState(pages, '#use_gmt', ['checked']);
     await expectSameState(pages, '#timezone', ['value', 'disabled']);
     await expectSameState(pages, '#play_button', ['disabled']);
@@ -174,15 +178,52 @@ test.describe('FR-4.5/FR-5 Device SUNAPI bootstrap + Video Profile List (mock SU
     expect(attributesRequests).toBe(1);
   });
 
-  test('TC-13: clicking a profile row sets #profile without firing change (documented gap, reproduced identically)', async () => {
+  test('TC-13: clicking a profile row sets #profile identically; new page also applies it to the player (fixed deviation)', async () => {
     await clickCheckboxBoth(pages, '#use_sunapi_client_checkbox');
     await pages.oldPage.waitForSelector('.profile-row');
     await pages.newPage.waitForSelector('.profile-row');
 
+    // New deviation (SRS.md FR-5.1-style, DESIGN.md v1.57): #profile
+    // becomes a real <select> of the channel's profile Names once any
+    // exist, mirroring #channel's own input-vs-select swap -- requested
+    // directly by the user ("Channel 처럼 ... Profiles의 Name 을 select
+    // box 으로 적용"). A native <select> always has some option selected,
+    // so it silently defaults to the channel's first profile without
+    // firing 'change' -- same precedent #channel's own select already
+    // set (defaults to its first channel the same way). The old page's
+    // #profile stays a plain, still-empty <input> until a row is clicked.
+    const newProfileTag = await pages.newPage.locator('#profile').evaluate((el) => el.tagName);
+    const oldProfileTag = await pages.oldPage.locator('#profile').evaluate((el) => el.tagName);
+    expect(newProfileTag).toBe('SELECT');
+    expect(oldProfileTag).toBe('INPUT');
+    const newDefaultedValue = await pages.newPage.locator('#profile').inputValue();
+    const oldDefaultedValue = await pages.oldPage.locator('#profile').inputValue();
+    expect(newDefaultedValue).not.toBe('');
+    expect(oldDefaultedValue).toBe('');
+
     await pages.oldPage.locator('.profile-row').first().click();
     await pages.newPage.locator('.profile-row').first().click();
 
+    // #profile's own value and the .selected highlight still match --
+    // FR-5.3's DOM-visible behavior is unchanged by the fix below.
     await expectSameState(pages, '#profile', ['value']);
     await expectSameState(pages, '.profile-row.selected', ['textContent']);
+
+    const clickedProfileName = await pages.newPage.locator('#profile').inputValue();
+
+    // Fixed on the new page (reported directly by the user: a profile
+    // picked in Video Source wasn't taking effect on the rtsp-over-websocket
+    // player): the row-click handler now calls changeprofile() directly
+    // instead of relying on a 'change' event that direct .value assignment
+    // never dispatches, so the player's own .profile is updated immediately.
+    // See docs/window-ui/DESIGN.md's "Deviations from legacy behavior".
+    const newPlayerProfile = await pages.newPage.evaluate(() => (document.querySelector('rtsp-over-websocket') as any).profile);
+    expect(newPlayerProfile).toBe(clickedProfileName);
+
+    // Old page: legacy gap preserved exactly, per
+    // docs/control-panel-data-binding.md §4 -- the click alone never
+    // updates the player's .profile there.
+    const oldPlayerProfile = await pages.oldPage.evaluate(() => (document.querySelector('rtsp-over-websocket') as any).profile);
+    expect(oldPlayerProfile).not.toBe(clickedProfileName);
   });
 });

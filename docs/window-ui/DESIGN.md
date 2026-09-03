@@ -70,6 +70,8 @@
 | 1.53 | 2026-09-03 | Youngho Kim | Added a `@media (max-width: 768px)` mobile layout, requested directly by the user ("모바일에 맞게 레이아웃을 수정해야 합니다"). `#left_panel`/`#right_panel` (`css/window.css`, shared with `src/shared/`) drop out of their desktop `position: absolute` 30/70 side-by-side split below that breakpoint and stack full-width in normal document flow instead (video on top, controls below); `#drag`'s resize handle (meaningless once stacked) is hidden. `.playback-calendar-timeline-row`'s Calendar (min-width 240px) + Event Timeline (min-width 380px) side-by-side pairing switches to a full-width vertical stack, since the two panes' combined min-width alone exceeds a phone-width viewport. `.datatable-scroll` (`css/table.css`) gains `overflow-x: auto` plus a mobile-only `min-width: 640px` on the table itself, so the 6-column Discovery result table scrolls horizontally within its own panel instead of squeezing every column illegibly. See "Mobile layout" below for the full rule list; `docs/event-timeline-component/DESIGN.md`'s own History has the matching Event Timeline label-column entry. |
 | 1.54 | 2026-09-03 | Youngho Kim | Pure DOM-order change in `#playback` panel body, requested directly by the user: `#video_source_group` ("Video Source (selected channel)") moved from right after `#device` to right before `.playback-calendar-timeline-row`/`#playback-calendar-timeline` — new sibling order is `#device` → `#video_control_info` → `#playback_control` → `#video_source_group` → `#playback-calendar-timeline` → `#playback_video_controls`. No id/class/attribute changed on any element, no `updatePlaybackSunapiUIVisibility()` (or any other script) logic touched — this is markup-order only, so v1.34's `isPlayback`-driven `display: block`/`none` toggle on `#video_source_group` is unaffected. |
 | 1.55 | 2026-09-03 | Youngho Kim | `#renderer_type`'s first `<option>` relabeled from `value="null"`/`null` to `value="auto"`/`auto`, requested directly by the user pointing out the mislabeling. Purely cosmetic: `RTSPOverWebSocket.ts`'s `type` property setter (`@melchi45/rtsp-over-websocket`) already treated the strings `'null'` and `'auto'` identically (both clear `info.media.mode` to `null`, i.e. let the player element auto-select its own renderer) — `'auto'` is that setter's actual documented/canonical value, `'null'` was never anything but an equivalent alias, so `setrenderertype()` (`videoControl.ts`) needed no change. `src/shared/window.html`'s equivalent select still reads `value="null"`/`null` — left as-is, that tree is untouched by this reimplementation (see "module structure" above). |
+| 1.57 | 2026-09-03 | Youngho Kim | New deviation, reported directly by the user (a profile picked in Video Source wasn't taking effect on the `rtsp-over-websocket` player): `videoProfile.ts`'s profile-row click handler (FR-5.3) now calls `changeprofile()` directly instead of relying on a `change` event that direct `.value =` assignment never dispatches, and restarts an already-playing Live stream so the new profile takes effect immediately. See "Deviations from legacy behavior" below and `tests/window-ui-equivalence/session-device-profile.spec.ts`'s updated TC-13. |
+| 1.58 | 2026-09-03 | Youngho Kim | New deviation, requested directly by the user immediately after v1.57 ("Channel 처럼 ... Profiles의 Name 을 select box 으로 적용"): `#profile` now becomes a real `<select>` of the channel's profile Names once any exist, mirroring `#channel`'s own `setChannelWidgetMode()` via a new `setProfileWidgetMode()`. See "Deviations from legacy behavior" below and `tests/window-ui-equivalence/session-device-profile.spec.ts`'s updated TC-10/TC-11/TC-13. |
 | 1.56 | 2026-09-03 | Youngho Kim | New deviation, requested directly by the user (a pasted Windows 101-entry GMT list, asking how to properly support 30/45-minute-offset timezones instead of `_gmt` acting like an int): `helpers.ts`'s `gettimezonestring()` no longer reproduces the original's broken minute-detection regex (`/\d*.?(\w{2})?/` is fully optional end-to-end, so it matches literally any input and its "30" branch was dead code) or its asymmetric `+HHMM`/`-HH:MM` colon placement — it now computes `HH:MM` directly from the fractional hour (`Math.floor`/remainder × 60), correct for any offset including 45-minute zones. This feeds `moment(...).utcOffset(...)` in `playback.ts`'s `formatManualSearchTime()`/`formatTick()` and `playbackCalendar.ts`'s equivalent, so half/45-minute-offset searches (GMT+05:30, GMT-03:30, GMT+05:45, ...) now query SUNAPI with the correct offset instead of silently rounding to `:00`. `device.ts`'s camera-reported-timezone parser (`dateInfo.TimeZoneIndex` branch) is fixed the same way: it previously added a flat `+0.5` for any non-zero minute part, wrong for negative offsets (moved the magnitude *down* instead of up, e.g. GMT-03:30 became `-2.5`) and for 45-minute zones (collapsed to the same value as 30-minute ones); now computed as a sign-aware `hours + minutes/60`. `window.html`'s `#timezone` select gains a `GMT+05:45` (`value="5.75"`, Kathmandu) option — the one 45-minute zone missing from the existing list. `src/shared/window.ts`'s original `gettimezonestring()` (line ~2689) has the identical bug and is left untouched, per repo convention that `src/shared/` is a frozen source tree; this is a `src/shared-v2/`-only fix, added to "Deviations from legacy behavior" below since `tests/window-ui-equivalence/`'s TC-11 only checks `#use_gmt`/`#timezone`'s own DOM state (not the resulting SUNAPI query string), so no test needed rewriting. |
 
 ## `src/shared-v2/` module structure
@@ -934,3 +936,64 @@ go through the native host's Digest logic at all; the mock server just returns `
   source tree, per repo convention) — this is `src/shared-v2/`-only, and doesn't require any
   `tests/window-ui-equivalence/` rewrite since TC-11 only asserts `#use_gmt`/`#timezone`'s own DOM
   state, not the resulting query string.
+- **Clicking a Video Source profile row now actually applies to the player (SRS.md FR-5.3,
+  `videoProfile.ts`, v1.57) — `src/shared/`'s documented gap is not reproduced.** Both trees set
+  `#profile`'s `.value` via direct assignment on row click, which never fires the `<input>`'s
+  native `change` event — the only listener that writes the selection onto the player
+  (`changeprofile()`/FR-4.4, wired to `#profile`'s `change`). `docs/control-panel-data-binding.md`
+  §4 documented this as a real, reproducible gap in `src/shared/window.ts`: the visible field and
+  row highlight update, but `getSelectedPlayer().profile`/`.profile_number` silently keep whatever
+  value was set before the click, so the next Play could start on the wrong profile. Reported
+  directly by the user, in exactly those terms, against `src/shared-v2/`. Fixed there by having the
+  row-click handler call `changeprofile()` directly (imported from `device.ts` — circular with this
+  module the same already-established way `changechannel` is, see this file's own comment) instead
+  of depending on a `change` event that direct `.value` assignment never dispatches. Also newly
+  restarts an already-playing Live stream (`player.stop(); player.play();`) so a profile switch
+  takes effect immediately rather than only on the next explicit Play — `@melchi45/rtsp-over-
+  websocket` has no live/mid-stream profile-switch API, it only reads `.profile`/`.profile_number`
+  when generating the RTSP URL inside `play()`. Scoped to Live only: `#video_source_group` is
+  already hidden during Playback (v1.34, above) since profile selection doesn't apply to an
+  already-recorded segment. `player.stop()` sets `.readyState = STOPPED` synchronously before
+  returning (confirmed by reading `RTSPOverWebSocket.ts`), so calling `.play()` immediately after is
+  safe — the same stop-then-play sequencing FR-6.5's own `#reconnect`/STOPPED-statechange path
+  already relies on, just triggered here directly instead of via that event. `src/shared/window.ts`'s
+  own untouched original keeps the gap exactly as `docs/control-panel-data-binding.md` §4 describes
+  it — this was an explicit, scoped decision confirmed with the user (fix `src/shared-v2/` only, not
+  the legacy tree). `tests/window-ui-equivalence/session-device-profile.spec.ts`'s TC-13 was updated
+  to assert this exact asymmetry (new page's player `.profile` updates immediately, old page's does
+  not), rather than the previous "reproduced identically" assertion.
+- **`#profile` becomes a real `<select>` of the channel's profile Names, mirroring `#channel`
+  (SRS.md FR-5.1/FR-5.3, `videoProfile.ts`, v1.58) — `src/shared/` keeps `#profile` a plain
+  `<input>`.** Requested directly by the user immediately after v1.57 above, pointing at
+  `#channel`'s own input-vs-select swap (`setChannelWidgetMode()`) as the pattern to follow: "Channel
+  처럼 ... Profiles의 Name 을 select box 으로 적용". A new `setProfileWidgetMode(useSelect)`
+  mirrors `setChannelWidgetMode()` exactly — swaps `#profile` between the original typed `<input>`
+  (still used before SUNAPI supplies any profile list, or for a channel with none — same fallback
+  `#channel` has) and a fresh `<select>`, re-binding `change`, called from `renderVideoProfileInfo()`
+  once `profiles.length > 0` for the selected channel. Unlike `setChannelWidgetMode()`'s own
+  input→select swap (whose captured `currentValue` is a documented dead value on that path — a
+  brand-new `<select>` starts with no options, so there's nothing yet to match it against, and
+  `populateChannelSelect()` never re-applies it afterward either), `renderVideoProfileInfo()` here
+  captures `#profile`'s pre-swap value and re-applies it against the freshly built `<option>`s once
+  they exist — needed because, unlike channel, `#profile` can legitimately already hold a real value
+  at swap time (typed manually, or restored from `player.profile`/`.profile_number` by session.ts's
+  `on_player_select()` on a Player List switch) that should carry over rather than silently reset to
+  whatever a bare `<select>` defaults to. The existing profile-list rows (badges/meta, v1.57's fix)
+  are unchanged and still work identically — clicking one now also sets the `<select>`'s value (same
+  `.value =` assignment works on both element types) via the same shared `applyProfileSelection()`
+  helper the select's own `change` listener uses, so either picking mechanism applies consistently
+  (including the v1.57 live-restart behavior) and keeps the other one's UI in sync (the select
+  listener also re-renders the row list to refresh its `.selected` highlight). One consequence,
+  inherent to `<select>` always having *some* option selected (same as `#channel`'s own precedent):
+  once profiles exist for a channel and `#profile` had no matching prior value, the new page silently
+  defaults to that channel's first profile (auto-highlighting its row) without firing `change` (so
+  `changeprofile()` doesn't run for this implicit default, again matching `#channel`'s own established
+  behavior) — the old page's `#profile` stays an empty, unhighlighted `<input>` until a row is
+  actually clicked. `tests/window-ui-equivalence/session-device-profile.spec.ts`'s TC-10/TC-11 no
+  longer compares `#video_profile_list` innerHTML directly (it now differs by this exact default-
+  highlight asymmetry); TC-13 gained its own explicit assertion of the tagName/default-value
+  asymmetry instead. `on_change_use_sunapi_client()`'s SUNAPI-Off branch now also calls
+  `setProfileWidgetMode(false)` alongside its existing `setChannelWidgetMode(false)`, reverting
+  `#profile` back to a plain input when there's no longer any profile list to choose from — same
+  reasoning as `#channel`'s own revert there. `src/shared/window.ts`'s own untouched original is
+  unaffected, per the same explicit, scoped decision as v1.57 (fix `src/shared-v2/` only).
