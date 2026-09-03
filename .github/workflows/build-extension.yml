@@ -51,7 +51,18 @@ jobs:
         id: pkg
         run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
 
-      - run: npm run build:extension
+      # `npm run build:extension` alone (a raw tsc+vite invocation) does NOT
+      # assemble dist/chrome-extension/ -- it only compiles background.js
+      # into it, missing manifest.json and everything else the zip below
+      # needs. `npm run build` (scripts/build.js's full orchestrator) is
+      # what actually assembles a complete dist/chrome-extension/.
+      - run: npm run build
+
+      # dist/chrome-extension/'s window.html/window.js/scripts/socket.js are
+      # then overwritten with the src/shared-v2/ rewrite -- see CLAUDE.md's
+      # "src/shared-v2/ ... build output is no longer isolated" note. Without
+      # this the released zip would ship the old src/shared/ UI.
+      - run: npm run build:shared-v2
 
       - name: Zip dist/chrome-extension/
         run: |

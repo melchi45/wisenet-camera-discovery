@@ -75,5 +75,13 @@ jobs:
       - name: Assemble dist/nodejs/
         run: node scripts/build.js node
 
+      # dist/nodejs/examples/public/'s window.html/window.js/scripts/socket.js
+      # are then overwritten with the src/shared-v2/ rewrite -- see
+      # CLAUDE.md's "src/shared-v2/ ... build output is no longer isolated"
+      # note. Without this the published package's example server would
+      # still serve the old src/shared/ UI.
+      - name: Overwrite example server UI with src/shared-v2/
+        run: npm run build:shared-v2
+
       - name: Publish to GitHub Packages
         run: npm publish ./dist/nodejs --tag ${{ steps.version.outputs.npm_tag }}
