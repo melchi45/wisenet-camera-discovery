@@ -67,6 +67,7 @@
 | 1.50 | 2026-09-02 | Youngho Kim | SRS.md FR-6.11/FR-6.10 v2.33, direct follow-up to v1.49: fixed a second null-player crash the debounce didn't close — a step's own auto-pause ack could re-enable `#forward`/`#backward` while a separate, still-in-flight buffer-refill re-seek (from an earlier step) had `MediaRouter.player` still `null`; no `'statechange'`-only gate can close a race between two independently-timed async events. `@melchi45/rtsp-over-websocket` now exposes a `'playerstatechange'` event sourced directly from `MediaRouter.ts`'s `player` setter, and `videoControl.ts` routes every step-button-enabling case through a new shared `updateStepButtonsEnabled()` gated on it. Also removed `onWaiting()`'s v2.31 `playerClosed`-specific disable as redundant (same underlying setter call now covered generically) and, as a side effect, made all three enabling cases correctly *disable* (not just leave alone) the step buttons for any non-PLAYBACK `playType`. Reported directly by the user with a fresh live console trace (a `backward()` crash) after v1.49 shipped, who also directly asked whether the null-player window could be eliminated entirely — answered as: not eliminable at the object level, but made fully race-free at the UI level. See MEMORY.md. |
 | 1.51 | 2026-09-02 | Youngho Kim | SRS.md FR-6.11/FR-6.10/FR-7.7 v2.34, direct follow-up to v1.50: fixed `#forward`/`#backward` occasionally staying stuck `disabled` even after video had visibly resumed — an ordering hiccup between the `'playerstatechange'`/`'statechange'` events driving v1.50's `playerAvailable` flag could leave it `false` past the point the player was actually usable again. `ontimestamp()` (`playback.ts`) now calls a new `onPlayerFrameRendered(playType)` (`videoControl.ts`) on every rendered `'playback'`-mode frame, forcing `playerAvailable` back to `true` — a frame being rendered at all is direct proof a live player exists, so this is a safe self-correcting fallback on top of v1.50's event-driven mechanism, not a replacement for it. Reported directly by the user: "video is showing but the buttons never re-enabled." See MEMORY.md. |
 | 1.52 | 2026-09-02 | Youngho Kim | SRS.md FR-7.6/FR-7.8.2 v2.35: reverted v1.19/v1.25/v2.12's channel filtering of Timeline results/Rule dropdown entries. `resolveEventLabel()` (`playback.ts`) now matches a `"Rule<N>"` Type to its `RuleName` purely by Rule number, `eventAppliesToChannel()` is deleted outright (no more `Results[]` filtering before rows/items are built), and `populateRuleSelect()` (`playbackCalendar.ts`) lists every configured Rule regardless of channel. Reported directly by the user with a real device's `eventrules.cgi?msubmenu=dynamicrules` response (9 Rules split across CH1/CH2) and a live screenshot: Channel 2's `Rule5`/`Rule6`/`Rule8`/`Rule9` (TD/Diff/MD) appearing while Channel 1 was queried is real Timeline data for a dual-sensor camera whose channels share one physical recording timeline, not the cross-channel leak the original v1.25 fix assumed it was. `refreshRuleSelectForChannelChange()` still re-fetches on channel change (kept for parity with `resetPlaybackSearchStateForChannelChange()`'s existing reset ordering — see that function's own doc comment) even though the resulting list no longer differs by channel. See MEMORY.md for the full reversal narrative. |
+| 1.53 | 2026-09-03 | Youngho Kim | Added a `@media (max-width: 768px)` mobile layout, requested directly by the user ("모바일에 맞게 레이아웃을 수정해야 합니다"). `#left_panel`/`#right_panel` (`css/window.css`, shared with `src/shared/`) drop out of their desktop `position: absolute` 30/70 side-by-side split below that breakpoint and stack full-width in normal document flow instead (video on top, controls below); `#drag`'s resize handle (meaningless once stacked) is hidden. `.playback-calendar-timeline-row`'s Calendar (min-width 240px) + Event Timeline (min-width 380px) side-by-side pairing switches to a full-width vertical stack, since the two panes' combined min-width alone exceeds a phone-width viewport. `.datatable-scroll` (`css/table.css`) gains `overflow-x: auto` plus a mobile-only `min-width: 640px` on the table itself, so the 6-column Discovery result table scrolls horizontally within its own panel instead of squeezing every column illegibly. See "Mobile layout" below for the full rule list; `docs/event-timeline-component/DESIGN.md`'s own History has the matching Event Timeline label-column entry. |
 
 ## `src/shared-v2/` module structure
 
@@ -114,6 +115,63 @@ src/shared-v2/
 Reused unmodified (imported by relative path, never copied): `src/shared/scripts/socket.ts`,
 `nativeSunapiClient.ts`, `nativeWebSocketTransport.ts`, `legacy-globals-bridge.js`; `src/component/
 switch/`, `src/component/disclosure/`; `src/sunapi/` (only indirectly, via the vendored player).
+
+## Mobile layout
+
+`css/window.css` (v1.53 above) adds one `@media (max-width: 768px)` block, plus one matching block
+each in `css/table.css` and `src/component/event-timeline/event-timeline.css` — no HTML/TS changes
+were needed, since the existing `.field-row`/`.toolbar`/`.event-timeline-toolbar` flex layouts
+already wrap. Since `css/window.css`/`css/table.css` are re-exported from `src/shared/css/`
+unmodified (see "module structure" above and PRD.md's Non-Goals), these rules apply to `src/shared/`'s
+own `window.html` too — not a `src/shared-v2/`-only change, unlike most of this document.
+
+- **`#left_panel`/`#right_panel` stacking.** The desktop layout pins both to a fixed 30/70
+  `position: absolute` side-by-side split (`css/window.css`'s "Layout" section) with a `#drag`
+  handle to adjust it. Below 768px, both drop to `position: static`, full width, height `auto` —
+  normal document flow instead of two independently-scrolling absolutely-positioned panes — so the
+  video (`#left_panel`) sits above the Control/Discovery panels (`#right_panel`) instead of squeezed
+  into a 30%-width column. `html`/`body` switch from `overflow: hidden` (correct only when the two
+  panels are pinned to exactly fill the viewport, see that rule's own comment) to `overflow: auto`,
+  since the stacked content can now be taller than one screen. `#drag` is hidden — resizing a split
+  that no longer exists has nothing to do.
+- **`.playback-calendar-timeline-row` stacking.** The Calendar (`#playback_control_calendar`,
+  `flex: 0 1 240px; min-width: 240px`) and Event Timeline (`.event-timeline-slot`, `flex: 1 1 420px;
+  min-width: 380px`) panes sit side by side on desktop (see that rule's own comment on FR-7.8). Their
+  combined `min-width` alone (620px) exceeds a phone-width viewport before even counting the row's
+  own `gap`, so below 768px the row switches to `flex-direction: column` and both children drop their
+  `min-width`/`flex-basis` to go full-width instead.
+- **Discovery result table horizontal scroll.** `.datatable-scroll` (`css/table.css`) already scrolls
+  vertically (`overflow-y: auto`, capped `max-height: 230px`) but not horizontally — the 6-column
+  table (Name/IP Address/MAC Address/Port/Http URL/Protocol) previously just shrank to fit whatever
+  width `.datatable-scroll` had, squeezing every column illegibly at phone width. Now
+  `overflow-x: auto` on the container, paired with a mobile-only `min-width: 640px` on `table.dataTable`
+  itself (without it, the table's own `width: 100%` would still shrink to the container instead of
+  actually overflowing it) — the table scrolls horizontally within its own panel instead.
+- **Event Timeline label column.** `.event-timeline-row`/`.event-timeline-axis-row`'s
+  `grid-template-columns: 150px 1fr` label column (unchanged on desktop) narrows to `84px 1fr` below
+  768px, since 150px eats close to half of a phone-width (now full-width, per the stacking above)
+  `.event-timeline-slot` — see `docs/event-timeline-component/DESIGN.md`'s own History for this file's
+  entry.
+- **`.field { flex-wrap: wrap; }`.** Found via a live Playwright screenshot at a 390px viewport, not
+  by reading the CSS: `#left_panel`/`#right_panel` switching to `overflow: visible` above (correct
+  for the stacked layout) also stopped clipping/scrolling anything that overflows within them — and
+  `#live_control`'s button group (Play/Stop/Pause/Resume/Download Img./Capture, all inside one
+  `.field`) did, by 132px. `.field-row` already wraps its `.field` children, but a `.field` itself
+  has no `flex-wrap` of its own, fine on desktop's available width but not at phone width. Fixes
+  every such button group at once rather than special-casing `#live_control`. Confirmed fixed:
+  `document.documentElement.scrollWidth === document.documentElement.clientWidth` (390) both on the
+  default page and with SUNAPI on + Playback selected (Calendar + Event Timeline row visible).
+
+Verified the equivalence suite's pre-existing failures aren't a regression from this change: the
+first full `npx playwright test` run showed 13 failures, all sharing one `#search_overlapped_id`
+timeout/"Target page ... closed" cascade signature; `git stash`-ed just the 3 CSS files (reverting
+to the pre-change baseline), rebuilt, and reran two of the failing spec files — the identical 7
+tests failed identically with zero CSS changes in play (the `@media (max-width: 768px)` rules
+cannot fire at Playwright's default 1280×720 viewport regardless of content). See MEMORY.md.
+
+Not addressed by this pass (left as-is, no reported issue yet): Star Topology's `vis.Network` canvas
+(`docs/star-topology/`, sized by its own JS, not CSS) and the Calendar grid (`docs/calendar-component/`,
+already `1fr`-column based with no fixed pixel width to break).
 
 ## FR-7.8: SUNAPI-driven Calendar search (`src/shared-v2/` only)
 

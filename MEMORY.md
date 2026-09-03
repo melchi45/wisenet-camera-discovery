@@ -2407,3 +2407,45 @@ Temporary `console.log` diagnostics were added to `videoControl.ts`'s `onPlayerS
 that panel is open, so it wouldn't have shown up in the console trace the user was pasting). Left in
 place for now, same reasoning as the upstream package's own diagnostics — cheap to keep, worth
 confirming the real fix against the actual reporting device before stripping them.
+
+## Mobile layout: `#left_panel`/`#right_panel`'s desktop 30/70 split doesn't fit a phone-width viewport
+
+Requested directly by the user ("모바일에 맞게 레이아웃을 수정해야 합니다 ... 더 공간을 효율적으로
+사용하는 레이아웃으로 수정해줘"), scoped after asking a clarifying question (`AskUserQuestion`) to
+confirm the target was `src/shared-v2/`'s window UI and that the whole layout — not one specific
+panel — was in scope.
+
+`css/window.css`'s desktop layout (`#left_panel`/`#right_panel`, "Layout" section) pins both to a
+fixed 30/70 `position: absolute` side-by-side split with a `#drag` resize handle. That split, plus
+several fixed-`min-width` panels inside it, don't fit a phone-width viewport: 30% leaves the video a
+sliver too narrow to read, and several controls areas either overflow uncontained or squeeze
+illegibly. Added one `@media (max-width: 768px)` block each to `css/window.css`, `css/table.css`,
+and `src/component/event-timeline/event-timeline.css` — CSS-only, no HTML/TS changes. Full rule list
+in `docs/window-ui/DESIGN.md`'s new "Mobile layout" section (and the matching History entries there,
+in `docs/window-ui/SRS.md` (new NFR-1), and in `docs/event-timeline-component/DESIGN.md`).
+
+**Real bug found while verifying with a live Playwright screenshot at a 390px viewport (not just
+reading the CSS): `#live_control`'s button group (Play/Stop/Pause/Resume/Download Img./Capture)
+overflowed 132px past the viewport edge uncontained**, once `#left_panel`/`#right_panel` dropped
+`overflow: auto` for `overflow: visible` (correct for the new stacked layout, but it stopped
+clipping/scrolling anything that overflows within it). Root cause: `.field-row` already wraps its
+`.field` children, but a single `.field` can itself contain a whole button group with no
+`flex-wrap` of its own — fine on desktop where there's enough width, not at phone width. Fixed with
+one more mobile-only rule, `.field { flex-wrap: wrap; }`, which fixes every such group at once
+rather than special-casing `#live_control`. Confirmed fixed by re-screenshotting and checking
+`document.documentElement.scrollWidth === document.documentElement.clientWidth` (390) both on the
+default page and with SUNAPI on + Playback selected (the Calendar + Event Timeline row visible).
+
+**Verified the equivalence suite's failures are pre-existing, not a regression**, before trusting a
+first full run that showed 13 failures: `git stash`-ed just the 3 CSS files (reverting to the
+pre-change baseline), rebuilt, and reran two of the failing spec files
+(`session-device-profile.spec.ts`, `video-playback-audio.spec.ts`) — the identical 7 tests failed
+with the exact same `#search_overlapped_id` timeout/"Target page ... closed" cascade, with zero CSS
+changes in play (the `@media (max-width: 768px)` rules cannot fire at Playwright's default
+1280×720 viewport regardless). Confirms these are a systemic pre-existing issue unrelated to this
+change (most likely something upstream in the mock-SUNAPI flow — not investigated further, out of
+scope for this change) rather than something this pass broke. `git stash pop` restored the mobile
+CSS changes afterward.
+
+See `docs/window-ui/DESIGN.md`'s new "Mobile layout" section for the full rule list.
+

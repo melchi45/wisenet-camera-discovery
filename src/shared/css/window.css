@@ -207,6 +207,95 @@ body {
 }
 
 /* ---------------------------------------------------------------------- */
+/* Mobile layout (<=768px)                                                */
+/* ---------------------------------------------------------------------- */
+
+/* The desktop layout above pins #left_panel/#right_panel to a fixed 30/70
+   side-by-side split via `position: absolute` + percentage `right`/`width`
+   (plus a drag handle to adjust that split) — on a phone-width viewport,
+   30% leaves the video a sliver too narrow to read and 70% is still not
+   enough room for the Control panel's field-rows/tables/timeline without
+   heavy horizontal cramping. Below this breakpoint, both panels drop out
+   of absolute positioning entirely and stack in normal document flow
+   instead (video on top, controls below), each full width — the same
+   markup/ids, just a different layout mode. Requested directly by the
+   user ("모바일에 맞게 레이아웃을 수정"). */
+@media (max-width: 768px) {
+  html,
+  body {
+    /* The desktop rule above delegates all scrolling to #left_panel/
+       #right_panel's own `overflow: auto` (see its comment) because they're
+       absolutely positioned to exactly fill the viewport; once they're back
+       in normal flow and can be taller than one screen, the page itself
+       needs to scroll instead. */
+    height: auto;
+    overflow: auto;
+  }
+
+  #container {
+    position: static;
+    height: auto;
+  }
+
+  #left_panel,
+  #right_panel {
+    position: static;
+    width: 100%;
+    height: auto;
+    right: auto;
+    bottom: auto;
+    margin: 0;
+    padding: 8px;
+    resize: none;
+    overflow: visible;
+  }
+
+  #left_panel {
+    display: block;
+    padding-bottom: 4px;
+  }
+
+  /* Only meaningful for the desktop side-by-side split it resizes. */
+  #drag {
+    display: none;
+  }
+
+  .panel {
+    padding: 10px 12px;
+  }
+
+  .panel-stack + .panel-stack {
+    margin-top: 8px;
+  }
+
+  /* Calendar (min-width 240px) + Event Timeline (min-width 380px) side by
+     side need >620px just for the two panes, before their own gap — doesn't
+     fit a phone-width viewport. Stack them full-width instead. */
+  .playback-calendar-timeline-row {
+    flex-direction: column;
+  }
+
+  .playback-calendar-timeline-row #playback_control_calendar,
+  .playback-calendar-timeline-row .event-timeline-slot {
+    flex-basis: auto;
+    min-width: 0;
+    width: 100%;
+  }
+
+  /* .field-row already wraps its .field children (desktop rule above), but
+     a single .field can itself hold a whole button group (e.g. #live_control's
+     Play/Stop/Pause/Resume/Download Img./Capture) with no flex-wrap of its
+     own -- on a phone-width viewport that group alone is wider than the
+     entire panel and just overflowed it uncontained (#left_panel/
+     #right_panel's own `overflow: visible` above no longer clips or scrolls
+     it either). Letting each .field wrap its own contents fixes every such
+     group at once instead of special-casing #live_control individually. */
+  .field {
+    flex-wrap: wrap;
+  }
+}
+
+/* ---------------------------------------------------------------------- */
 /* Toolbar (discovery controls + theme switch)                            */
 /* ---------------------------------------------------------------------- */
 

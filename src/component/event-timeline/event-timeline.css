@@ -561,3 +561,24 @@
   color: var(--text-muted);
   white-space: nowrap;
 }
+
+/* Mobile (<=768px, matches window.css's breakpoint): the fixed 150px label
+   column above eats close to half of a phone-width `.event-timeline-slot`
+   (window.css stacks it to 100% width below that breakpoint), leaving too
+   little room for the actual track to be usable. Narrowed instead of
+   removed -- Rule# labels still need to stay legibly distinguishable, just
+   not at their full desktop width. */
+@media (max-width: 768px) {
+  .event-timeline-row,
+  .event-timeline-axis-row {
+    grid-template-columns: 84px 1fr;
+  }
+
+  .event-timeline-rule-type select {
+    max-width: 96px;
+  }
+
+  .event-timeline-overlapped-id select {
+    width: 44px;
+  }
+}

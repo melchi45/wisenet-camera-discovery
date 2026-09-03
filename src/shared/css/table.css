@@ -57,6 +57,11 @@
 .datatable-scroll {
   max-height: 230px;
   overflow-y: auto;
+  /* 6 columns (Name/IP/MAC/Port/Http URL/Protocol) don't fit a phone-width
+     viewport at a readable font size -- scroll the table horizontally
+     within its own panel instead of squeezing every column or overflowing
+     the page. No effect on desktop, where the table already fits. */
+  overflow-x: auto;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
 }
@@ -69,6 +74,16 @@
 
 .datatable-scroll table.dataTable {
   width: 100%;
+}
+
+@media (max-width: 768px) {
+  /* `width: 100%` above would otherwise shrink all 6 columns to fit
+     .datatable-scroll's own (now phone-width) box, squeezing every value
+     illegibly instead of actually using the `overflow-x: auto` just added
+     above -- a min-width gives the table a real, scrollable width. */
+  .datatable-scroll table.dataTable {
+    min-width: 640px;
+  }
 }
 
 .datatable-scroll table.dataTable thead th {

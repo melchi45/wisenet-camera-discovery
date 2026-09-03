@@ -76,6 +76,7 @@
 | 2.33 | 2026-09-02 | Youngho Kim | FR-6.11/FR-6.10 follow-up to v2.31/v2.32: fixed a second, distinct null-player crash the prior two fixes didn't fully close — a step's own auto-pause ack (PAUSED `'statechange'`) can arrive and re-enable `#forward`/`#backward` (needed for the legitimate manual-pause-then-step case) *while* a separate, still-in-flight buffer-refill re-seek (triggered by an *earlier* step exhausting its local frame buffer) has `MediaRouter.player` still `null` — a race no amount of `'statechange'`-only gating can close, since there's no ordering guarantee between the two. `@melchi45/rtsp-over-websocket` now sources a dedicated `'playerstatechange'` DOM event (`{ available: boolean }`) directly from `MediaRouter.ts`'s `player` getter/setter itself, covering every null <-> non-null transition uniformly (not just `onWaiting()`'s covert-mode teardown, which is all v2.31's `playerClosed` field covered). `videoControl.ts` now tracks this as `playerAvailable` and routes every place that would enable the step buttons (`onstatechange()`'s PLAYING/PAUSED/STEP cases, via a new shared `updateStepButtonsEnabled()`) through it, so none of them can re-enable while a player-unavailable window is still open. Reported directly by the user with a fresh live console trace (a `backward()` crash) after v2.32 shipped, who also asked directly whether the null window could be eliminated entirely — answered as: not eliminable at the object level (a new decoder can only be constructed once new stream data confirms its parameters), but now made fully race-free at the UI level. See MEMORY.md and `@melchi45/rtsp-over-websocket`'s own `MEMORY.md`. |
 | 2.34 | 2026-09-02 | Youngho Kim | FR-6.11/FR-6.10 follow-up to v2.33: `#forward`/`#backward` could still get stuck `disabled` after v2.33's fix — reported directly by the user: "video is visibly playing again but the buttons never re-enabled." `ontimestamp()`'s (`playback.ts`) `'playback'` case now calls a new `onPlayerFrameRendered(playType)` (`videoControl.ts`) on every rendered frame, which forces `playerAvailable` back to `true` and re-runs `updateStepButtonsEnabled()` — a frame actually being rendered is direct proof a live player exists, independent of whether `'playerstatechange'`/`'statechange'` fired and were processed in the expected order. This is a self-correcting fallback layered on top of v2.33's mechanism, not a replacement for it — `onPlayerStateChange()` still does the prompt disabling. |
 | 2.35 | 2026-09-02 | Youngho Kim | FR-7.6/FR-7.8.2: reverted v1.19/v1.25/v2.12's channel filtering — `resolveEventLabel()` now matches purely by Rule number (no `EventSources[].Channel` check), `updateTimeline()` no longer filters `Results[]` by channel at all (the `eventAppliesToChannel()` helper is removed), and FR-7.8.2's Rule dropdown (`populateRuleSelect()`) lists every configured Rule regardless of channel. Reported directly by the user with a real device's `eventrules.cgi?msubmenu=dynamicrules` response (9 Rules across CH1/CH2) and a live screenshot: Channel 2's `Rule5`/`Rule6`/`Rule8`/`Rule9` (TD/Diff/MD) appearing while Channel 1 was selected/queried is not a cross-channel leak to hide — it's real Timeline data for a dual-sensor camera whose channels share one physical recording timeline, and both the Rule dropdown and the rendered results should show it. See MEMORY.md for the full reversal narrative. |
+| 2.36 | 2026-09-03 | Youngho Kim | Added NFR-1 (Mobile layout) below, requested directly by the user. CSS-only (`css/window.css`/`css/table.css`, `src/component/event-timeline/event-timeline.css`) — no control, id, or module behavior changed, so no other FR needed updating. See `docs/window-ui/DESIGN.md`'s new "Mobile layout" section for the full rule list. |
 
 ## Conventions
 
@@ -819,6 +820,17 @@
   edited. See [DESIGN.md](DESIGN.md)'s "Deviations from legacy behavior" for the full reasoning
   (found via CPU profiling + live request counting after a real-device performance report, not by
   reading source) and `docs/window-ui/TC.md`'s TC-27.
+
+## NFR-1: Mobile layout
+
+Requested directly by the user ("모바일에 맞게 레이아웃을 수정해야 합니다 ... 더 공간을 효율적으로
+사용하는 레이아웃"). Below a `768px` viewport width, the page must lay out usably instead of squeezing
+the desktop 30/70 side-by-side split (`#left_panel`/`#right_panel`) and every fixed-min-width panel
+inside it into a phone-width screen. CSS-only (`css/window.css`, `css/table.css`, `src/component/
+event-timeline/event-timeline.css`); no control's id, behavior, or FR above changes. Since
+`css/window.css`/`css/table.css` are re-exported unmodified from `src/shared/css/`, this also applies
+to `src/shared/`'s own `window.html`, not just `src/shared-v2/`. Full rule list:
+[DESIGN.md](DESIGN.md)'s "Mobile layout" section.
 
 ## Known dead controls (preserved, not fixed)
 
