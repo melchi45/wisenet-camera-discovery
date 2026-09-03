@@ -79,6 +79,7 @@
 | 2.36 | 2026-09-03 | Youngho Kim | Added NFR-1 (Mobile layout) below, requested directly by the user. CSS-only (`css/window.css`/`css/table.css`, `src/component/event-timeline/event-timeline.css`) — no control, id, or module behavior changed, so no other FR needed updating. See `docs/window-ui/DESIGN.md`'s new "Mobile layout" section for the full rule list. |
 | 2.37 | 2026-09-03 | Youngho Kim | FR-5.3 updated: the click-vs-`change`-event gap is now fixed here (no longer "preserved as-is") — reported directly by the user (a profile picked in Video Source wasn't taking effect on the player). See `docs/window-ui/DESIGN.md`'s new "Deviations from legacy behavior" entry (v1.57) for the full rationale; `docs/control-panel-data-binding.md` §4 is unchanged and still describes `src/shared/`'s own untouched gap. |
 | 2.38 | 2026-09-03 | Youngho Kim | FR-5.1/FR-5.3 updated: `#profile` becomes a real `<select>` of the channel's profile Names once any exist, mirroring `#channel`'s own input-vs-select swap — requested directly by the user. See `docs/window-ui/DESIGN.md`'s new "Deviations from legacy behavior" entry (v1.58). |
+| 2.39 | 2026-09-03 | Youngho Kim | FR-6.10: an RTSP 503 `error` event (`errorCode` `0x0201`/513 decimal from `@melchi45/rtsp-over-websocket`'s `RtspClient.ts`) now also surfaces via the `popup()` modal, not just the Debug Information panel — requested directly by the user after hitting it live (every Overlapped Playback ID slot already in use). Same markup as every other player-error popup already in this file. Other `error` events are unaffected. See `docs/window-ui/DESIGN.md`. |
 
 ## Conventions
 
@@ -302,6 +303,15 @@
   covers this case, and does so more correctly (it also keeps the buttons disabled through any
   later PAUSED/PLAYING/STEP statechange that arrives before the player actually comes back, which
   this narrower special-case didn't).
+  **v2.39 (feature, requested directly by the user)**: `error` events reporting an RTSP 503
+  (`@melchi45/rtsp-over-websocket`'s `RtspClient.ts` reports this as `errorCode` `0x0201`/513
+  decimal — typically the device refusing the connection because every Overlapped Playback ID slot
+  is already in use) now also surface via `popup()` (`modals.ts`'s `#myModal`), the same modal every
+  other player-reported error already uses (`play()`'s `AuthError`/`RTSPOverWebSocketBaseError`
+  catch, FR-6.x), with the same `Error Code: <hex>` / `Error: <message>` markup — previously this
+  only ever reached the Debug Information panel, which is collapsed by default and easy to miss, so
+  a real connection failure could go unnoticed. Other `error` events are unaffected (still
+  debug-log-only).
 - **FR-6.11 (v2.25, real behavior — no longer a "Known dead control")**: `#forward`/`#backward`
   call the player's `.forward()`/`.backward()` — real frame-level stepping already implemented in
   `@melchi45/rtsp-over-websocket` (`RTSPOverWebSocket.ts`, backed by the canvas renderer's

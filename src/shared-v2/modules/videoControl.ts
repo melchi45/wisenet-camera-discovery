@@ -432,6 +432,20 @@ export function onError(error: any): void {
     }
     scrollbottom();
   }
+
+  // Real report from the user: an RTSP 503 (device refuses the connection --
+  // e.g. every Overlapped Playback ID slot already in use) used to only ever
+  // reach the Debug Information panel, which is collapsed by default and
+  // easy to miss -- surfaced now via the same popup() modal every other
+  // player-reported error already uses (play()'s AuthError/
+  // RTSPOverWebSocketBaseError catch above), with the same markup, so a
+  // connection failure is visible even with Debug Information collapsed/off.
+  // `@melchi45/rtsp-over-websocket`'s RtspClient.ts reports RTSP 503
+  // specifically as errorCode 0x0201 (513 decimal) -- see that repo's
+  // RtspClient.ts's `ResponseCode === 503` branch.
+  if (typeof error === 'object' && error.detail && error.detail.error === 513) {
+    (window as any).popup('<div><h4>Error Code: ' + (window as any).toHex(error.detail.error) + '<br>Error: ' + error.detail.message + '</h4></div>');
+  }
 }
 
 export function onmeta(evt: any): void {
