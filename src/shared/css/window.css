@@ -744,12 +744,13 @@ table.dataTable tbody td {
 }
 
 /* ---------------------------------------------------------------------- */
-/* Log panels (debug / discovery / RTSP textareas)                        */
+/* Log panels (debug / discovery / RTSP / ONVIF Information textareas)     */
 /* ---------------------------------------------------------------------- */
 
 #debug,
 #result,
-#rtsp {
+#rtsp,
+#onvif_info {
   display: block;
   width: 100%;
   min-height: 90px;

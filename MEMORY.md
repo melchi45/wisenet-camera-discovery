@@ -2484,3 +2484,228 @@ TC-11 (the only spec touching `#use_gmt`/`#timezone`) before changing anything: 
 needed no test rewrite — just a DEVIATION note added to TC-11's row and DESIGN.md's deviations
 list so a future test targeting the query string itself doesn't get written expecting parity with
 the legacy page. See `docs/window-ui/DESIGN.md` v1.56 and `docs/window-ui/TC.md` v2.13.
+
+## `#container`/`#left_panel`/`#right_panel`/`#drag` — dynamic aspect-ratio-driven split layout replacing the fixed 30/70 split (`src/shared-v2/` only)
+
+Reported by the user as a plain bug first ("이 윈도우 사이즈가 변경되어도 초기값 그대로 입니다" —
+the video panel's height stays at its initial value across a window resize). Root-caused via an
+isolated Playwright repro (a minimal standalone HTML file, not the real app, to rule out interference
+from a concurrently-running build in this same checkout — see below) before touching any real code:
+`<rtsp-over-websocket>` sets `display: block` on itself once its own script runs, but never a
+`width`/`height` — reasonable, since only the embedding page knows how much space it should get — and
+nothing in `window.html`'s CSS gave it (or its `.video.sameRow` wrapper, whose own `height: auto`
+rule sizes it to content instead of stretching) any explicit size either. The whole chain fell back
+to the inner `<video>` tag's native UA-default box, a fixed size unrelated to and unresponsive to any
+container/window resize — confirmed via the isolated repro (`hostComputedDisplay: "inline"` in a
+naive version without the component's own `display:block`; in the real component, still a fixed
+150px-class height with `display:block` present but no height anywhere in the cascade).
+
+Before this diagnosis could turn into a fix, **the user interrupted mid-investigation and redirected
+to a much larger, explicitly-specified feature** ("아니 씨발.. shared-v2의 window.html 와 window.js
+만 봐...정확히 말할께" — stop, look only at shared-v2, here's the real spec): `#container` should
+continuously switch between a row split (video left, Control UI right) and a column split (video top,
+Control UI bottom) based on the page's own live aspect ratio at *any* size — not the existing fixed
+`768px` viewport-width breakpoint — with `#drag` resizing horizontally in row mode / vertically in
+column mode, and the two orientations' ratios remembered independently. Three genuinely ambiguous
+design points were asked via `AskUserQuestion` rather than assumed: whether this replaces the
+existing `<=768px` stacked-breakpoint mechanism entirely (yes) or coexists with it, the column mode's
+default ratio (60:40 video:control — video larger, an explicit choice not derivable from anything
+existing), and whether row/column ratios persist independently across orientation flips (yes) or
+share one value.
+
+**Explicit scope constraint, taken literally: `src/shared-v2/` only, nothing in `@melchi45/
+rtsp-over-websocket` or `src/shared/`.** This ruled out the "obvious" component-level fix for the
+original height bug (a `:host`-equivalent default size in `RTSPOverWebSocket.ts`'s own injected
+CSS — moot anyway, since that component appends styles to `document.head` in light DOM, not a real
+shadow root, so `:host` wouldn't even apply) and, more importantly, ruled out editing
+`css/window.css`/`window.html`'s existing `#container`/`#left_panel`/`#right_panel`/`#drag` rules in
+place — that file is re-exported unmodified from `src/shared/css/` and linked by *both* `window.html`s
+(confirmed via `docs/window-ui/PRD.md`'s Non-Goals / `docs/window-ui/DESIGN.md`'s "module structure"),
+so an in-place edit would have changed `src/shared/`'s own page too. Solved by adding a brand new,
+`src/shared-v2/`-only stylesheet (`src/component/split-layout/split-layout.css`, linked from
+`src/shared-v2/window.html` only, immediately after `css/window.css`'s own `<link>`) whose
+plain-`#id`-selector rules win the cascade over `window.css`'s by document order alone (equal
+specificity, later position — `<link>` stylesheets always apply in document order regardless of
+fetch timing or the meaningless `async` attribute on `<link rel="stylesheet">`) — the same
+"supersede via a later file, don't edit the shared one" pattern `event-timeline.css` already
+established for the Playback timeline widget. `scripts/build.js`'s `buildSharedV2()` needed a new
+explicit `copyFile()` for it in two places (the shared-v2-preview assembly, and the overwrite loop
+onto `dist/chrome-extension/`/`dist/nodejs/examples/public/`) — a brand-new shared-v2-only asset,
+unlike `switch.css`/`disclosure.css`, isn't reachable by any existing copy step.
+
+**DOM restructuring: `#drag` moved out of `#right_panel` to be a real flex sibling.** The original
+(`src/shared/window.html`-derived) markup nests `#drag` as `#right_panel`'s first child, positioned
+to visually straddle the panel boundary via `margin-left: -3px` — only workable because
+`#right_panel` was absolutely positioned with a known `left` edge. For a flexbox row/column layout,
+`#drag` needed to be a genuine sibling of `#left_panel`/`#right_panel` under `#container` so its own
+`flex-basis` (6px) directly *is* its visible width/height, no positioning hack required. Confirmed
+safe before moving it: grepped all of `src/shared-v2/` for `left_panel`/`right_panel`/`#container`
+references — only `discovery.ts` (the old drag handler itself, since removed) touched any of them, so
+nothing else assumed `#drag`'s old nesting.
+
+**Two independent state fields, one `applyRatio()` choke point.** `state.rowSplitRatio` (default 30,
+matching the legacy 30/70 split) and `state.columnSplitRatio` (default 60, per the user's explicit
+choice) are separate so an orientation flip never clobbers a ratio the user deliberately set in the
+*other* orientation. Every place that changes the visible split — initial `setupSplitLayout()`,
+`updateOrientation()`'s re-application on every flip, and the drag handler's live updates — goes
+through one function (`applyRatio()`, sets `#left_panel.style.flexBasis`) rather than three
+independent call sites, so there's exactly one path that could desync the displayed split from
+`state`'s own numbers.
+
+**Two small, deliberate improvements over a straight port of the legacy drag handler, not scope
+creep — this was a full rewrite, not a port:** (1) `mousemove` instead of the legacy `mouseover` for
+the document-level drag-follow listener — `mouseover` only re-fires on entering a *different*
+element, so it followed a fast drag far less smoothly than continuous `mousemove` does; (2) the drag
+ratio is now clamped to `[10%, 90%]` — the original had no bound at all, letting a fast drag fully
+collapse either panel to 0%.
+
+**Orientation detection via `ResizeObserver` on `#container`, not a `window` `resize` listener** —
+`#container`'s own box can change size for reasons a `window`-level event wouldn't fire for at all
+(an extension popup/side-panel resizing independently), and observing the actual element being
+measured is the more direct signal regardless of the embedding context.
+
+**Concurrent-editing hazard hit mid-investigation, not caused by this change**: this checkout was
+being actively modified by another process at the same time (uncommitted changes to `package.json`,
+several other `src/shared-v2/modules/*.ts` files, and `docs/window-ui/*.md` appeared mid-session,
+turning out to be the ONVIF Information debug panel work from a parallel session) — a `dist/nodejs/`
+rebuild triggered mid-diagnosis raced with that other process and left `dist/nodejs/examples/public/`
+briefly deleted (a `rm -rf` + reassemble step from the OTHER process's own build, not this one)
+between an initial health-check `curl` succeeding and a follow-up Playwright run failing with
+`ENOENT`. Solved by switching the live-verification technique to a from-scratch, dependency-free
+temporary HTML file (`/tmp/gmtfix/repro.html`) for the *initial* isolated diagnosis (proving the
+"unstyled custom element" theory in complete isolation from the real build), then re-running
+`node scripts/build.js node`/`shared-v2` once before the *final* verification against the real app —
+worth remembering generally: when a file that was just confirmed to exist suddenly 404s/ENOENTs in a
+shared checkout, suspect a concurrent build racing the filesystem before suspecting your own last
+edit.
+
+**Verified**: `npx tsc -p src/shared-v2/tsconfig.window.json --noEmit` clean. Live Playwright
+verification against the real built app (not just the isolated repro) confirmed, in one continuous
+run: landscape (1200×800) renders row-mode with the pre-existing ~30% split and `<rtsp-over-websocket>`
+correctly tracking `#left_panel`'s own live width/height (the original reported bug — height no
+longer stuck at its initial value); resizing to portrait (800×1200) flips to column-mode with a ~60%
+split and the video on top; dragging `#drag` vertically in portrait mode changes the split live;
+resizing back to landscape restores landscape's own *original* 30% ratio, not the ratio just set
+while dragging in portrait — confirming the independent-per-orientation memory works exactly as
+specified. (`<rtsp-over-websocket>` no longer *stretches* to fill `#left_panel`'s full box, though —
+see the follow-up below, requested right after this verification.) See `docs/window-ui/DESIGN.md`'s
+"FR-2.6: Dynamic split layout" section for the full design writeup, and `docs/window-ui/TC.md`'s
+TC-48–TC-51.
+
+### Follow-up, same feature, same day: video positioned (centered row / top-anchored column) instead of stretched to fill the panel
+
+Requested directly by the user immediately after the above: `<rtsp-over-websocket>` should not simply
+stretch to fill `#left_panel` — in row mode it should sit vertically centered within `#left_panel`'s
+full height, and in column mode it should sit anchored to the top of its (now much shorter, full-
+width) strip. Asked one clarifying question first (`AskUserQuestion`): since a full `width:100%;
+height:100%` stretch leaves no slack space for "centered" vs. "top" to ever look different, did the
+user want the video element itself to shrink to its own aspect ratio (creating slack space to
+position within) rather than fill the panel? Confirmed yes.
+
+**Implementation**: `.rtsp-over-websocket` dropped its `height: 100%` for `aspect-ratio: 16 / 9` (a
+placeholder ratio, only relevant before any real stream connects) plus `width: 100%` (still tracks
+`#left_panel`'s own live width). `.video`/`.video.sameRow` needed no override at all here — removed
+the earlier `height: 100%` override entirely and let `window.css`'s own pre-existing `.video.sameRow
+{ height: auto }` rule do the job unmodified, now that "auto" is exactly what's wanted (content-
+driven height, not stretched). `#left_panel`'s own `align-items: center` (already there, needed for
+nothing else) now has actual effect since its child no longer fills 100% height; a new
+`#container.split-portrait #left_panel { align-items: flex-start; }` override handles column mode
+(its own flex-direction is still row — only `#container`'s direction changes — so `align-items`
+there is always the *vertical* cross-axis alignment regardless of `#container`'s orientation).
+
+**Dynamic real-resolution wiring, not just a static guess.** `onResize()` (`videoControl.ts`) already
+existed (wired to the player's own `'resize'` event, reporting real decoded width/height) but only
+ever wrote inert `width`/`height` HTML attributes with no layout effect. Extended it to also set
+`element.style.aspectRatio` — an inline style, so it overrides `split-layout.css`'s `16/9` placeholder
+the moment a real stream connects, without needing to touch the CSS rule itself (cascade priority
+alone handles it).
+
+**Verified** via `getBoundingClientRect()` math, not just visual inspection: at 1200×800 (row mode),
+the video's top gap and bottom gap within `#left_panel` were both exactly 299.3px (perfectly
+centered); at 800×1200 (column mode), the top gap was 11.0px — exactly `#left_panel`'s own 10px
+padding plus a fractional rounding pixel, i.e. flush against the top edge, not centered. `npx tsc`
+clean; `npx playwright test tests/window-ui-equivalence/event-timeline.spec.ts` (all 6 tests) still
+passes after this change too (see the environment-instability entry below for why an earlier attempt
+at this same check looked like a regression when it wasn't).
+
+### Follow-up, same feature, same day: a "regression" chased for over an hour turned out to be self-inflicted process/port contention, not a code bug
+
+While verifying `tests/window-ui-equivalence/event-timeline.spec.ts` (the one spec using an unusually
+tall Playwright viewport, `1280×2200`, specifically to avoid a documented nested-scroll auto-click
+limitation — see that file's own top comment) against the new split layout, the *first* run showed
+real-looking failures: `#channel` never became a `<select>`, with browser console logs showing
+`net::ERR_ABORTED` on every SUNAPI request once Playback mode was selected. Swapping the same test's
+viewport to landscape (`2200×1280`) made it pass instantly, which looked like strong, clean evidence
+that column/portrait mode specifically broke something. It didn't, in the end — the real cause was
+running the *diagnostic* commands themselves: repeated `node scripts/build.js shared-v2` rebuilds and
+several overlapping `npx playwright test` invocations (some silently backgrounded when a Bash
+tool-call's own timeout elapsed, without their child `webServer` processes — `tools/mock-sunapi-
+server/`, two `tools/equivalence-test-server/` instances — necessarily terminating with them) left
+multiple stale server processes fighting over the same ports (`EADDRINUSE` on 9101/9301, then later
+`net::ERR_CONNECTION_REFUSED` once a diagnostic `pkill` killed a server Playwright's own
+`reuseExistingServer: true` config was still relying on, out from under an in-progress test). Once
+every stray `playwright`/`mock-sunapi-server`/`equivalence-test-server` process was killed and exactly
+one clean, uninterrupted, back-to-back pair of runs was done (portrait then landscape, touching
+*nothing* concurrently, letting Playwright's own `webServer` orchestration cold-start every server
+itself) — both passed, and both took several minutes doing it (4.6 and 6.9 minutes respectively,
+matching each other closely), confirming the earlier "landscape is fast, portrait is broken"
+impression was itself an artifact of landscape's runs having reused already-warm servers from earlier
+attempts while portrait's ran cold combined with active interference.
+
+**How to apply**: in a test harness with its own long-lived `webServer` processes
+(`reuseExistingServer: true` or equivalent), never manually kill/restart those processes while
+diagnosing a *different* suspected bug, and never run a project rebuild concurrently with an
+in-progress test run against that same `dist/` output — both were done here, repeatedly, while trying
+to isolate what turned out to be a phantom orientation-specific bug. When a Bash tool call's own
+timeout causes a long-running command to "move to background," verify its actual child processes
+(`ps aux`, `lsof -i :<port>`) rather than trusting the tool's own reported exit code/output alone —
+several of these background transitions here left real orphaned server processes with no visible
+sign in the captured output at all (empty log, "exited with code 0" for what was actually still a
+live detached process). When a suspected regression's evidence involves network-level failures
+(`ERR_ABORTED`, `ERR_CONNECTION_REFUSED`, `EADDRINUSE`) rather than an application-level assertion
+failure, suspect the test *environment* before the application code — and confirm by fully quiescing
+every related process and re-running once, cleanly, rather than trusting a result gathered mid-chaos.
+
+### Follow-up, same feature, same day: `#left_panel`/`#right_panel` renamed to `#video-panel`/`#control-panel` (`src/shared-v2/` only)
+
+Requested directly by the user once the dynamic split layout feature itself was confirmed working —
+a pure rename, no behavior change, scoped to `src/shared-v2/` per the same standing "don't touch
+`src/shared/`" instruction that governed this whole feature. Safe to do as a clean rename specifically
+*because* `split-layout.css` already fully overrides every property `css/window.css`'s own
+`#left_panel`/`#right_panel` rules set (position, flex, min-width/height, margin, padding, overflow,
+display, align-items — confirmed by re-reading `window.css`'s original rules side by side with
+`split-layout.css` before renaming) — so once the ids no longer match anything in `window.css` for
+`src/shared-v2/window.html`, nothing was silently lost; `window.css`'s own `#left_panel`/`#right_panel`
+rules just become unreferenced-but-harmless for that tree, exactly like several other rules already
+documented that way in `docs/window-ui/DESIGN.md`'s "Deviations from legacy behavior".
+
+Four files changed together: `window.html`'s two `id` attributes (plus a doc-comment), every selector
+in `split-layout.css` (plus its header/inline comments), every `document.getElementById(...)` call
+and doc-comment in `dynamicLayout.ts` (its local `leftPanel` variable renamed to `videoPanel` too, for
+consistency with the new id it now holds), and the doc-comments in `state.ts`/`videoControl.ts` that
+named the old id. `css/window.css` itself (the `src/shared/`-owned file) was correctly left completely
+untouched — confirmed via a live Playwright check that `document.getElementById('left_panel')`/
+`getElementById('right_panel')` both return `null` on the rebuilt `src/shared-v2/` page (the old ids
+are genuinely gone, not just superseded), while `#video-panel`/`#control-panel`'s live behavior
+(row/column split proportions, drag-resize, the centered/top-anchored video positioning from the
+immediately preceding follow-up) measured pixel-identical to before the rename.
+
+**Documentation**: went through `docs/window-ui/DESIGN.md`'s "FR-2.6: Dynamic split layout" section
+paragraph by paragraph rather than a blind find-replace — several sentences there deliberately
+describe `src/shared/`'s own still-unrenamed `#left_panel`/`#right_panel`, or describe *historical*
+code (the now-deleted pre-`dynamicLayout.ts` drag handler, a debugging investigation from earlier in
+this same day) that was accurate to the ids that existed *at that point in time* — those were left
+alone; only the paragraphs describing `src/shared-v2/`'s current, live behavior were updated to the
+new ids. Same care applied to `docs/window-ui/SRS.md`/`TC.md`: History-table rows describing prior
+versions kept their original id names (accurate as of *that* version), only the live requirement text
+and the FR-2.6 test cases (TC-48–TC-53) were updated.
+
+**How to apply**: when a rename touches a file that's *shared* with another tree (here,
+`css/window.css`, reused unmodified by `src/shared/`), renaming the id only in the tree-specific
+markup/JS/CSS (never the shared file) is safe exactly when something else *already* fully
+re-overrides every property the shared file's rule for that id would otherwise contribute — verify
+that before renaming, not after. In a living design doc with a lot of accumulated history, a rename
+sweep needs the same "is this describing current behavior or documenting what was true at a past
+point" judgment call as any other edit — a mechanical find-replace across the whole file would have
+silently rewritten historical debugging notes and version-specific History entries to claim ids that
+didn't exist yet at the time being described.

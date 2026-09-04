@@ -80,6 +80,11 @@
 | 2.37 | 2026-09-03 | Youngho Kim | FR-5.3 updated: the click-vs-`change`-event gap is now fixed here (no longer "preserved as-is") — reported directly by the user (a profile picked in Video Source wasn't taking effect on the player). See `docs/window-ui/DESIGN.md`'s new "Deviations from legacy behavior" entry (v1.57) for the full rationale; `docs/control-panel-data-binding.md` §4 is unchanged and still describes `src/shared/`'s own untouched gap. |
 | 2.38 | 2026-09-03 | Youngho Kim | FR-5.1/FR-5.3 updated: `#profile` becomes a real `<select>` of the channel's profile Names once any exist, mirroring `#channel`'s own input-vs-select swap — requested directly by the user. See `docs/window-ui/DESIGN.md`'s new "Deviations from legacy behavior" entry (v1.58). |
 | 2.39 | 2026-09-03 | Youngho Kim | FR-6.10: an RTSP 503 `error` event (`errorCode` `0x0201`/513 decimal from `@melchi45/rtsp-over-websocket`'s `RtspClient.ts`) now also surfaces via the `popup()` modal, not just the Debug Information panel — requested directly by the user after hitting it live (every Overlapped Playback ID slot already in use). Same markup as every other player-error popup already in this file. Other `error` events are unaffected. See `docs/window-ui/DESIGN.md`. |
+| 2.40 | 2026-09-04 | Youngho Kim | Added FR-12.5: a fourth disclosure panel, `#onvif_disclosure` ("ONVIF Information"), structurally identical to Debug Information. `onmeta()` (`videoControl.ts`) drops its stray `console.log` and now routes to `changeonvif()` instead of `changedebug()`, so ONVIF metadata gets its own panel instead of the general Debug Information log. Requested directly by the user. See `docs/window-ui/DESIGN.md`'s "Deviations from legacy behavior" (v1.60). |
+| 2.41 | 2026-09-04 | Youngho Kim | FR-12.5 revised and FR-12.6 added, requested directly by the user immediately after v2.40: `onmeta()` now reads `evt.detail.xml` (the actual populated field on this page) instead of `evt.detail.json` (always `undefined` here — no `fast-xml-parser` CDN script is loaded), and a new "Beautify" On/Off switch (`#onvif_beautify_toggle`, `mountSwitch()`) pretty-prints that XML via a new `beautifyXml()` helper before appending, when on (default). `#onvif_info` also gained proper log-panel sizing in `css/window.css` (added to the shared `#debug, #result, #rtsp` rule), replacing bare `<textarea>` attribute sizing. See `docs/window-ui/DESIGN.md`'s "Deviations from legacy behavior" (v1.61). |
+| 2.42 | 2026-09-04 | Youngho Kim | FR-2.6 rewritten and NFR-1 revised, requested directly by the user: `#container`/`#left_panel`/`#right_panel`/`#drag` now use a continuous, aspect-ratio-driven row/column split (`src/shared-v2/`-only), superseding the old fixed 30/70 desktop split + separate `<=768px` stacked-breakpoint override for those four elements specifically — `src/shared/` keeps the original behavior for both. See `docs/window-ui/DESIGN.md`'s "FR-2.6: Dynamic split layout" and "Deviations from legacy behavior" (v1.62). |
+| 2.43 | 2026-09-04 | Youngho Kim | FR-2.6 extended, requested directly by the user: `<rtsp-over-websocket>` no longer stretches to fill `#left_panel` — it now sizes to its own aspect ratio and is positioned within the panel (centered row / top-anchored column). See `docs/window-ui/DESIGN.md`'s "FR-2.6: Dynamic split layout" (v1.63). |
+| 2.44 | 2026-09-04 | Youngho Kim | FR-2.6/NFR-1 updated for the `src/shared-v2/`-only `#left_panel`/`#right_panel` → `#video-panel`/`#control-panel` rename, requested directly by the user. `src/shared/` keeps the original ids. See `docs/window-ui/DESIGN.md`'s "FR-2.6: Dynamic split layout" (v1.64). |
 
 ## Conventions
 
@@ -124,10 +129,22 @@
 - **FR-2.5**: Selecting a device (table row click or topology leaf click) calls
   `applyDiscoveredDeviceSelection(row)` — full existing spec:
   [`docs/control-panel-data-binding.md`](../control-panel-data-binding.md) §1. Not re-specified here.
-- **FR-2.6**: `#drag` lets the user resize `#left_panel`/`#right_panel` by dragging, clamped to the
-  container's bounds.
-
-## FR-3: Control panel — Session
+- **FR-2.6** (`src/shared-v2/` only, revised — see DESIGN.md's "FR-2.6: Dynamic split layout" and
+  "Deviations from legacy behavior"): `#container` continuously reflows between a row split (video
+  `#video-panel` left, Control UI `#control-panel` right) and a column split (video top, Control UI
+  bottom) based on `#container`'s own live aspect ratio (landscape → row, portrait → column),
+  re-evaluated via `ResizeObserver` at any size — not a fixed viewport-width breakpoint. `#drag`
+  resizes the split by dragging: horizontally in row mode, vertically in column mode, clamped to
+  `[10%, 90%]` of `#container`'s size on the active axis. Each orientation remembers its own ratio
+  independently (row default 30%, column default 60% — video panel larger by default in column mode)
+  — switching orientation and back restores whichever ratio was last set for that orientation, not a
+  shared value. `src/shared/window.html` keeps the original fixed 30/70 desktop split + separate
+  `<=768px` stacked-breakpoint behavior (and the original `#left_panel`/`#right_panel` ids —
+  `#video-panel`/`#control-panel` is a `src/shared-v2/`-only rename), completely unaffected. The
+  `<rtsp-over-websocket>` element MUST NOT stretch to fill `#video-panel` — it sizes to its own
+  aspect ratio (a `16/9` placeholder before any stream connects, then the real stream's own reported
+  resolution once known) and is positioned within `#video-panel`'s available space: vertically
+  centered in row mode, anchored to the top in column mode.
 
 - **FR-3.1**: `#player_list_div` (empty in the markup) gets a `<label for="player_list">`
   ("Plyaer List: " — typo preserved, user-visible legacy text) and a `<select id="player_list">`
@@ -793,10 +810,11 @@
   identical toggle function again — see § Known dead controls / behavioral note for the resulting
   double-toggle risk this preserves as-is.
 
-## FR-12: Debug/Discovery/RTSP disclosure panels
+## FR-12: Debug/Discovery/RTSP/ONVIF disclosure panels
 
-- **FR-12.1**: The three panels (`#debug_disclosure`/`#discovery_disclosure`/`#rtsp_disclosure`) —
-  full existing spec: `docs/disclosure-component/`. Not re-specified here.
+- **FR-12.1**: The four panels
+  (`#debug_disclosure`/`#discovery_disclosure`/`#rtsp_disclosure`/`#onvif_disclosure`) — full
+  existing spec: `docs/disclosure-component/`. Not re-specified here.
 - **FR-12.2**: `#use_debug` (default checked) gates whether `changedebug()`/the player's `error`
   handler append to `#debug`; `#clear_debug` clears it; `#debug`'s own `input` listener truncates to
   `maxlength` client-side.
@@ -804,6 +822,28 @@
   `data + "\r\n"` (gated by FR-12.2) and scrolls to bottom.
 - **FR-12.4**: The player's `rtsp` event appends `"RTSP: " + message` to `#rtsp` and scrolls to
   bottom.
+- **FR-12.5**: `#onvif_disclosure` ("ONVIF Information") is structurally identical to
+  `#debug_disclosure` — `#use_onvif` (default checked) gates `changeonvif()`; `#clear_onvif` clears
+  `#onvif_info`; `#onvif_info`'s own `input` listener truncates to `maxlength` client-side.
+  `changeonvif(data)` mirrors `changedebug()`: appends `data + "\r\n"` (gated by `#use_onvif`) and
+  scrolls to bottom. The player's `meta` event (`onmeta()` in `videoControl.ts`) reads
+  `evt.detail.xml` (the raw ONVIF metadata XML string — `evt.detail.json` is always `undefined` on
+  this page, since no consumer here loads the optional `fast-xml-parser`/`window.parser` script
+  `@melchi45/rtsp-over-websocket`'s `onRTSPOverWebSocketMeta()` needs to populate it) and calls
+  `changeonvif('onmeta: ' + xml)`, falling back to `fastJsonStringfy(evt.detail.json)` only if
+  `evt.detail.xml` is itself not a string. `#onvif_info` sizing (`width: 100%`, `height`/
+  `min-height: 90px`) is added to `css/window.css`'s shared `#debug, #result, #rtsp` log-panel rule
+  (now includes `#onvif_info`) rather than left at the raw `<textarea rows="50" cols="100">`
+  attributes, matching the other three panels. This is all `src/shared-v2/`-only; see DESIGN.md's
+  "Deviations from legacy behavior".
+- **FR-12.6**: A "Beautify" On/Off switch (`#onvif_beautify_toggle`, `mountSwitch()` `segmented`
+  variant wrapping `#onvif_beautify`, default checked/On) sits at the top of `#onvif_disclosure`'s
+  content area, above `#onvif_info`. When on, `onmeta()` pretty-prints `evt.detail.xml` via
+  `helpers.ts`'s `beautifyXml()` (a lightweight regex-based indenter — no XML parser/DOM
+  round-trip) before appending; when off, the raw as-received XML string is appended unmodified.
+  Toggling only affects lines appended *after* the change — already-appended lines are not
+  reformatted retroactively. `src/shared-v2/`-only; see DESIGN.md's "Deviations from legacy
+  behavior".
 
 ## FR-13: Modals
 
@@ -865,11 +905,15 @@
 
 Requested directly by the user ("모바일에 맞게 레이아웃을 수정해야 합니다 ... 더 공간을 효율적으로
 사용하는 레이아웃"). Below a `768px` viewport width, the page must lay out usably instead of squeezing
-the desktop 30/70 side-by-side split (`#left_panel`/`#right_panel`) and every fixed-min-width panel
-inside it into a phone-width screen. CSS-only (`css/window.css`, `css/table.css`, `src/component/
-event-timeline/event-timeline.css`); no control's id, behavior, or FR above changes. Since
-`css/window.css`/`css/table.css` are re-exported unmodified from `src/shared/css/`, this also applies
-to `src/shared/`'s own `window.html`, not just `src/shared-v2/`. Full rule list:
+every fixed-min-width panel into a phone-width screen. CSS-only (`css/window.css`, `css/table.css`,
+`src/component/event-timeline/event-timeline.css`); no control's id, behavior, or FR above changes.
+Since `css/window.css`/`css/table.css` are re-exported unmodified from `src/shared/css/`, this also
+applies to `src/shared/`'s own `window.html`, not just `src/shared-v2/` — **except** for
+`#container`/`#left_panel`/`#right_panel`/`#drag`'s own stacking, which FR-2.6 above (revised)
+supersedes for `src/shared-v2/` only with a continuous, any-size layout instead of this fixed
+breakpoint; `src/shared/` still uses this section's original stacked-breakpoint behavior for those
+four elements (`src/shared-v2/`'s own two panels no longer use the `#left_panel`/`#right_panel` ids
+at all — see FR-2.6's `#video-panel`/`#control-panel` rename). Full rule list:
 [DESIGN.md](DESIGN.md)'s "Mobile layout" section.
 
 ## Known dead controls (preserved, not fixed)

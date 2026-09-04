@@ -14,6 +14,10 @@
     <link rel="stylesheet" type="text/css" href="external-lib/vis/vis.css">
 
     <link rel="stylesheet" type="text/css" href="css/window.css" async>
+    <!-- Loaded after css/window.css so its #container/#video-panel/#control-panel/
+         #drag rules (equal specificity, later in document order) win the
+         cascade -- see split-layout.css's own header comment. -->
+    <link rel="stylesheet" type="text/css" href="css/split-layout.css" async>
     <link rel="stylesheet" type="text/css" href="css/switch.css" async>
     <link rel="stylesheet" type="text/css" href="css/disclosure.css" async>
     <link rel="stylesheet" type="text/css" href="css/calendar.css" async>
@@ -31,14 +35,18 @@
   </head>
   <body>
     <div id="container" class="container">
-      <div id="left_panel">
+      <div id="video-panel">
         <div class="video sameRow">
           <rtsp-over-websocket class="rtsp-over-websocket" id="rtsp-over-websocket1" channel="1" profile="H.264" port="80" device="camera"
             width="640px" height="320px" username="admin" statistics></rtsp-over-websocket>
         </div>
       </div>
-      <div id="right_panel">
-        <div id="drag"></div>
+      <!-- A real flex sibling between #video-panel/#control-panel now (dynamicLayout.ts,
+           FR-2.6), not nested inside #control-panel straddling the boundary via a
+           negative margin as it was in src/shared/'s absolute-position layout
+           (which still uses the old #left_panel/#right_panel ids -- unrenamed). -->
+      <div id="drag"></div>
+      <div id="control-panel">
         <div id="discovery" class="toolbar">
           <div class="toolbar-group">
             <button id="init">Start Discovery</button>
@@ -571,6 +579,31 @@
               </summary>
               <div class="disclosure-content">
                 <textarea id="rtsp" maxlength="5000" rows="50" cols="100"></textarea>
+              </div>
+            </details>
+          </div>
+        </div>
+        <div class="panel-stack">
+          <div class="panel">
+            <details id="onvif_disclosure" class="disclosure">
+              <summary class="disclosure-summary">
+                <span class="panel-title disclosure-title">ONVIF Information</span>
+                <span class="disclosure-chevron" aria-hidden="true"></span>
+                <label for="use_onvif" class="field">Use
+                  <input type="checkbox" id="use_onvif">
+                </label>
+                <button id="clear_onvif">Clear</button>
+              </summary>
+              <div class="disclosure-content">
+                <div class="field-row">
+                  <div class="field">
+                    <label class="switch">Beautify:</label>
+                    <div id="onvif_beautify_toggle">
+                      <input id="onvif_beautify" type="checkbox" checked>
+                    </div>
+                  </div>
+                </div>
+                <textarea id="onvif_info" maxlength="5000" rows="50" cols="100"></textarea>
               </div>
             </details>
           </div>

@@ -1,0 +1,134 @@
+/* src/component/split-layout/split-layout.css -- src/shared-v2/-only. Not
+   shared with src/shared/: linked only from src/shared-v2/window.html, after
+   css/window.css, so these plain-ID-selector rules (equal specificity, later
+   in document order) override window.css's static desktop 30/70 absolute-
+   position split AND its @media(max-width:768px) mobile-stacking override of
+   the same four selectors -- for shared-v2 alone. src/shared/window.html
+   never links this file, so its own #container/#left_panel/#right_panel/
+   #drag behavior (and 768px breakpoint) is completely unaffected -- it still
+   uses the original #left_panel/#right_panel ids; #video-panel/#control-panel
+   below are src/shared-v2/-only renames (requested directly by the user) of
+   what were originally the same #left_panel/#right_panel ids here too.
+
+   Replaces the old fixed 30/70 desktop split + separate <=768px stacked
+   breakpoint with one continuous flexbox layout: dynamicLayout.ts toggles
+   `#container`'s `split-portrait` class based on live width-vs-height (not
+   a fixed viewport-width threshold), and `#drag` resizes width in row mode /
+   height in column mode. See docs/window-ui/DESIGN.md's "Dynamic split
+   layout" section. */
+
+#container {
+  position: static;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: row;
+}
+
+#container.split-portrait {
+  flex-direction: column;
+}
+
+#video-panel {
+  position: static;
+  flex: 0 0 auto;
+  min-width: 0;
+  min-height: 0;
+  right: auto;
+  bottom: auto;
+  height: auto;
+  margin: 0;
+  padding: 10px;
+  overflow: auto;
+  display: flex;
+  /* Row mode: cross axis is vertical -- centers the (now aspect-ratio-sized,
+     not stretched) video vertically within #video-panel's full height. */
+  align-items: center;
+}
+
+/* Column mode: #video-panel's own flex-direction is still row (unchanged --
+   only #container's direction flips), so its cross axis stays vertical here
+   too; overridden to flex-start so the video sits at the top of its now-
+   short, full-width strip instead of centered within it. */
+#container.split-portrait #video-panel {
+  align-items: flex-start;
+}
+
+#control-panel {
+  position: static;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  width: auto;
+  right: auto;
+  bottom: auto;
+  resize: none;
+  margin: 0;
+  padding: 10px 10px 10px 0;
+  overflow-x: auto;
+  overflow-y: auto;
+}
+
+#container.split-portrait #control-panel {
+  padding: 0 10px 10px 10px;
+}
+
+/* No longer straddles the panel boundary via a negative margin -- it's now
+   a real flex sibling between #video-panel and #control-panel (window.html),
+   so its own flex-basis IS its visible width/height. */
+#drag {
+  position: static;
+  flex: 0 0 6px;
+  margin: 0;
+  cursor: col-resize;
+  background: transparent;
+  border: none;
+  border-left: 1px solid var(--border-color);
+  transition: border-color var(--transition), background var(--transition);
+  z-index: 10;
+}
+
+#container.split-portrait #drag {
+  cursor: row-resize;
+  border-left: none;
+  border-top: 1px solid var(--border-color);
+}
+
+#drag:hover {
+  border-left-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+#container.split-portrait #drag:hover {
+  border-top-color: var(--accent);
+}
+
+/* window.css's own `.video { width: 100%; height: 100%; }` +
+   `.video.sameRow { height: auto; }` already produce exactly what this
+   layout needs with no override here: full width (tracks #video-panel's own
+   live, drag-adjustable width) but content-driven (not stretched) height,
+   so #video-panel's own flex alignment (center row / top column, above) has
+   actual slack space to position the video within. */
+
+/* <rtsp-over-websocket> (window.html) gets no sizing at all from its own
+   component -- it defaults to `display: inline` with no explicit
+   width/height, so its shadow content falls back to the <video> tag's
+   intrinsic UA-default box (a fixed size, unrelated to and unresponsive to
+   #video-panel/the window) instead of filling its container. The component
+   itself does set `display: block` on itself once its own script runs
+   (RTSPOverWebSocket.ts), but never a size -- only the embedding page knows
+   how much space it should get. `width: 100%` tracks #video-panel's live
+   width; `aspect-ratio: 16 / 9` is a placeholder box before any real stream
+   connects -- `onResize()` (videoControl.ts) overwrites it with the actual
+   reported resolution via an inline `style.aspectRatio` (higher cascade
+   priority than this rule) once a real stream's dimensions are known, so
+   the box matches the real video instead of an arbitrary guess from then
+   on. Requested directly by the user: the video must not simply stretch to
+   fill #video-panel -- it needs its own aspect-ratio-correct box so
+   #video-panel's alignment (center row / top column, above) has visible
+   effect. */
+.rtsp-over-websocket {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+}

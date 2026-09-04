@@ -301,6 +301,15 @@ function buildSharedV2({ dev = false } = {}) {
     path.join(ROOT, 'src', 'component', 'disclosure', 'disclosure.css'),
     path.join(DIST_SHARED_V2, 'css', 'disclosure.css')
   );
+  // src/shared-v2/-only (FR-2.6 dynamic split layout, docs/window-ui/DESIGN.md) --
+  // overrides window.css's static #container/#left_panel/#right_panel/#drag
+  // rules (desktop split + <=768px breakpoint alike) for shared-v2 only; not
+  // copied by copySharedWebAssets() above, since src/shared/ never
+  // references it.
+  copyFile(
+    path.join(ROOT, 'src', 'component', 'split-layout', 'split-layout.css'),
+    path.join(DIST_SHARED_V2, 'css', 'split-layout.css')
+  );
   // src/shared-v2/-only (FR-7.8, docs/calendar-component/) -- not copied by
   // copySharedWebAssets() above, since src/shared/ never references it.
   copyFile(
@@ -359,20 +368,21 @@ function buildSharedV2({ dev = false } = {}) {
   // Per explicit user instruction: if dist/chrome-extension/ and/or
   // dist/nodejs/examples/public/ already exist (i.e. `npm run build` ran
   // first), overwrite their window.html/window.js/window.js.map/scripts/
-  // socket.js/css/calendar.css/css/event-timeline.css with this shared-v2 build too --
-  // so the actual shipped Chrome extension and nodejs example server both
-  // get FR-7.8's Calendar-driven Playback UI and FR-7.6 v1.16's custom
-  // event-timeline widget, not just dist/shared-v2-preview/. Every OTHER
-  // file the real build produced (manifest.json, native-host/, sunapi/,
-  // icons/, css/window.css, css/switch.css, css/disclosure.css,
-  // css/timeline.css, external-lib/) is untouched -- those are identical
-  // between src/shared/ and src/shared-v2/ already (PRD.md's Non-Goals: not
-  // a visual redesign) or, for css/timeline.css specifically, simply
-  // unreferenced by src/shared-v2/window.html now (harmless leftover, still
-  // needed by src/shared/'s own untouched page) -- so nothing needs
-  // re-copying there. Silently skipped (not an error) if a target dir
-  // doesn't exist yet, so `npm run build:shared-v2` alone (no prior `npm
-  // run build`) still just produces dist/shared-v2-preview/ as before.
+  // socket.js/css/calendar.css/css/event-timeline.css/css/split-layout.css
+  // with this shared-v2 build too -- so the actual shipped Chrome extension
+  // and nodejs example server both get FR-7.8's Calendar-driven Playback UI,
+  // FR-7.6 v1.16's custom event-timeline widget, and FR-2.6's dynamic split
+  // layout, not just dist/shared-v2-preview/. Every OTHER file the real
+  // build produced (manifest.json, native-host/, sunapi/, icons/,
+  // css/window.css, css/switch.css, css/disclosure.css, css/timeline.css,
+  // external-lib/) is untouched -- those are identical between src/shared/
+  // and src/shared-v2/ already (PRD.md's Non-Goals: not a visual redesign)
+  // or, for css/timeline.css specifically, simply unreferenced by
+  // src/shared-v2/window.html now (harmless leftover, still needed by
+  // src/shared/'s own untouched page) -- so nothing needs re-copying there.
+  // Silently skipped (not an error) if a target dir doesn't exist yet, so
+  // `npm run build:shared-v2` alone (no prior `npm run build`) still just
+  // produces dist/shared-v2-preview/ as before.
   for (const realTargetDir of [DIST_EXT, path.join(DIST_NODE, 'examples', 'public')]) {
     if (!fs.existsSync(realTargetDir)) {
       continue;
@@ -384,6 +394,7 @@ function buildSharedV2({ dev = false } = {}) {
     copyFile(path.join(DIST_SHARED_V2, 'scripts', 'socket.js'), path.join(realTargetDir, 'scripts', 'socket.js'));
     copyFile(path.join(DIST_SHARED_V2, 'css', 'calendar.css'), path.join(realTargetDir, 'css', 'calendar.css'));
     copyFile(path.join(DIST_SHARED_V2, 'css', 'event-timeline.css'), path.join(realTargetDir, 'css', 'event-timeline.css'));
+    copyFile(path.join(DIST_SHARED_V2, 'css', 'split-layout.css'), path.join(realTargetDir, 'css', 'split-layout.css'));
   }
 }
 

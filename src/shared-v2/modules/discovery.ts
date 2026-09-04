@@ -286,9 +286,12 @@ export function setDiscoveryViewType(viewType: string): void {
 }
 
 // ---------------------------------------------------------------------
-// Setup -- registers everything above, plus the drag handle (FR-2.6),
-// #web toggle, table sort headers, search box, and the discover/known-
-// devices event sources (FR-2.4).
+// Setup -- registers everything above, plus #web toggle, table sort
+// headers, search box, and the discover/known-devices event sources
+// (FR-2.4). The #drag divider (FR-2.6) is set up separately by
+// dynamicLayout.ts's setupSplitLayout(), not here -- it moved from a
+// simple horizontal-only resize into an orientation-aware row/column
+// split, a broader layout concern than this module's own scope.
 // ---------------------------------------------------------------------
 export function setupDiscovery(): void {
   document.querySelectorAll('#datatable thead th').forEach((th) => {
@@ -322,10 +325,6 @@ export function setupDiscovery(): void {
     renderDiscoveryTopology();
   });
 
-  document.getElementById('drag')!.addEventListener('mousedown', () => {
-    state.isResizing = true;
-  });
-
   document.getElementById('web')!.addEventListener('click', () => {
     const webdiv = document.getElementById('webdiv') as HTMLElement;
     if (webdiv.style.display === 'none' || webdiv.style.visibility === 'hidden') {
@@ -333,18 +332,6 @@ export function setupDiscovery(): void {
     } else {
       webdiv.style.display = 'none';
     }
-  });
-
-  document.addEventListener('mouseover', (e) => {
-    if (!state.isResizing) return;
-    const container = document.getElementById('container')!;
-    const offsetRight = container.clientWidth - (e.clientX - container.getBoundingClientRect().left);
-    (document.getElementById('left_panel') as HTMLElement).style.right = offsetRight + 'px';
-    (document.getElementById('right_panel') as HTMLElement).style.width = offsetRight + 'px';
-  });
-
-  document.addEventListener('mouseup', () => {
-    state.isResizing = false;
   });
 
   document.querySelector('#datatable tbody')!.addEventListener('click', (event) => {

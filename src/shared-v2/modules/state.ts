@@ -35,6 +35,16 @@ class State {
   // FR-12.2
   useDebug = true;
 
+  // Mirrors useDebug -- gates ONVIF Information panel appends (see
+  // helpers.ts's changeonvif()).
+  useOnvif = true;
+
+  // Gates whether onmeta() (videoControl.ts) pretty-prints the raw ONVIF
+  // metadata XML before appending it to #onvif_info, via helpers.ts's
+  // beautifyXml(). Only affects future appends, same as useDebug/useOnvif
+  // above -- not a retroactive reformat of already-appended lines.
+  onvifBeautify = true;
+
   // FR-4.5 (control-panel-data-binding.md §3)
   deviceInformation: any = {};
   device = {
@@ -92,8 +102,15 @@ class State {
   // trips against a real camera, compounding real perceived latency.
   sunapiInitInFlight = false;
 
-  // FR-2.6
+  // FR-2.6 (dynamic split layout -- see docs/window-ui/DESIGN.md)
   isResizing = false;
+  splitOrientation: 'row' | 'column' = 'row';
+  /** #video-panel's flex-basis (%) in row (landscape) mode -- default matches
+   *  the legacy fixed 30/70 split. */
+  rowSplitRatio = 30;
+  /** #video-panel's flex-basis (%) in column (portrait) mode -- video panel
+   *  larger than Control UI by default, per explicit user choice. */
+  columnSplitRatio = 60;
 
   // FR-2.1/FR-2.2
   dataSet: string[][] = [];

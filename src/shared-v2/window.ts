@@ -16,9 +16,11 @@ import { setupScreen } from './modules/screen';
 import { setupDebugPanels } from './modules/debugPanels';
 import { setupDiscovery } from './modules/discovery';
 import { setupModals } from './modules/modals';
+import { setupSplitLayout } from './modules/dynamicLayout';
 
 document.addEventListener('DOMContentLoaded', () => {
   setupToolbar();
+  setupSplitLayout();
 
   // Must run before setupSession()/setupPlayerEvents(): both assume
   // #player_list already exists as a <select> (FR-3.1).

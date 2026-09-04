@@ -220,6 +220,13 @@ export function scrollbottomrtsp(): void {
   }
 }
 
+export function scrollbottomonvif(): void {
+  const psonvif = document.getElementById('onvif_info') as HTMLTextAreaElement | null;
+  if (psonvif !== null) {
+    psonvif.scrollTop = psonvif.scrollHeight - psonvif.clientHeight;
+  }
+}
+
 /** FR-12.3: the single choke point most player/SUNAPI handlers funnel
  *  through -- appends to #debug and scrolls, both gated on state.useDebug
  *  (scrollbottom() does NOT run when useDebug is off -- preserved exactly). */
@@ -238,4 +245,53 @@ export function changertsp(data: string): void {
   const el = document.getElementById('rtsp') as HTMLTextAreaElement;
   el.value = el.value + data + '\r\n';
   scrollbottomrtsp();
+}
+
+/** Lightweight XML pretty-printer for the ONVIF Information panel's Beautify
+ *  toggle (SRS FR-12.5) -- no XML parser is loaded on this page (see
+ *  `@melchi45/rtsp-over-websocket`'s RTSPOverWebSocket.ts onRTSPOverWebSocketMeta()
+ *  comment: the optional `window.parser`/fast-xml-parser CDN script that
+ *  would populate `meta.json` is never loaded here), so this works on the
+ *  raw XML string directly rather than re-serializing a parsed DOM. Inserts
+ *  a newline between every `><` boundary, then indents each resulting line
+ *  by nesting depth (closing tags dedent before printing, opening tags
+ *  indent after). Not a full XML parser -- doesn't special-case CDATA or
+ *  multi-line comments -- but ONVIF metadata frames are plain nested
+ *  elements with no such constructs, so this is sufficient for display. */
+export function beautifyXml(xml: string): string {
+  const PADDING = '  ';
+  const lines = xml.replace(/(>)(<)(\/*)/g, '$1\r\n$2$3').split('\r\n');
+  let pad = 0;
+  return lines
+    .map((line) => {
+      const isClosing = /^<\//.test(line);
+      const isSelfClosing = /\/>$/.test(line);
+      const isDeclaration = /^<[?!]/.test(line);
+      // A line ending in "</tag>" without itself starting with "</" is an
+      // opening tag with its content and closing tag all on one line (e.g.
+      // "<b>text</b>") -- already balanced, no net indent change.
+      const isOpenAndClose = !isClosing && !isSelfClosing && !isDeclaration && /<\/[^>]+>$/.test(line);
+      const isOpenOnly = !isClosing && !isSelfClosing && !isDeclaration && !isOpenAndClose;
+
+      if (isClosing) {
+        pad = Math.max(pad - 1, 0);
+      }
+      const indented = PADDING.repeat(pad) + line;
+      if (isOpenOnly) {
+        pad += 1;
+      }
+      return indented;
+    })
+    .join('\r\n');
+}
+
+/** Mirrors changedebug()'s choke-point pattern for the ONVIF Information
+ *  panel -- player 'meta' event (onmeta() in videoControl.ts) -> #onvif_info
+ *  textarea, gated on state.useOnvif. */
+export function changeonvif(data: string): void {
+  if (state.useOnvif) {
+    const el = document.getElementById('onvif_info') as HTMLTextAreaElement;
+    el.value = el.value + data + '\r\n';
+    scrollbottomonvif();
+  }
 }

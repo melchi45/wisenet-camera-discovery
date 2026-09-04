@@ -74,6 +74,11 @@
 | 1.58 | 2026-09-03 | Youngho Kim | New deviation, requested directly by the user immediately after v1.57 ("Channel 처럼 ... Profiles의 Name 을 select box 으로 적용"): `#profile` now becomes a real `<select>` of the channel's profile Names once any exist, mirroring `#channel`'s own `setChannelWidgetMode()` via a new `setProfileWidgetMode()`. See "Deviations from legacy behavior" below and `tests/window-ui-equivalence/session-device-profile.spec.ts`'s updated TC-10/TC-11/TC-13. |
 | 1.59 | 2026-09-03 | Youngho Kim | SRS.md FR-6.10 v2.39: `onError()` (`videoControl.ts`) now surfaces an RTSP 503 `error` event (`errorCode` `0x0201`/513 decimal) via the `popup()` modal (`modals.ts`), same markup as every other player-error popup in this file — previously reached only the Debug Information panel (collapsed by default). Requested directly by the user after a live 503 (every Overlapped Playback ID slot already in use) went unnoticed with Debug Information collapsed. |
 | 1.56 | 2026-09-03 | Youngho Kim | New deviation, requested directly by the user (a pasted Windows 101-entry GMT list, asking how to properly support 30/45-minute-offset timezones instead of `_gmt` acting like an int): `helpers.ts`'s `gettimezonestring()` no longer reproduces the original's broken minute-detection regex (`/\d*.?(\w{2})?/` is fully optional end-to-end, so it matches literally any input and its "30" branch was dead code) or its asymmetric `+HHMM`/`-HH:MM` colon placement — it now computes `HH:MM` directly from the fractional hour (`Math.floor`/remainder × 60), correct for any offset including 45-minute zones. This feeds `moment(...).utcOffset(...)` in `playback.ts`'s `formatManualSearchTime()`/`formatTick()` and `playbackCalendar.ts`'s equivalent, so half/45-minute-offset searches (GMT+05:30, GMT-03:30, GMT+05:45, ...) now query SUNAPI with the correct offset instead of silently rounding to `:00`. `device.ts`'s camera-reported-timezone parser (`dateInfo.TimeZoneIndex` branch) is fixed the same way: it previously added a flat `+0.5` for any non-zero minute part, wrong for negative offsets (moved the magnitude *down* instead of up, e.g. GMT-03:30 became `-2.5`) and for 45-minute zones (collapsed to the same value as 30-minute ones); now computed as a sign-aware `hours + minutes/60`. `window.html`'s `#timezone` select gains a `GMT+05:45` (`value="5.75"`, Kathmandu) option — the one 45-minute zone missing from the existing list. `src/shared/window.ts`'s original `gettimezonestring()` (line ~2689) has the identical bug and is left untouched, per repo convention that `src/shared/` is a frozen source tree; this is a `src/shared-v2/`-only fix, added to "Deviations from legacy behavior" below since `tests/window-ui-equivalence/`'s TC-11 only checks `#use_gmt`/`#timezone`'s own DOM state (not the resulting SUNAPI query string), so no test needed rewriting. |
+| 1.60 | 2026-09-04 | Youngho Kim | New deviation, requested directly by the user: added a fourth disclosure panel, `#onvif_disclosure` ("ONVIF Information"), structurally identical to `#debug_disclosure` (`#use_onvif`/`#clear_onvif`/`#onvif_info`, `changeonvif()` mirroring `changedebug()`, both wired in `debugPanels.ts`'s `setupDebugPanels()`). `onmeta()` (`videoControl.ts`) — previously a stray `console.log` plus a `changedebug()` append — now drops the `console.log` and routes to `changeonvif()` instead of `changedebug()`, so ONVIF metadata gets its own panel rather than being interleaved into the general Debug Information log. `src/shared/`'s original `onmeta` (`window.ts` line ~2285, just `changedebug("onmeta: " + fastJsonStringfy(evt.detail.json))`, no `console.log`) is untouched — that tree has no ONVIF Information panel to route to. See "Deviations from legacy behavior" below and SRS.md FR-12.5. |
+| 1.61 | 2026-09-04 | Youngho Kim | Requested directly by the user right after v1.60: `onmeta()` switched from `evt.detail.json` (found, while implementing this, to always be `undefined` on this page — see below) to `evt.detail.xml`; added a "Beautify" On/Off switch above `#onvif_info` (`#onvif_beautify_toggle`, `mountSwitch()`, backing `helpers.ts`'s new `beautifyXml()`); and added `#onvif_info` to `css/window.css`'s shared log-panel sizing rule (previously only `#debug`/`#result`/`#rtsp`), which had left it undersized relative to its siblings. See "Deviations from legacy behavior" below and SRS.md FR-12.5/FR-12.6. |
+| 1.62 | 2026-09-04 | Youngho Kim | FR-2.6 rewritten, requested directly by the user (reported the video panel's height staying at its initial value on window resize, then specified the full replacement in detail): `#drag`'s fixed 30/70 desktop split + separate `<=768px` stacked-breakpoint override replaced with one continuous flexbox layout (new `dynamicLayout.ts`/`setupSplitLayout()`, new `src/component/split-layout/split-layout.css`, `src/shared-v2/`-only) that reflows between row (video left, Control UI right) and column (video top, Control UI bottom) based on `#container`'s own live aspect ratio via `ResizeObserver`, not a fixed viewport-width threshold — see the new "FR-2.6: Dynamic split layout" section below. `src/shared/` is completely unaffected (a separate, not-shared-v2-referenced CSS file). |
+| 1.63 | 2026-09-04 | Youngho Kim | FR-2.6 extended, requested directly by the user right after v1.62's video was confirmed live: the video no longer stretches to fill `#left_panel` — it sizes to its own aspect ratio (`16/9` placeholder, or the real stream's reported resolution via `onResize()`'s new `style.aspectRatio` wiring) and is positioned within the panel's slack space (vertically centered in row mode, top-anchored in column mode). See "FR-2.6: Dynamic split layout"'s new closing paragraphs. |
+| 1.64 | 2026-09-04 | Youngho Kim | `src/shared-v2/`-only rename, requested directly by the user: `#left_panel`/`#right_panel` → `#video-panel`/`#control-panel` across `window.html`, `split-layout.css`, and `dynamicLayout.ts` (no behavior change). `src/shared/window.html` and `css/window.css` keep the original ids, untouched. See "FR-2.6: Dynamic split layout"'s closing paragraph. |
 
 ## `src/shared-v2/` module structure
 
@@ -96,8 +101,10 @@ src/shared-v2/
                                 gettimezonestring, checkUserAccount, checkEventSubGroup/
                                 checkAIEventSubGroup, scrollbottom/scrollbottomrtsp)
     toolbar.ts                  (FR-1)
-    discovery.ts                 (FR-2 — table + topology; satisfies docs/star-topology/'s SRS too,
-                                reimplemented fresh, not copied)
+    discovery.ts                 (FR-2.1-FR-2.5 — table + topology; satisfies docs/star-topology/'s
+                                SRS too, reimplemented fresh, not copied)
+    dynamicLayout.ts              (FR-2.6, src/shared-v2/-only — see "FR-2.6: Dynamic split layout"
+                                below)
     session.ts                   (FR-3)
     device.ts                     (FR-4 — satisfies docs/control-panel-data-binding.md §1/§3 too)
     videoProfile.ts                (FR-5 — satisfies docs/control-panel-data-binding.md §4 too)
@@ -110,11 +117,14 @@ src/shared-v2/
     backup.ts                          (FR-9)
     instantPlayback.ts                  (FR-10)
     screen.ts                            (FR-11)
-    debugPanels.ts                        (FR-12 — mounts docs/disclosure-component/ same as original)
+    debugPanels.ts                        (FR-12 — mounts docs/disclosure-component/ same as original,
+                                            plus the src/shared-v2/-only ONVIF Information panel)
     modals.ts                              (FR-13)
     playerEvents.ts                         (FR-14 — wires every <rtsp-over-websocket> listener,
                                             delegating into the modules above)
-  css/                          (re-exported from src/shared/css/ — see PRD.md's Non-Goals)
+  css/                          (re-exported from src/shared/css/ — see PRD.md's Non-Goals — plus
+                                src/component/split-layout/split-layout.css, src/shared-v2/-only,
+                                see "FR-2.6: Dynamic split layout" below)
   tsconfig.window.json, vite.config.ts   (mirrors src/shared/'s own, new outDir)
 ```
 
@@ -131,15 +141,21 @@ already wrap. Since `css/window.css`/`css/table.css` are re-exported from `src/s
 unmodified (see "module structure" above and PRD.md's Non-Goals), these rules apply to `src/shared/`'s
 own `window.html` too — not a `src/shared-v2/`-only change, unlike most of this document.
 
-- **`#left_panel`/`#right_panel` stacking.** The desktop layout pins both to a fixed 30/70
-  `position: absolute` side-by-side split (`css/window.css`'s "Layout" section) with a `#drag`
-  handle to adjust it. Below 768px, both drop to `position: static`, full width, height `auto` —
-  normal document flow instead of two independently-scrolling absolutely-positioned panes — so the
-  video (`#left_panel`) sits above the Control/Discovery panels (`#right_panel`) instead of squeezed
-  into a 30%-width column. `html`/`body` switch from `overflow: hidden` (correct only when the two
-  panels are pinned to exactly fill the viewport, see that rule's own comment) to `overflow: auto`,
-  since the stacked content can now be taller than one screen. `#drag` is hidden — resizing a split
-  that no longer exists has nothing to do.
+- **`#left_panel`/`#right_panel` stacking — `src/shared/` only as of v1.62.** The desktop layout pins
+  both to a fixed 30/70 `position: absolute` side-by-side split (`css/window.css`'s "Layout" section)
+  with a `#drag` handle to adjust it. Below 768px, both drop to `position: static`, full width,
+  height `auto` — normal document flow instead of two independently-scrolling absolutely-positioned
+  panes — so the video (`#left_panel`) sits above the Control/Discovery panels (`#right_panel`)
+  instead of squeezed into a 30%-width column. `html`/`body` switch from `overflow: hidden` (correct
+  only when the two panels are pinned to exactly fill the viewport, see that rule's own comment) to
+  `overflow: auto`, since the stacked content can now be taller than one screen. `#drag` is hidden —
+  resizing a split that no longer exists has nothing to do. **`src/shared-v2/` no longer uses any of
+  this**, for `#container`/`#left_panel`/`#right_panel`/`#drag` specifically — see "FR-2.6: Dynamic
+  split layout" below, which replaces this fixed-breakpoint mechanism (for those four selectors only)
+  with a continuous, any-size, aspect-ratio-driven layout via a separate `src/shared-v2/`-only
+  stylesheet. The rest of this "Mobile layout" section (Calendar/Timeline row stacking, table
+  horizontal scroll, Event Timeline label column, `.field` wrapping) is unaffected and still shared
+  with `src/shared/` exactly as described below — this bullet is the only one superseded.
 - **`.playback-calendar-timeline-row` stacking.** The Calendar (`#playback_control_calendar`,
   `flex: 0 1 240px; min-width: 240px`) and Event Timeline (`.event-timeline-slot`, `flex: 1 1 420px;
   min-width: 380px`) panes sit side by side on desktop (see that rule's own comment on FR-7.8). Their
@@ -178,6 +194,135 @@ cannot fire at Playwright's default 1280×720 viewport regardless of content). S
 Not addressed by this pass (left as-is, no reported issue yet): Star Topology's `vis.Network` canvas
 (`docs/star-topology/`, sized by its own JS, not CSS) and the Calendar grid (`docs/calendar-component/`,
 already `1fr`-column based with no fixed pixel width to break).
+
+## FR-2.6: Dynamic split layout (`src/shared-v2/` only)
+
+Requested directly by the user in two steps: first reported that the video panel's height stayed at
+its initial value across a window resize (traced to `<rtsp-over-websocket>` never receiving a
+`display`/height of its own from the page — see below), then, once shown that root cause, redirected
+to a broader, explicitly-specified replacement: `#container` should switch between a row split
+(video left, Control UI right) and a column split (video top, Control UI bottom) based on the page's
+own live aspect ratio, at any size — not a fixed viewport-width breakpoint — with `#drag` resizing
+horizontally in row mode and vertically in column mode, and the two orientations' ratios remembered
+independently. `src/shared/` is untouched: the CSS lives in a new file this tree alone links
+(`src/component/split-layout/split-layout.css`, not `src/shared/css/`), and the JS lives in a new
+`src/shared-v2/`-only module (`dynamicLayout.ts`). `#left_panel`/`#right_panel` (the ids these two
+panels shared with `src/shared/` up through v1.63) were renamed to `#video-panel`/`#control-panel`
+in v1.64, `src/shared-v2/`-only — requested directly by the user once the feature itself was working;
+`src/shared/window.html` still uses the original `#left_panel`/`#right_panel` ids, and every mention
+of those two ids below refers to that untouched tree, not this one.
+
+**Why a separate stylesheet, not editing `css/window.css` directly.** `css/window.css` is
+re-exported unmodified from `src/shared/css/` and linked by *both* `window.html`s (see "module
+structure" above) — editing its `#container`/`#left_panel`/`#right_panel`/`#drag` rules in place
+would have changed `src/shared/`'s own page too, which the user explicitly excluded from this task.
+`split-layout.css` is linked only from `src/shared-v2/window.html`, immediately after
+`css/window.css`'s own `<link>` — its plain ID-selector rules for those same four elements have
+equal CSS specificity to `window.css`'s, so later position in document order is what makes them win
+the cascade (`<link>` stylesheets always apply in document order regardless of fetch timing/the
+`async` attribute — that attribute has no defined meaning on `<link rel="stylesheet">` in the first
+place). This is the same "replace instead of edit" pattern `event-timeline.css` already used for
+superseding `src/shared/css/timeline.css`'s Playback timeline (see "module structure" above) — here
+extended to four `#id` selectors that `window.css` still defines (dead-but-harmless, since it's
+always overridden here) rather than a whole separate widget.
+
+**Root cause of the original height report, fixed as a byproduct of this same file.**
+`<rtsp-over-websocket>` (`@melchi45/rtsp-over-websocket`) sets `display: block` on itself once its
+own script runs, but never a `width`/`height` — reasonably, since only the embedding page knows how
+much space it should actually get. Before this change, nothing in `window.html`'s CSS gave the
+element (or its `.video`/`.video.sameRow` wrapper, whose own `height: auto` — see `window.css`'s
+comment on that rule — sizes it to content instead of stretching) any explicit size either, so the
+whole chain fell back to the inner `<video>` tag's native UA-default box (a fixed size, confirmed via
+an isolated Playwright repro: unrelated to and unresponsive to any container/window resize) — this
+is what "stays at the initial value" actually was. `split-layout.css`'s `.video`/`.video.sameRow`
+(`width/height: 100%`, overriding the `auto` above) and `.rtsp-over-websocket` (`display: block;
+width/height: 100%`) rules fix this directly, and are necessary for the new layout regardless (the
+video area's whole point here is to track `#video-panel`'s live, drag-adjustable box).
+
+**Orientation detection: `ResizeObserver` on `#container`, not `window`'s `resize` event.**
+`dynamicLayout.ts`'s `updateOrientation()` compares `container.clientHeight` vs `clientWidth`
+directly and toggles a `split-portrait` class `split-layout.css` keys off of
+(`#container.split-portrait`) whenever the comparison flips. A `ResizeObserver` (not a `window`
+`resize` listener) is what triggers it — `#container`'s own box can change size for reasons a
+`window`-level event wouldn't fire for at all (an extension popup/side-panel resizing on its own,
+for instance), and observing the actual element being measured is the more direct signal regardless.
+
+**One state field per orientation, applied via `flex-basis`.** `state.rowSplitRatio` (default 30, "video panel's
+share of `#container`'s width in row mode — matches the pre-existing 30/70 split's 30") and
+`state.columnSplitRatio` (default 60, "video panel's share of height in column mode — video larger
+than Control UI by default," an explicit user choice, not derived from anything existing) are
+independent so switching orientation (e.g. rotating a tablet, or resizing a window past the
+threshold and back) never clobbers a ratio the user deliberately set in the *other* orientation —
+requested directly by the user as part of the same spec, not an incidental design choice.
+`applyRatio()` is the single function that actually writes the visible split, setting
+`#video-panel.style.flexBasis` to whichever ratio matches the current orientation — both the initial
+`setupSplitLayout()` call, `updateOrientation()`'s own re-application on every orientation flip, and
+the drag handler's live updates all go through this one function, so there is exactly one code path
+that can desync the displayed split from `state`'s own numbers.
+
+**Drag math: raw pointer position relative to `#container`, not the old `offsetRight`
+accumulation.** The pre-existing (`src/shared/window.ts`-derived) drag handler computed an
+`offsetRight` value from `container.clientWidth` minus the cursor's offset from the container's left
+edge, then wrote that same pixel value to *two* different CSS properties (`#left_panel.style.right`
+and `#right_panel.style.width`) — workable for the old absolute-position layout, meaningless for
+flexbox's `flex-basis`. The rewrite computes the ratio directly:
+`(cursorPosition - containerEdge) / containerSize * 100`, clamped to `[10, 90]` (a new bound — the
+original had no minimum/maximum at all, letting a fast drag fully collapse either panel to 0), on
+whichever axis (`clientX`/`width` in row mode, `clientY`/`height` in column mode) the current
+orientation uses. This is also where `mousemove` replaces the original's `mouseover` for the
+document-level drag-follow listener — `mouseover` only re-fires when the pointer enters a *different*
+element, so it followed a fast drag much less smoothly than a continuous `mousemove` would; not
+preserved here since this is a full rewrite of the handler, not a port of it.
+
+**`#drag` moved to be a real flex sibling, not nested inside `#right_panel`.**
+`src/shared/window.html`'s `#drag` sits as `#right_panel`'s first child, positioned to visually
+straddle the panel boundary via `margin-left: -3px` (only workable because `#right_panel` was
+absolutely positioned with a known `left` edge). `src/shared-v2/window.html`'s markup moves it out to
+be a direct sibling of `#video-panel`/`#control-panel` under `#container`, so it's a real flex item in
+the row/column layout — its own `flex-basis` (6px) is its actual visible width (row mode) / height
+(column mode), no positioning hack needed. `discovery.ts`'s `setupDiscovery()` (which used to own the
+`#drag` mousedown listener, alongside the other `mouseover`/`mouseup` document listeners) had that
+code removed entirely — it now lives in `dynamicLayout.ts`'s `setupSplitLayout()`, called separately
+from `window.ts`'s setup sequence, since it's a layout-composition concern spanning `#video-panel`/
+`#control-panel` both, not a Discovery-panel-specific one.
+
+**Video positioned within its panel (centered row / top-anchored column), not stretched to fill
+it.** Requested directly by the user right after the above was first verified live. An earlier
+version of `.rtsp-over-websocket` stretched to `width: 100%; height: 100%`, filling `#video-panel`
+completely — leaving no slack space for "centered" vs. "top-anchored" positioning to ever produce a
+visible difference. Asked one clarifying question (`AskUserQuestion`) before implementing: since a
+full stretch leaves no room for positioning to matter, did the user want the video element to shrink
+to its own aspect ratio instead, creating the slack space needed? Confirmed yes. `.rtsp-over-websocket`
+now uses `width: 100%; aspect-ratio: 16 / 9` (a placeholder ratio, only visible before any real stream
+connects) instead of a height stretch; `.video`/`.video.sameRow` needed no override at all any more —
+`window.css`'s own pre-existing `.video.sameRow { height: auto }` rule already does exactly what's
+wanted once its child is no longer forcing a stretch. `#video-panel`'s existing `align-items: center`
+(harmless before, since there was no slack to center within) now has real effect; a new
+`#container.split-portrait #video-panel { align-items: flex-start; }` handles column mode —
+`#video-panel`'s own internal flex-direction stays `row` regardless of `#container`'s orientation
+(only `#container`'s own direction flips), so its cross axis (governed by `align-items`) is always the
+*vertical* one, which is exactly the axis that needs to differ between the two modes here.
+
+`onResize()` (`videoControl.ts`) already existed, wired to the player's own `'resize'` event
+(reporting the stream's real decoded width/height) — previously it only wrote inert `width`/`height`
+HTML content attributes with no layout effect (see "module structure" above's Known-dead-adjacent
+pattern). Extended to also set `element.style.aspectRatio` from the real reported dimensions: an
+inline style, so cascade priority alone makes it override `split-layout.css`'s `16/9` placeholder the
+moment a real stream connects, with no need to touch the CSS rule itself. Verified via
+`getBoundingClientRect()` math (not just visual inspection): at 1200×800 (row mode) the video's top
+and bottom gaps within `#video-panel` were both exactly 299.3px (centered); at 800×1200 (column mode)
+the top gap was 11.0px — `#video-panel`'s own 10px padding plus a fractional rounding pixel, i.e.
+flush against the top edge.
+
+**`#left_panel`/`#right_panel` renamed to `#video-panel`/`#control-panel` (`src/shared-v2/` only,
+v1.64).** Requested directly by the user once the feature above was already working — purely a
+rename, no behavior change: `window.html`'s two `id` attributes, every selector in
+`split-layout.css`, and every `document.getElementById(...)` call in `dynamicLayout.ts` (plus its
+`leftPanel` local variable, renamed to `videoPanel` for consistency) were updated together.
+`css/window.css`'s own `#left_panel`/`#right_panel` rules were never touched (they're `src/shared/`'s
+originals) and are simply unreferenced by `src/shared-v2/window.html` now, same "harmless leftover"
+relationship `split-layout.css`'s header comment already describes for the four ids' *rules* — now
+also true of the *ids* themselves for these two elements specifically.
 
 ## FR-7.8: SUNAPI-driven Calendar search (`src/shared-v2/` only)
 
@@ -998,3 +1143,85 @@ go through the native host's Digest logic at all; the mock server just returns `
   `#profile` back to a plain input when there's no longer any profile list to choose from — same
   reasoning as `#channel`'s own revert there. `src/shared/window.ts`'s own untouched original is
   unaffected, per the same explicit, scoped decision as v1.57 (fix `src/shared-v2/` only).
+- **A fourth disclosure panel, `#onvif_disclosure` ("ONVIF Information"), plus routing `onmeta()`'s
+  data to it instead of `#debug` (SRS.md FR-12.5, `debugPanels.ts`/`helpers.ts`/`videoControl.ts`,
+  v1.60) — not present in `src/shared/`.** Requested directly by the user: remove the stray
+  `console.log('onmeta', evt.detail)` in `onmeta()` (`videoControl.ts`), and give ONVIF metadata
+  ("meta" player events) a dedicated panel structurally identical to Debug Information rather than
+  interleaving it into the general Debug Information log. `#onvif_disclosure` is a straight copy of
+  `#debug_disclosure`'s markup/wiring pattern — `#use_onvif` (default checked, gates
+  `changeonvif()`), `#clear_onvif`, `#onvif_info` textarea with the same `input`-listener
+  `maxlength` truncation, `state.useOnvif` mirroring `state.useDebug`, `changeonvif(data)` in
+  `helpers.ts` mirroring `changedebug(data)` exactly (append `data + "\r\n"`, gated, then scroll to
+  bottom), all mounted via the same `mountDisclosure()` component
+  (`docs/disclosure-component/`) as the other three panels. `onmeta()` now reads simply
+  `changeonvif('onmeta: ' + fastJsonStringfy(evt.detail.json))` — same message format as before,
+  just a different target textarea, and no `console.log`. `src/shared/window.ts`'s own untouched
+  original (`onmeta` at line ~2285) still only calls `changedebug()`, unaffected — that tree has no
+  ONVIF Information panel to route to. See SRS.md FR-12.5.
+
+  **v1.61 follow-up, requested directly by the user right after v1.60 landed ("xml 로 보여줘 ...
+  beatify 를 on/off toggle ui 추가해주고 ... onvif_info textarea 가 onvif_disclosure 에 맞게
+  수정해줘"):**
+  - **`onmeta()` now reads `evt.detail.xml`, not `evt.detail.json`.** Investigating this request
+    surfaced that v1.60's `fastJsonStringfy(evt.detail.json)` was actually dead weight on this
+    page: `@melchi45/rtsp-over-websocket`'s `RTSPOverWebSocket.ts` (`onRTSPOverWebSocketMeta()`)
+    only populates `meta.json` when the page has loaded an *optional* `fast-xml-parser` CDN
+    script and set `window.parser` — that library's own comment names
+    `wisenet-camera-discovery`'s `window.html` specifically as a consumer that doesn't, so
+    `evt.detail.json` was always `undefined` here and the panel was silently logging
+    `"onmeta: undefined"` for every metadata frame. `evt.detail.xml` (the raw ONVIF metadata XML
+    string) is unconditionally populated by the same library whenever the `meta` event fires at
+    all, so `onmeta()` now uses that, falling back to `fastJsonStringfy(evt.detail.json)` only if
+    `evt.detail.xml` isn't a string (defensive; not expected to trigger in practice).
+  - **A "Beautify" On/Off switch, `#onvif_beautify_toggle` (`mountSwitch()`, `segmented` variant,
+    default On).** Sits at the top of `#onvif_disclosure`'s content area, above `#onvif_info` —
+    not in the `<summary>` header alongside Use/Clear, a deliberate placement choice: the
+    `mountDisclosure()` header-control guard (`docs/disclosure-component/DESIGN.md`'s
+    "`<summary>`-click-bubbling problem") only supports exactly one checkbox id and one button id
+    per panel (`headerCheckboxId`/`headerButtonId`), and generalizing that shared contract to an
+    arbitrary list purely to fit one more control into this one panel's header was judged higher
+    risk (touches all four panels) for no real benefit over simply putting it in the
+    already-visible-when-open content area instead. When on, `onmeta()` pretty-prints
+    `evt.detail.xml` through a new `helpers.ts` function, `beautifyXml()`, before appending; when
+    off, the raw as-received XML string is appended unmodified. The toggle only affects lines
+    appended after the change — matches every other `state.use*`-style gate in this file (e.g.
+    `useDebug`/`useOnvif`), none of which retroactively rewrite already-appended log lines either.
+  - **`beautifyXml(xml)` (`helpers.ts`) is a small regex-based indenter, not a real XML
+    parser/serializer round-trip** — deliberately, since no XML parser is loaded on this page at
+    all (see above) and pulling one in as a dependency purely to re-serialize already-well-formed
+    XML for *display* would be disproportionate. It inserts a newline at every `><` boundary, then
+    walks the resulting lines classifying each as a closing tag (dedent before printing), a
+    self-closing tag or processing instruction (no indent change), an opening tag with its content
+    and closing tag already on the same line (e.g. `<b>text</b>` — already balanced, no change),
+    or a bare opening tag (indent the lines that follow). Does not special-case CDATA sections or
+    multi-line comments — ONVIF metadata frames are plain nested elements with attribute values
+    only, so this is sufficient for the display use case; a first implementation attempt using a
+    single combined regex for "is this an opening tag" failed on bare tags with no attributes and
+    no inline content (e.g. `<a>` alone on its line, immediately followed by a nested child) —
+    found by direct testing (a Node script with representative ONVIF-shaped XML fixtures) before
+    this shipped, not by a user report.
+  - **`#onvif_info` gained explicit sizing, previously missing.** `css/window.css`'s existing log
+    panel rule (`#debug, #result, #rtsp { display: block; width: 100%; min-height: 90px; height:
+    90px; }`) never included `#onvif_info` (added one `src/shared-v2/`-only conversation turn
+    after that rule itself was last touched), so it had been falling back to its bare
+    `<textarea rows="50" cols="100">` HTML attributes — a fixed monospace-character grid box that
+    doesn't match its three siblings' full-width, fixed-pixel-height flex sizing. `#onvif_info` is
+    now added to that same shared rule. `css/window.css` is `src/shared/css/window.css` physically
+    (see "Build wiring" below and this doc's own module-structure note — `src/shared-v2/` doesn't
+    have its own copy, `buildSharedV2()` reuses `src/shared/`'s CSS unmodified), so this edit
+    technically touches a `src/shared/` file — harmless for that tree itself, since it has no
+    `#onvif_info` element for the added selector to ever match, same precedent as this same file's
+    existing `.password-field`/`.password-toggle` rules (added for `src/shared-v2/`'s password
+    show/hide toggle, explicitly noted there as "harmless unused rules for `src/shared/`'s own
+    `window.html`").
+- **`#container`/`#video-panel`(was `#left_panel`)/`#control-panel`(was `#right_panel`)/`#drag` —
+  dynamic row/column split layout, not the fixed 30/70 desktop split + `<=768px` stacked
+  breakpoint.** Requested directly by the user (see "FR-2.6: Dynamic split layout" above for the
+  full design writeup, including the later id rename). `src/shared/window.html`'s original layout
+  mechanism (and its `#left_panel`/`#right_panel` ids) is completely untouched — this is a genuinely
+  new, `src/shared-v2/`-only stylesheet (`src/component/split-layout/split-layout.css`) and module
+  (`dynamicLayout.ts`), not an edit to any file `src/shared/` also uses, so no equivalence-test
+  asymmetry needed asserting: that suite only ever drives the `nodejs` runtime target's default
+  (1280×720, landscape) viewport, where both trees' row-mode splits already produce comparable panel
+  proportions despite the different ids/mechanism underneath.

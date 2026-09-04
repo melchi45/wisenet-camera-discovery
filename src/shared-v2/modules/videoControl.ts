@@ -2,7 +2,7 @@
 
 import { mountSwitch } from '../../component/switch/switch';
 import { state } from './state';
-import { changedebug, fastJsonStringfy, scrollbottom } from './helpers';
+import { beautifyXml, changedebug, changeonvif, fastJsonStringfy, scrollbottom } from './helpers';
 import { updatePlaybackSunapiUIVisibility } from './playbackCalendar';
 
 declare var AuthError: any;
@@ -449,7 +449,12 @@ export function onError(error: any): void {
 }
 
 export function onmeta(evt: any): void {
-  changedebug('onmeta: ' + fastJsonStringfy(evt.detail.json));
+  if (typeof evt.detail.xml === 'string') {
+    const xml = state.onvifBeautify ? beautifyXml(evt.detail.xml) : evt.detail.xml;
+    changeonvif('onmeta: ' + xml);
+  } else {
+    changeonvif('onmeta: ' + fastJsonStringfy(evt.detail.json));
+  }
 }
 
 export function onClose(message: any): void {
@@ -492,6 +497,11 @@ export function onResize(resize: any): void {
       const element = document.getElementById(resize.detail.elementId)!;
       element.setAttribute('width', resize.detail.width);
       element.setAttribute('height', resize.detail.height);
+      // FR-2.6 (src/shared-v2/-only, split-layout.css): the element itself
+      // no longer stretches to fill #video-panel -- it's sized by
+      // `aspect-ratio` instead, so its box matches the real video instead of
+      // a generic 16:9 placeholder once the actual resolution is known.
+      element.style.aspectRatio = `${resize.detail.width} / ${resize.detail.height}`;
     }
   }
 }
