@@ -2709,3 +2709,81 @@ sweep needs the same "is this describing current behavior or documenting what wa
 point" judgment call as any other edit — a mechanical find-replace across the whole file would have
 silently rewritten historical debugging notes and version-specific History entries to claim ids that
 didn't exist yet at the time being described.
+
+### Follow-up, same feature, same day: column mode's gap / double-scrollbar bug — a ratio-based `#video-panel` fighting its own content's aspect ratio
+
+Reported directly by the user with two screenshots from a real device session: a visible dark gap
+between the (correctly top-aligned) video and the "CONTROL" section below it, and — described
+separately, from a different window shape — "at certain ratios, two scrollbars appear or there's
+empty space between the panels." Both turned out to be the same root cause.
+
+**Root cause**: column mode's `#video-panel` still used the same JS-set `flex-basis` percentage
+mechanism as row mode (a `state.columnSplitRatio`, default 60%) — a fixed share of `#container`'s
+height, completely unrelated to the video's own aspect-ratio-driven height at whatever width
+`#video-panel` actually had. Whenever the reserved percentage happened to exceed what the video
+needed, the leftover was the reported gap (`#control-panel` starts only after the *reserved* space
+ends, not after the video's actual content ends). Whenever it fell short, the video — whose width
+stays `100%` and whose aspect ratio is fixed, neither of which shrinks just because the flex algorithm
+compressed the containing box — didn't actually get smaller, it just no longer fit inside
+`#video-panel`, triggering `#video-panel`'s own `overflow: auto`: the second scrollbar. Column mode
+never had a structural reason for a user-adjustable ratio at all — unlike row mode, where the two
+panels sit side by side and a centered video genuinely can have slack on either side of a
+manually-chosen column width, column mode *stacks* them, so `#control-panel` starting immediately
+where `#video-panel`'s real content ends is the only version of "correct" that exists.
+
+**First attempt, corrected before shipping**: initially set `flex: 0 1 auto` (content-sized, but
+shrinkable) on `#video-panel` for column mode, reasoning that shrink would handle any leftover overflow
+gracefully. Live-tested across four real (viewport, aspect-ratio) combinations before considering it
+done — a habit worth calling out explicitly, since it caught the same class of self-consistent-but-
+wrong assumption bug that's bitten this session before (the ONVIF `Transformation` formula, way
+earlier the same day): 3 of 4 cases still showed `#video-panel` with its own internal scroll active.
+Root cause of *that*: `flex-shrink` compresses the flex item's own box, but does nothing to the
+*content* inside it — the aspect-ratio'd video doesn't get shorter just because its container did, so
+a shrunk `#video-panel` just showed the exact same video, now clipped/scrolling internally. Fixed by
+switching to `flex-shrink: 0` (never shrink at all) — `#video-panel` is now unconditionally exactly the
+video's own rendered size, full stop, which is what actually eliminates the internal scrollbar rather
+than just resizing the box around a video that stays whatever size it always was.
+
+**`flex-shrink: 0` alone reopened a different failure mode**: if `#video-panel` refuses to shrink and
+the video's own height genuinely exceeds the viewport (a narrow window with a tall/portrait-oriented
+video), the excess has to go *somewhere* — `html`/`body`'s shared `overflow: hidden` (`css/window.css`,
+still correct for row mode's own stated reasoning) would otherwise clip it invisibly, with the rest of
+the page unreachable. Fixed with `#container.split-portrait { overflow-y: auto; }` — `#container`
+itself becomes the scrolling region for this one case, verified with a deliberately extreme 9:32
+aspect ratio at 800×900: confirmed via `getComputedStyle` that `#container`'s own box height stayed
+correctly clamped to the 900px viewport (did **not** grow to fit content, which is what a first,
+mis-targeted test run at 300×400 appeared to show — that viewport's *width* was under `css/window.css`'s
+own pre-existing, completely unrelated `768px` mobile breakpoint, which sets its own `html,body{height:
+auto; overflow:auto}` and made the real column-mode CSS impossible to isolate; re-run at 800×900,
+which avoids the mobile breakpoint while still being portrait, gave a clean, correct signal), while
+`scrollHeight` correctly exceeded `clientHeight` and the video stayed reachable (non-zero rendered
+height, confirmed after simulating a scroll) rather than clipped.
+
+**`#drag` hidden in column mode, `state.columnSplitRatio` removed entirely.** Once `#video-panel` has
+no adjustable ratio in column mode, a drag handle that no longer resizes anything would just be
+confusing UI, not a feature worth preserving inertly — same precedent `css/window.css`'s own `<=768px`
+breakpoint already set for hiding `#drag` once its split doesn't exist there either. The now-entirely-
+unused `columnSplitRatio` state field and the drag handler's column-axis math were deleted rather than
+left as dead code, per the project's own "don't add complexity beyond what's needed" convention — the
+`mousemove` handler kept one small added guard (`state.splitOrientation !== 'row'` → return) for the
+edge case of the window flipping to column mode while a row-mode drag is still physically in progress.
+
+**Verified**: `npx tsc` clean. Live Playwright checks across the real device's 4:3 ratio, 16:9, and
+several viewport width/height combinations all showed `gap: 0` (computed as
+`#control-panel.getBoundingClientRect().top - #video-panel.getBoundingClientRect().bottom`, not just
+"looks close" from a screenshot) and `#video-panel.scrollHeight === #video-panel.clientHeight` (no
+internal scrollbar) in every case; row mode (drag, centered positioning, ratio memory) re-confirmed
+unaffected by any of these column-mode-scoped changes.
+
+**How to apply**: a JS-set percentage-of-container size and a CSS-`aspect-ratio`-driven content size
+are two independent sources of truth for the same box's dimension — whenever both exist on the same
+axis of the same element, they will eventually disagree, and the disagreement shows up as exactly this
+class of bug (a gap when the reservation is generous, an overflow when it's stingy). The fix is never
+"pick better default numbers" — it's recognizing that only one of the two should own that axis at all;
+here, the video's own aspect ratio is the one authoritative source once a ratio-driven axis and a
+content-driven axis end up stacked directly against each other with no room for both to be "right"
+simultaneously. And as with the earlier `Transformation`-formula bug this session, a first fix that
+merely *seems* to solve the reported symptom (content-sizing seemed obviously sufficient) still needs
+live verification against the same numbers/cases that exposed the bug in the first place — the
+gap disappeared immediately, but the double-scrollbar half of the same report was still there until
+that verification pass actually caught it.

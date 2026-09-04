@@ -85,6 +85,7 @@
 | 2.42 | 2026-09-04 | Youngho Kim | FR-2.6 rewritten and NFR-1 revised, requested directly by the user: `#container`/`#left_panel`/`#right_panel`/`#drag` now use a continuous, aspect-ratio-driven row/column split (`src/shared-v2/`-only), superseding the old fixed 30/70 desktop split + separate `<=768px` stacked-breakpoint override for those four elements specifically — `src/shared/` keeps the original behavior for both. See `docs/window-ui/DESIGN.md`'s "FR-2.6: Dynamic split layout" and "Deviations from legacy behavior" (v1.62). |
 | 2.43 | 2026-09-04 | Youngho Kim | FR-2.6 extended, requested directly by the user: `<rtsp-over-websocket>` no longer stretches to fill `#left_panel` — it now sizes to its own aspect ratio and is positioned within the panel (centered row / top-anchored column). See `docs/window-ui/DESIGN.md`'s "FR-2.6: Dynamic split layout" (v1.63). |
 | 2.44 | 2026-09-04 | Youngho Kim | FR-2.6/NFR-1 updated for the `src/shared-v2/`-only `#left_panel`/`#right_panel` → `#video-panel`/`#control-panel` rename, requested directly by the user. `src/shared/` keeps the original ids. See `docs/window-ui/DESIGN.md`'s "FR-2.6: Dynamic split layout" (v1.64). |
+| 2.45 | 2026-09-04 | Youngho Kim | FR-2.6 fixed and split into explicit row/column sub-bullets: column mode no longer has a user-adjustable ratio (`#drag` hidden) — `#video-panel` MUST be sized to exactly the video's own height so `#control-panel` sits flush against it, with `#container` itself as the scroll fallback if the video's height exceeds the viewport. Reported directly by the user with two screenshots (a gap, and a double-scrollbar case). See `docs/window-ui/DESIGN.md`'s "FR-2.6: Dynamic split layout" (v1.65). |
 
 ## Conventions
 
@@ -133,18 +134,23 @@
   "Deviations from legacy behavior"): `#container` continuously reflows between a row split (video
   `#video-panel` left, Control UI `#control-panel` right) and a column split (video top, Control UI
   bottom) based on `#container`'s own live aspect ratio (landscape → row, portrait → column),
-  re-evaluated via `ResizeObserver` at any size — not a fixed viewport-width breakpoint. `#drag`
-  resizes the split by dragging: horizontally in row mode, vertically in column mode, clamped to
-  `[10%, 90%]` of `#container`'s size on the active axis. Each orientation remembers its own ratio
-  independently (row default 30%, column default 60% — video panel larger by default in column mode)
-  — switching orientation and back restores whichever ratio was last set for that orientation, not a
-  shared value. `src/shared/window.html` keeps the original fixed 30/70 desktop split + separate
-  `<=768px` stacked-breakpoint behavior (and the original `#left_panel`/`#right_panel` ids —
+  re-evaluated via `ResizeObserver` at any size — not a fixed viewport-width breakpoint.
+  `src/shared/window.html` keeps the original fixed 30/70 desktop split + separate `<=768px`
+  stacked-breakpoint behavior (and the original `#left_panel`/`#right_panel` ids —
   `#video-panel`/`#control-panel` is a `src/shared-v2/`-only rename), completely unaffected. The
   `<rtsp-over-websocket>` element MUST NOT stretch to fill `#video-panel` — it sizes to its own
   aspect ratio (a `16/9` placeholder before any stream connects, then the real stream's own reported
   resolution once known) and is positioned within `#video-panel`'s available space: vertically
   centered in row mode, anchored to the top in column mode.
+  - **Row mode**: `#drag` resizes the split by dragging horizontally, clamped to `[10%, 90%]` of
+    `#container`'s width, remembered independently as `state.rowSplitRatio` (default 30%) across
+    orientation switches.
+  - **Column mode**: `#video-panel` MUST be sized to exactly the video's own rendered height (never
+    more, never less) so `#control-panel` always sits flush against it with no gap and `#video-panel`
+    never needs its own internal scrollbar. There is no user-adjustable ratio for this axis — `#drag`
+    is hidden in column mode. If the video's own height genuinely exceeds the available viewport
+    space, `#container` itself becomes the scrolling region (not `html`/`body`, and not a second,
+    nested scrollbar on `#video-panel`) so the video stays reachable rather than being clipped.
 
 - **FR-3.1**: `#player_list_div` (empty in the markup) gets a `<label for="player_list">`
   ("Plyaer List: " — typo preserved, user-visible legacy text) and a `<select id="player_list">`

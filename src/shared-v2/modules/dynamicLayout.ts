@@ -4,9 +4,11 @@
 // continuous flexbox layout that reflows based on the page's live aspect
 // ratio, at any size -- landscape (wider than tall) puts the video on the
 // left and Control UI on the right; portrait (taller than wide) puts video
-// on top, Control UI below. #drag resizes the split by dragging horizontally
-// in landscape / vertically in portrait. See docs/window-ui/DESIGN.md's
-// "Dynamic split layout" section; CSS lives in
+// on top, Control UI below. #drag resizes the row-mode split by dragging
+// horizontally; column mode has no drag/ratio at all (see below) -- #video-
+// panel is content-sized there so #control-panel always sits flush against
+// it, no gap or overflow regardless of the video's own aspect ratio. See
+// docs/window-ui/DESIGN.md's "Dynamic split layout" section; CSS lives in
 // src/component/split-layout/split-layout.css (src/shared-v2/-only, not
 // shared with src/shared/, which keeps the original #left_panel/#right_panel
 // ids -- #video-panel/#control-panel are a src/shared-v2/-only rename).
@@ -20,30 +22,28 @@ function clampRatio(value: number): number {
   return Math.min(MAX_RATIO, Math.max(MIN_RATIO, value));
 }
 
-function currentRatio(): number {
-  return state.splitOrientation === 'row' ? state.rowSplitRatio : state.columnSplitRatio;
-}
-
-function setCurrentRatio(value: number): void {
+/** Row mode only: applies `state.rowSplitRatio` as #video-panel's flex-basis
+ *  -- the single thing that actually controls the visible row-mode split.
+ *  Column mode instead clears any inline flex-basis so split-layout.css's
+ *  `flex: 0 1 auto` (content-sized) rule takes over -- #video-panel there
+ *  must always be exactly the video's own aspect-ratio-driven height, never
+ *  a fixed percentage of #container, or #control-panel either leaves a gap
+ *  below it (basis larger than the video needs) or the video overflows into
+ *  a second, inner scrollbar (basis smaller than the video needs). Reported
+ *  directly by the user, with a screenshot showing exactly that gap. */
+function applyLayout(videoPanel: HTMLElement): void {
   if (state.splitOrientation === 'row') {
-    state.rowSplitRatio = value;
+    videoPanel.style.flexBasis = state.rowSplitRatio + '%';
   } else {
-    state.columnSplitRatio = value;
+    videoPanel.style.removeProperty('flex-basis');
   }
-}
-
-/** Applies `currentRatio()` as #video-panel's flex-basis -- the single thing
- *  that actually controls the visible split, in either orientation. */
-function applyRatio(videoPanel: HTMLElement): void {
-  videoPanel.style.flexBasis = currentRatio() + '%';
 }
 
 /** Re-evaluates row vs column from #container's live box (not a fixed
  *  viewport-width breakpoint -- a narrow-but-tall extension popup and a
  *  wide-but-short one both need to pick the orientation that actually suits
  *  their own shape, not the page's outer window). Toggles the
- *  `split-portrait` class split-layout.css keys off of, and re-applies that
- *  orientation's own remembered ratio. */
+ *  `split-portrait` class split-layout.css keys off of, and re-applies. */
 function updateOrientation(container: HTMLElement, videoPanel: HTMLElement): void {
   const isPortrait = container.clientHeight > container.clientWidth;
   const nextOrientation = isPortrait ? 'column' : 'row';
@@ -51,7 +51,7 @@ function updateOrientation(container: HTMLElement, videoPanel: HTMLElement): voi
     state.splitOrientation = nextOrientation;
     container.classList.toggle('split-portrait', isPortrait);
   }
-  applyRatio(videoPanel);
+  applyLayout(videoPanel);
 }
 
 export function setupSplitLayout(): void {
@@ -67,6 +67,8 @@ export function setupSplitLayout(): void {
   // independently of any window-level event).
   new ResizeObserver(() => updateOrientation(container, videoPanel)).observe(container);
 
+  // #drag is hidden in column mode (split-layout.css) -- mousedown can only
+  // ever fire here in row mode.
   dragHandle.addEventListener('mousedown', () => {
     state.isResizing = true;
   });
@@ -77,14 +79,15 @@ export function setupSplitLayout(): void {
   // (src/shared/window.ts) used mouseover and inherited that jerkiness; not
   // reproduced here since this is a full rewrite, not a port.
   document.addEventListener('mousemove', (e) => {
-    if (!state.isResizing) return;
+    // Guards the edge case of the window flipping to column mode mid-drag
+    // (e.g. resizing while the mouse button is still held from a row-mode
+    // drag) -- row-mode math has nothing meaningful to do once there, and
+    // applyLayout()'s own column branch would just clear it again anyway.
+    if (!state.isResizing || state.splitOrientation !== 'row') return;
     const rect = container.getBoundingClientRect();
-    const ratio =
-      state.splitOrientation === 'row'
-        ? ((e.clientX - rect.left) / rect.width) * 100
-        : ((e.clientY - rect.top) / rect.height) * 100;
-    setCurrentRatio(clampRatio(ratio));
-    applyRatio(videoPanel);
+    const ratio = ((e.clientX - rect.left) / rect.width) * 100;
+    state.rowSplitRatio = clampRatio(ratio);
+    applyLayout(videoPanel);
   });
 
   document.addEventListener('mouseup', () => {

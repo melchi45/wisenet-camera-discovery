@@ -27,6 +27,15 @@
 
 #container.split-portrait {
   flex-direction: column;
+  /* #video-panel below refuses to shrink (flex-shrink: 0) so the video is
+     never internally clipped/scrolled -- on a viewport too short for the
+     video's own aspect-ratio height at the current width, the excess has to
+     go *somewhere*; letting #container itself scroll as one unified region
+     (rather than relying on html/body's shared `overflow: hidden` -- see
+     window.css's own comment on that rule, still correct for row mode)
+     means everything (video included) stays reachable by scrolling instead
+     of being cut off invisibly. */
+  overflow-y: auto;
 }
 
 #video-panel {
@@ -52,6 +61,26 @@
    short, full-width strip instead of centered within it. */
 #container.split-portrait #video-panel {
   align-items: flex-start;
+  /* Row mode's flex-basis is a JS-set % of #container (dynamicLayout.ts,
+     drag-adjustable) -- meaningful there since a centered video can have
+     slack space on either side of a manually-sized panel. Column mode
+     doesn't have that: #video-panel is followed immediately by #control-panel
+     stacked below it, so any leftover space *inside* #video-panel past the
+     video's own aspect-ratio-driven height just becomes a visible gap before
+     #control-panel starts -- and a %-based basis smaller than the video's
+     actual needed height (at the current full-container width) instead
+     overflows into a second, inner scrollbar. `flex: 0 0 auto` makes
+     #video-panel content-sized and non-shrinking -- always exactly the
+     video's own rendered height, never artificially taller (gap) or
+     forcibly shorter (the video's own width/aspect-ratio don't change just
+     because the flex algorithm compressed its box, so a shrunk #video-panel
+     would still show the *same-height* video, just clipped/scrolling
+     internally -- flex-shrink: 0 rules that out entirely; #container's own
+     `overflow-y: auto` above is the fallback once #video-panel's true
+     content height doesn't fit). dynamicLayout.ts correspondingly stops
+     setting an explicit flex-basis on it in this mode. Requested directly by
+     the user, reported live with a screenshot showing exactly this gap. */
+  flex: 0 0 auto;
 }
 
 #control-panel {
@@ -88,19 +117,18 @@
   z-index: 10;
 }
 
+/* Column mode: #video-panel is content-sized now (above), not ratio-driven,
+   so there's nothing left for a vertical drag to meaningfully resize --
+   hidden rather than left as an inert handle, same precedent as
+   window.css's own `<=768px` breakpoint hiding #drag once its split no
+   longer exists (see that rule's comment). */
 #container.split-portrait #drag {
-  cursor: row-resize;
-  border-left: none;
-  border-top: 1px solid var(--border-color);
+  display: none;
 }
 
 #drag:hover {
   border-left-color: var(--accent);
   background: var(--accent-soft);
-}
-
-#container.split-portrait #drag:hover {
-  border-top-color: var(--accent);
 }
 
 /* window.css's own `.video { width: 100%; height: 100%; }` +

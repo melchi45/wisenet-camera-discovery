@@ -67,7 +67,7 @@ export function onPlayerFrameRendered(playType: unknown): void {
   // #forward/#backward staying disabled forever after a step. changedebug()
   // only writes to the #debug textarea (invisible unless that panel's
   // open), so this adds a real console.log to see the actual sequence.
-  console.log('[videoControl] onPlayerFrameRendered:', { playType, playerAvailable: true });
+  // console.log('[videoControl] onPlayerFrameRendered:', { playType, playerAvailable: true });
   playerAvailable = true;
   updateStepButtonsEnabled(playType);
 }

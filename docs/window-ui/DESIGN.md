@@ -79,6 +79,7 @@
 | 1.62 | 2026-09-04 | Youngho Kim | FR-2.6 rewritten, requested directly by the user (reported the video panel's height staying at its initial value on window resize, then specified the full replacement in detail): `#drag`'s fixed 30/70 desktop split + separate `<=768px` stacked-breakpoint override replaced with one continuous flexbox layout (new `dynamicLayout.ts`/`setupSplitLayout()`, new `src/component/split-layout/split-layout.css`, `src/shared-v2/`-only) that reflows between row (video left, Control UI right) and column (video top, Control UI bottom) based on `#container`'s own live aspect ratio via `ResizeObserver`, not a fixed viewport-width threshold — see the new "FR-2.6: Dynamic split layout" section below. `src/shared/` is completely unaffected (a separate, not-shared-v2-referenced CSS file). |
 | 1.63 | 2026-09-04 | Youngho Kim | FR-2.6 extended, requested directly by the user right after v1.62's video was confirmed live: the video no longer stretches to fill `#left_panel` — it sizes to its own aspect ratio (`16/9` placeholder, or the real stream's reported resolution via `onResize()`'s new `style.aspectRatio` wiring) and is positioned within the panel's slack space (vertically centered in row mode, top-anchored in column mode). See "FR-2.6: Dynamic split layout"'s new closing paragraphs. |
 | 1.64 | 2026-09-04 | Youngho Kim | `src/shared-v2/`-only rename, requested directly by the user: `#left_panel`/`#right_panel` → `#video-panel`/`#control-panel` across `window.html`, `split-layout.css`, and `dynamicLayout.ts` (no behavior change). `src/shared/window.html` and `css/window.css` keep the original ids, untouched. See "FR-2.6: Dynamic split layout"'s closing paragraph. |
+| 1.65 | 2026-09-04 | Youngho Kim | FR-2.6 fixed, reported directly by the user with two screenshots: in column mode, `#video-panel` no longer uses a JS-set flex-basis percentage (mismatched the video's own aspect-ratio height, causing either a gap or a second internal scrollbar) — it's content-sized (`flex: 0 0 auto`) instead, so `#control-panel` always sits flush against it. `#drag` is now hidden in column mode (nothing left to resize); `state.columnSplitRatio` removed. `#container.split-portrait` gained `overflow-y: auto` as a fallback for the case where the video's own height genuinely exceeds the viewport. See "FR-2.6: Dynamic split layout"'s new closing paragraphs. |
 
 ## `src/shared-v2/` module structure
 
@@ -323,6 +324,63 @@ rename, no behavior change: `window.html`'s two `id` attributes, every selector 
 originals) and are simply unreferenced by `src/shared-v2/window.html` now, same "harmless leftover"
 relationship `split-layout.css`'s header comment already describes for the four ids' *rules* — now
 also true of the *ids* themselves for these two elements specifically.
+
+**Column mode: `#video-panel` content-sized, `#drag` hidden, `#container` itself scrolls as the
+overflow fallback (`src/shared-v2/` only, v1.65).** Reported directly by the user with two
+screenshots: a visible gap between the (top-aligned) video and `#control-panel` below it, and —
+separately — "at certain ratios, two scrollbars appear or there's empty space between the panels."
+Root cause of both: column mode's `#video-panel` had a JS-set `flex-basis` percentage (the same
+drag-adjustable-ratio mechanism row mode still uses), completely independent of the video's own
+aspect-ratio-driven height at the current full-container width — whenever the percentage happened to
+reserve *more* space than the video actually needed, the leftover became the reported gap; whenever it
+reserved *less*, the video (whose own width/aspect-ratio don't shrink just because the flex algorithm
+compressed its containing box) overflowed into `#video-panel`'s own `overflow: auto`, the second
+scrollbar. Column mode has no structural need for a user-adjustable ratio in the first place — unlike
+row mode, where `#video-panel` and `#control-panel` sit side by side and a centered video can have
+symmetric slack on either side of a manually-sized column, column mode stacks them, so `#control-panel`
+starts exactly where `#video-panel` ends; the only value of `flex-basis` there was accidentally
+introducing this mismatch.
+
+Fixed by dropping the ratio for that axis entirely: `#container.split-portrait #video-panel` is now
+`flex: 0 0 auto` (content-sized, **not** shrinkable — `flex-shrink: 0`, not `1` as briefly tried first;
+shrinking the flex item doesn't shrink the video's own rendered size at all, since its width stays
+`100%` and its aspect-ratio is fixed, so a compressed `#video-panel` still had the same-height video,
+just internally clipped/scrolling again — flex-shrink: 0 rules that failure mode out completely) and
+`dynamicLayout.ts` (renamed `applyRatio()` → `applyLayout()`) stops setting an explicit `flex-basis` on
+it in column mode at all (`style.removeProperty('flex-basis')`, letting the CSS rule take over) —
+`#control-panel` (already `flex: 1 1 auto`) absorbs exactly whatever's left, so it's always flush
+against `#video-panel`, zero gap, in every case verified: the real device's 4:3 ratio, 16:9, and two
+different viewport widths (narrow and wide) at 1200×800/800×1200-class sizes, all producing `gap: 0`
+and no internal `#video-panel` scrollbar (`getBoundingClientRect()` math + `scrollHeight >
+clientHeight` checks, not visual inspection alone).
+
+Column mode's `columnSplitRatio` state field (v1.62) is removed — there was never a coherent
+per-orientation-ratio concept once column mode stopped having a ratio at all; `state.rowSplitRatio` is
+the only one left. `#drag` is hidden entirely in column mode (`display: none`, same precedent as
+`window.css`'s own `<=768px` breakpoint hiding it once a split it resizes no longer exists) — dragging
+a divider that no longer controls anything would just be confusing UI, not a feature to keep. The
+`mousemove` drag-follow handler gained one small defensive guard (`state.splitOrientation !== 'row'` →
+return) for the edge case of the window flipping to column mode while a row-mode drag is still
+in-progress (mouse button held through a resize) — `applyLayout()`'s own column branch would clear any
+stray flex-basis it set right after anyway, but the guard avoids computing pointless row-axis math in
+the meantime.
+
+**Remaining question the fix has to answer: what happens when the video's own aspect-ratio height
+(now non-negotiable, `flex-shrink: 0`) genuinely doesn't fit in the viewport at all** — e.g. a very
+narrow window with a portrait-oriented (tall) video, which can need far more height than the window
+has. `html`/`body`'s shared `overflow: hidden` (`css/window.css`, still correct for row mode's own
+reasoning — see that rule's own comment) would otherwise clip this invisibly, with no way to reach the
+rest of the page at all. `#container.split-portrait` gets `overflow-y: auto` instead: `#container`
+itself (not `html`/`body`) becomes the scrolling region for this specific overflow case, verified with
+a deliberately extreme aspect ratio (9:32) at 800×900 — `#container`'s own box stayed correctly clamped
+to the viewport's 900px (not stretched to fit content, confirmed via `getComputedStyle`), while its
+`scrollHeight` (2798px) exceeded `clientHeight`, and the video stayed reachable (`getBoundingClientRect
+().height > 0` throughout a scroll) rather than being cut off. `#control-panel`'s own pre-existing
+`overflow-y: auto` is unaffected and still handles its own long content independently, nested inside
+`#container`'s new fallback scroll for this specific edge case — not a conflict, just two independent
+scrollable regions at different levels, the same relationship `#video-panel`'s own (now largely
+unused, but harmless) `overflow: auto` already had with `#container.split-portrait`'s row-mode
+absolute-position ancestor before this rewrite.
 
 ## FR-7.8: SUNAPI-driven Calendar search (`src/shared-v2/` only)
 

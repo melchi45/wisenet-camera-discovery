@@ -106,11 +106,10 @@ class State {
   isResizing = false;
   splitOrientation: 'row' | 'column' = 'row';
   /** #video-panel's flex-basis (%) in row (landscape) mode -- default matches
-   *  the legacy fixed 30/70 split. */
+   *  the legacy fixed 30/70 split. Column mode has no equivalent ratio --
+   *  #video-panel is content-sized there (split-layout.css), not
+   *  percentage-driven, so #control-panel always sits flush against it. */
   rowSplitRatio = 30;
-  /** #video-panel's flex-basis (%) in column (portrait) mode -- video panel
-   *  larger than Control UI by default, per explicit user choice. */
-  columnSplitRatio = 60;
 
   // FR-2.1/FR-2.2
   dataSet: string[][] = [];
