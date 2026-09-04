@@ -46,7 +46,8 @@ npm run build
 
 | script | does |
 | --- | --- |
-| `npm run build` | compiles both TypeScript targets and assembles `dist/chrome-extension/` + `dist/nodejs/` |
+| `npm run build` | compiles both TypeScript targets, assembles `dist/chrome-extension/` + `dist/nodejs/`, then overlays both with the `src/shared-v2/` UI (chains `build:shared-v2` below) — a single `npm run build` now produces the actual shipped output |
+| `npm run build:no-shared-v2` | same as `npm run build`, minus the `build:shared-v2` overlay step — `src/shared/`'s own output, unmasked; useful for verifying a `src/shared/`-only change in isolation |
 | `npm run build:extension` | just the chrome-extension compile steps — `tsc` for `background.ts`/`socket.ts`, a separate `tsc --noEmit` type-check for `window.ts`, then `vite build` to bundle `window.ts` (+ its `vis`/`moment`/`moment-timezone` imports) into one `window.js` (compile-only, no assembly) |
 | `npm run build:node` | just `tsc -p tsconfig.node.json` (compile-only, no assembly) |
 | `npm run build:shared-v2` | builds `src/shared-v2/` (see below) to `dist/shared-v2-preview/`, and — if `dist/chrome-extension/`/`dist/nodejs/examples/public/` already exist — overwrites their shared web assets too |
@@ -128,9 +129,12 @@ compiles to under `dist/`):
   [docs/calendar-component/DESIGN.md](docs/calendar-component/DESIGN.md).
 * `src/shared-v2/`: a from-scratch, independently-written reimplementation of `src/shared/`'s
   `window.html`/`window.ts`, built directly from a full spec (`docs/window-ui/`). Builds to
-  `dist/shared-v2-preview/` via `npm run build:shared-v2`, and — run after `npm run build` — that
+  `dist/shared-v2-preview/` via `npm run build:shared-v2`, and — run after the main build — that
   same command also overwrites the real `dist/chrome-extension/`/`dist/nodejs/` outputs above with
-  its `window.html`/`window.js`/`scripts/socket.js`/`css/calendar.css`. See
+  its `window.html`/`window.js`/`scripts/socket.js`/`css/calendar.css`. `npm run build` already
+  chains both in the right order (`node scripts/build.js && node scripts/build.js shared-v2`), so
+  this is normally automatic — `build:shared-v2` only needs running by hand afterward if you're
+  iterating on `src/shared-v2/` alone and don't want to redo the (slower) full build each time. See
   [docs/window-ui/MRD.md](docs/window-ui/MRD.md) for why the source tree stays parallel even though
   the build output no longer does, and `CLAUDE.md` for how to build/test it. `npm run
   build:shared-v2:dev` (same assembly, `vite build --mode development`) skips minification for

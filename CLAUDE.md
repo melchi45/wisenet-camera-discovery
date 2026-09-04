@@ -18,13 +18,21 @@ rebuild after pulling.
 
 ```bash
 npm install
-npm run build              # both dist/chrome-extension/ and dist/nodejs/
+npm run build              # both dist/chrome-extension/ and dist/nodejs/, THEN chains build:shared-v2 below --
+                            # a plain `npm run build` already produces the real shipped output
+npm run build:no-shared-v2 # same as npm run build, minus the build:shared-v2 chain -- src/shared/'s own
+                            # output, unmasked; use this (not plain `npm run build`) to verify a src/shared/-
+                            # only change in isolation, since build:shared-v2 would otherwise immediately
+                            # overwrite it -- see the shared-window skill's own "Caveat"
 npm run build:extension    # just the extension side (background.ts + shared window.ts/socket.ts + Vite bundle)
 npm run build:node         # just tsc -p tsconfig.node.json
 npm run build:shared-v2    # builds src/shared-v2/ to dist/shared-v2-preview/, and (if dist/chrome-extension/ or
                             # dist/nodejs/examples/public/ already exist) also overwrites their window.html/
                             # window.js/scripts/socket.js/css/calendar.css/css/event-timeline.css with it --
-                            # run AFTER npm run build
+                            # must run AFTER a dist/chrome-extension//dist/nodejs/ assemble to have anything to
+                            # overwrite; `npm run build` already does this automatically (see above) -- run this
+                            # on its own only when iterating on src/shared-v2/ alone, to skip redoing the
+                            # (slower) full build every time
 npm run build:shared-v2:dev # same as build:shared-v2, unminified (vite build --mode development) --
                             # for browser debugging; sourcemaps are on for both, see below
 npm run start               # builds dist/nodejs/, then dist/shared-v2-preview/ (overwriting dist/nodejs/'s shared
@@ -132,18 +140,25 @@ see [`src/chrome-extension/native-host/README.md`](src/chrome-extension/native-h
   either way; `build:shared-v2:dev` additionally skips minification (`--mode development`) for
   fully readable output, same pattern as `@melchi45/rtsp-over-websocket`'s own
   `build:player`/`build:player:dev`. `src/shared/`
-  itself is untouched (still a separate source tree, `npm run build:shared-v2` is still its own
-  build target, not part of plain `npm run build`), but its **build output is no longer isolated**:
-  `npm run build:shared-v2`, run after `npm run build` (or `npm run start`, which chains both),
-  overwrites `dist/chrome-extension/`'s and `dist/nodejs/examples/public/`'s `window.html`/
-  `window.js`/`window.js.map`/`scripts/socket.js` (and adds `css/calendar.css`/
-  `css/event-timeline.css`) with the `src/shared-v2/` build —
-  see `scripts/build.js`'s `buildSharedV2()` and `docs/window-ui/MRD.md`'s History (this reverses
-  that doc's original "parallel, not in-place" call, per explicit user instruction). A standalone
-  `npm run build:shared-v2` (no prior `npm run build`) still just produces the side,
-  non-shipping `dist/shared-v2-preview/` alone, unharmed. Verified against the original for
-  functional equivalence by `tests/window-ui-equivalence/` (Playwright; run `npx playwright test`,
-  needs `npm run build && npm run build:shared-v2` first), backed by `tools/mock-sunapi-server/`
+  itself is untouched (still a separate source tree — `build:shared-v2` still has its own build
+  target, `src/shared-v2/tsconfig.window.json`/`vite.config.ts`), but its **build output is no
+  longer isolated**: plain `npm run build` now chains `build:shared-v2` as its own last step
+  (`node scripts/build.js && node scripts/build.js shared-v2` — this was requested directly by the
+  user, since forgetting the second command otherwise silently ships the old `src/shared/` UI), so
+  `dist/chrome-extension/`'s and `dist/nodejs/examples/public/`'s `window.html`/`window.js`/
+  `window.js.map`/`scripts/socket.js` (and `css/calendar.css`/`css/event-timeline.css`) end up
+  overwritten with the `src/shared-v2/` build automatically — see `scripts/build.js`'s
+  `buildSharedV2()` and `docs/window-ui/MRD.md`'s History (this reverses that doc's original
+  "parallel, not in-place" call, per explicit user instruction). Running `npm run build:shared-v2`
+  again by hand afterward (e.g. while iterating on `src/shared-v2/` alone, to skip redoing the
+  slower full build each time) still works the same way it always did — it's just no longer
+  *required* as a second manual step after a plain `npm run build`. `npm run start` still chains
+  its own node-only build + `build:shared-v2` independently (`node scripts/build.js node && node
+  scripts/build.js shared-v2`), unaffected by this. A standalone `npm run build:shared-v2` (no prior
+  `npm run build`) still just produces the side, non-shipping `dist/shared-v2-preview/` alone,
+  unharmed. Verified against the original for functional equivalence by `tests/window-ui-equivalence/`
+  (Playwright; run `npx playwright test`, needs `npm run build` first), backed by
+  `tools/mock-sunapi-server/`
   (canned SUNAPI responses) and `tools/equivalence-test-server/` (serves either page + a fixture WS
   `/discover` feed). A handful of intentional, documented deviations from the original's behavior
   exist (e.g. two real legacy crash bugs are *not* reproduced) — see `docs/window-ui/DESIGN.md`'s

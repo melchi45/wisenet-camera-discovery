@@ -14,10 +14,11 @@ module structure" section, and `MRD.md`/`PRD.md`/`SRS.md`/`TC.md` for the rest o
 [`shared-window`](../shared-window/SKILL.md), scoped to `docs/architecture.md` — this skill's
 checklist is scoped to `src/shared-v2/` specifically and does not apply to `src/shared/` changes,
 or vice versa. **Caveat, same as `shared-window`'s**: `npm run build:shared-v2`/`build:shared-v2:dev`
-run after `npm run build` overwrite `dist/chrome-extension/`'s and
-`dist/nodejs/examples/public/`'s `window.html`/`window.js`/`scripts/socket.js` with this tree's
-build (see `CLAUDE.md` and `docs/window-ui/MRD.md`'s History) — that's the version that actually
-ships once both builds have run, even though `src/shared/` itself stays untouched.
+overwrite `dist/chrome-extension/`'s and `dist/nodejs/examples/public/`'s `window.html`/`window.js`/
+`scripts/socket.js` with this tree's build once a `dist/chrome-extension/`/`dist/nodejs/` assemble
+already exists to overwrite (see `CLAUDE.md` and `docs/window-ui/MRD.md`'s History) — plain
+`npm run build` already chains both steps in the right order, so that's the version that actually
+ships from a single `npm run build`, even though `src/shared/` itself stays untouched.
 
 ## Before touching `src/shared-v2/`
 
@@ -71,14 +72,15 @@ checkout (`file:...`) or the published registry version.
 - If the change touched the Playback Calendar/Event Timeline, also keep
   `docs/calendar-component/`/`docs/event-timeline-component/` in sync, not just
   `docs/window-ui/DESIGN.md`'s summary of them.
-- Run `npm run build:shared-v2` (or `build:shared-v2:dev` for a quick browser-debug check) — after
-  `npm run build`, so `dist/chrome-extension/`/`dist/nodejs/examples/public/` exist for it to
-  overwrite — and verify the result, since `build:shared-v2` alone (no prior `npm run build`) only
-  produces the non-shipping `dist/shared-v2-preview/`.
-- If `tests/window-ui-equivalence/` exercises the changed area, re-run it
-  (`npx playwright test`, needs `npm run build && npm run build:shared-v2` first) — it's the
-  mechanism that catches an unintended drift from `src/shared/`'s behavior beyond the documented
-  deviations.
+- Run `npm run build` (chains the base build + `build:shared-v2` automatically — see `CLAUDE.md`)
+  and verify the result. For a quick browser-debug iteration loop that skips redoing the slower
+  base build every time, `npm run build:shared-v2`/`build:shared-v2:dev` still work standalone, but
+  only have something to overwrite once a `dist/chrome-extension/`/`dist/nodejs/` assemble already
+  exists — a standalone `build:shared-v2` with neither present only produces the non-shipping
+  `dist/shared-v2-preview/`.
+- If `tests/window-ui-equivalence/` exercises the changed area, re-run it (`npx playwright test`,
+  needs `npm run build` first) — it's the mechanism that catches an unintended drift from
+  `src/shared/`'s behavior beyond the documented deviations.
 - If the change is a non-obvious decision worth preserving beyond the spec docs (a redesign, a
   real bug fix with a root cause, a naming/scope call), add an entry to this repo's root
   `MEMORY.md`, matching its existing entries' style.

@@ -1,16 +1,23 @@
 name: Build Extension
 
 # Two ways to run this:
-#   - push a tag like "v1.2.0" -> builds the zip AND attaches it to a new
-#     GitHub Release for that tag.
-#   - "Run workflow" button in the Actions tab (workflow_dispatch) -> builds
-#     the zip and uploads it as a downloadable workflow artifact, no release
-#     created.
+#   - push a tag like "v1.2.0" -> builds the zip (plain package.json
+#     version, no beta suffix) AND attaches it to a new GitHub Release for
+#     that tag.
+#   - "Run workflow" button in the Actions tab (workflow_dispatch) -> a
+#     manual beta build: the zip and manifest.json's version_name are
+#     labeled "<package.json version>-beta.<short sha>" (matching
+#     publish-npm.yml's own beta-version scheme for the npm package), and
+#     it's uploaded as a downloadable workflow artifact only — no GitHub
+#     Release created, so it never collides with (or gets mistaken for) a
+#     real tagged release.
 #
 # Either way, src/chrome-extension/manifest.json's "version" is stamped
 # from package.json's "version" before the build (see
 # scripts/sync-manifest-version.js) — package.json stays the single source
-# of truth for the extension's version.
+# of truth for the extension's version; only manual/beta runs additionally
+# get a version_name (manifest.json's separate, freeform display field —
+# Chrome's own "version" field can't hold a "-beta.<sha>" suffix at all).
 on:
   push:
     tags:
@@ -44,25 +51,43 @@ jobs:
 
       - run: npm ci
 
-      - name: Sync manifest.json version from package.json
-        run: npm run version:sync-manifest
-
-      - name: Read package version
+      # Tag push ("v*") -> a real release, plain package.json version, no
+      # version_name. workflow_dispatch (manual "Run workflow") -> a beta
+      # build, "<package.json version>-beta.<short sha>" -- same scheme
+      # publish-npm.yml already uses for its own non-tag (beta) npm
+      # publishes, so a beta extension zip and a beta npm package built from
+      # the same commit carry matching version strings.
+      - name: Determine version
         id: pkg
-        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+        run: |
+          ROOT_VERSION="$(node -p "require('./package.json').version")"
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "version=$ROOT_VERSION" >> "$GITHUB_OUTPUT"
+            echo "version_name=" >> "$GITHUB_OUTPUT"
+          else
+            SHORT_SHA="$(git rev-parse --short "${{ github.sha }}")"
+            echo "version=$ROOT_VERSION-beta.$SHORT_SHA" >> "$GITHUB_OUTPUT"
+            echo "version_name=$ROOT_VERSION-beta.$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Sync manifest.json version from package.json
+        run: npm run version:sync-manifest -- "${{ steps.pkg.outputs.version_name }}"
 
       # `npm run build:extension` alone (a raw tsc+vite invocation) does NOT
       # assemble dist/chrome-extension/ -- it only compiles background.js
       # into it, missing manifest.json and everything else the zip below
       # needs. `npm run build` (scripts/build.js's full orchestrator) is
-      # what actually assembles a complete dist/chrome-extension/.
+      # what actually assembles a complete dist/chrome-extension/ -- and, as
+      # of package.json's own "build" script, already chains the
+      # src/shared-v2/ overlay below itself (`&& node scripts/build.js
+      # shared-v2`), so a separate step here is no longer needed.
+      #
+      # dist/chrome-extension/'s window.html/window.js/scripts/socket.js get
+      # overwritten with the src/shared-v2/ rewrite as part of the same
+      # command -- see CLAUDE.md's "src/shared-v2/ ... build output is no
+      # longer isolated" note. Without this the released zip would ship the
+      # old src/shared/ UI.
       - run: npm run build
-
-      # dist/chrome-extension/'s window.html/window.js/scripts/socket.js are
-      # then overwritten with the src/shared-v2/ rewrite -- see CLAUDE.md's
-      # "src/shared-v2/ ... build output is no longer isolated" note. Without
-      # this the released zip would ship the old src/shared/ UI.
-      - run: npm run build:shared-v2
 
       - name: Zip dist/chrome-extension/
         run: |

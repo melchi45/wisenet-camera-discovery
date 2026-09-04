@@ -20,7 +20,8 @@
     "discovery"
   ],
   "scripts": {
-    "build": "node scripts/build.js",
+    "build": "node scripts/build.js && node scripts/build.js shared-v2",
+    "build:no-shared-v2": "node scripts/build.js",
     "version:sync-manifest": "node scripts/sync-manifest-version.js",
     "build:extension": "tsc -p tsconfig.extension.json && tsc -p src/shared/tsconfig.socket.json && node scripts/substitute-player-extension-ids.js build/shared/scripts/socket.js && tsc -p src/shared/tsconfig.window.json && vite build --config src/shared/vite.config.ts",
     "build:node": "tsc -p tsconfig.node.json",

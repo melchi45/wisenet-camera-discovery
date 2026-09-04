@@ -2,12 +2,20 @@ name: Publish npm Package
 
 # Publishes dist/nodejs/ (the standalone @melchi45/wisenet-udp-discovery
 # package — see src/nodejs/README.md) to GitHub Packages so other projects
-# can add it as a dependency. Two ways to run this:
+# can add it as a dependency. Three ways to run this:
 #   - push to main -> publishes a prerelease build tagged
 #     "<package.json version>-beta.<short-sha>" under the npm dist-tag
 #     "beta" (`npm install @melchi45/wisenet-udp-discovery@beta`). Every
 #     push gets a unique version (the commit sha), so this never collides
 #     with a previously published version.
+#   - "Run workflow" button in the Actions tab (workflow_dispatch) -> a
+#     manual beta build, on whatever branch/ref you pick in that dialog.
+#     `github.ref` for a manual dispatch is a branch ref, never a tag, so
+#     the version-determination step below takes the same beta path as a
+#     push-to-main automatically -- no separate handling needed. Matches
+#     build-extension.yml's own manual/beta build (same version scheme),
+#     so a beta npm package and a beta extension zip built from the same
+#     commit carry matching version strings.
 #   - push a tag like "v1.2.0" -> publishes package.json's *own* version
 #     as-is under the default "latest" dist-tag. As with
 #     build-extension.yml, package.json stays the single source of
@@ -25,6 +33,7 @@ on:
       - main
     tags:
       - 'v*'
+  workflow_dispatch: {}
 
 permissions:
   contents: read
@@ -72,16 +81,16 @@ jobs:
       - name: Stamp version onto src/nodejs/package.json
         run: node scripts/set-nodejs-version.js "${{ steps.version.outputs.version }}"
 
-      - name: Assemble dist/nodejs/
-        run: node scripts/build.js node
-
       # dist/nodejs/examples/public/'s window.html/window.js/scripts/socket.js
-      # are then overwritten with the src/shared-v2/ rewrite -- see
-      # CLAUDE.md's "src/shared-v2/ ... build output is no longer isolated"
-      # note. Without this the published package's example server would
-      # still serve the old src/shared/ UI.
-      - name: Overwrite example server UI with src/shared-v2/
-        run: npm run build:shared-v2
+      # get overwritten with the src/shared-v2/ rewrite as part of the same
+      # command -- see CLAUDE.md's "src/shared-v2/ ... build output is no
+      # longer isolated" note. Without this the published package's example
+      # server would still serve the old src/shared/ UI. Chained directly
+      # rather than via the `npm run build` alias -- that one now also
+      # chains build:shared-v2 (see CLAUDE.md), but builds dist/chrome-
+      # extension/ too, which this workflow never uses.
+      - name: Assemble dist/nodejs/ (+ overlay the src/shared-v2/ UI)
+        run: node scripts/build.js node && node scripts/build.js shared-v2
 
       - name: Publish to GitHub Packages
         run: npm publish ./dist/nodejs --tag ${{ steps.version.outputs.npm_tag }}

@@ -374,5 +374,9 @@ Read this file first. After changing `window.ts`, `socket.ts`, or `server.ts`'s
 discovery/settings pieces, update this file in the same change, and add a `MEMORY.md` entry if
 the change is a non-obvious decision (redesign, real bug fix, naming/architecture call) worth
 preserving beyond just these docs. Changes here affect **both** `dist/chrome-extension/` and
-`dist/nodejs/examples/public/` — verify both builds (`npm run build`), not just one you happened
-to be testing.
+`dist/nodejs/examples/public/` — verify both builds, not just one you happened to be testing. Use
+`npm run build:no-shared-v2` for this, not plain `npm run build` — that one now also chains
+`npm run build:shared-v2` as its own last step (see `CLAUDE.md`), which immediately
+overwrites `src/shared/`'s own output with the `src/shared-v2/` build, masking exactly the change
+you're trying to verify. See the [`shared-window`](../.claude/skills/shared-window/SKILL.md) skill's
+own "Caveat" for the full explanation.

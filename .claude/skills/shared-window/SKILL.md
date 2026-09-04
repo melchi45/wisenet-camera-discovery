@@ -20,12 +20,19 @@ independently-written, spec-driven reimplementation that builds to its own
 [`docs/window-ui/`](../../../docs/window-ui/)'s own SDD (MRD/PRD/SRS/DESIGN/TC), via its own
 [`window-ui`](../window-ui/SKILL.md) skill, instead of this file's after-change checklist below —
 don't apply this skill's steps to `src/shared-v2/` changes, and don't assume this skill covers
-them. **Caveat**: unlike before, `npm run build:shared-v2` run
-after `npm run build` now overwrites `dist/chrome-extension/`'s/`dist/nodejs/examples/public/`'s
-`window.html`/`window.js`/`scripts/socket.js` with the `src/shared-v2/` build (see `CLAUDE.md` and
-`docs/window-ui/MRD.md`'s History) — if you're verifying a `src/shared/` change per this skill's
-"after" checklist, verify with `npm run build` alone (don't also run `build:shared-v2`
-afterward), or your `src/shared/` change will appear not to take effect.
+them. **Caveat**: unlike before, `npm run build:shared-v2` overwrites `dist/chrome-extension/`'s/
+`dist/nodejs/examples/public/`'s `window.html`/`window.js`/`scripts/socket.js` with the
+`src/shared-v2/` build once a base assemble exists to overwrite (see `CLAUDE.md` and
+`docs/window-ui/MRD.md`'s History) — and **`npm run build` (the npm script) now chains that overlay
+step automatically as its own last step**, so it's no longer a safe way to verify a `src/shared/`
+change in isolation: run `npm run build:no-shared-v2` instead (`node scripts/build.js` — the same
+orchestrator `npm run build` calls, minus the `&& node scripts/build.js shared-v2` that script now
+appends) to assemble both `dist/` outputs from `src/shared/` alone, with nothing to immediately
+overwrite it — that's how this skill's "after" checklist below means "verify the build" unless
+stated otherwise. If you
+*do* want to confirm your `src/shared/` change is correctly still masked/superseded once
+`src/shared-v2/` overlays it (the real, shipped end state), `npm run build` (the npm script) is the
+right command for that instead.
 
 ## Before touching `src/shared/` or `examples/server.ts`'s discovery/settings code
 
@@ -89,9 +96,11 @@ the actual failure mode this note exists to head off — it has happened before.
   get its own doc set the same way (including the Title/Abstract/Status/Author/Milestone/Related
   docs header table and `## History` section every `docs/*.md` file carries), plus a one-line
   pointer added here.
-- Run `npm run build` (builds **both** `dist/chrome-extension/` and `dist/nodejs/`) — not just
-  `build:extension` or `build:node` alone — and verify both outputs, since a change here always
-  touches both.
+- Run `npm run build:no-shared-v2` (builds **both** `dist/chrome-extension/` and `dist/nodejs/`
+  from `src/shared/` alone — not just `build:extension` or `build:node` alone) and verify both
+  outputs, since a change here always touches both. Use that script, not plain `npm run build` —
+  that one now also chains `build:shared-v2` as its own last step (see this file's
+  "Caveat" above), which would immediately overwrite exactly the output you're trying to verify.
 - If the change is a non-obvious decision worth preserving beyond just the architecture doc (a
   redesign, a real bug fix with a root cause, a naming/scope call), add an entry to this repo's
   root `MEMORY.md`, matching its existing entries' style.
