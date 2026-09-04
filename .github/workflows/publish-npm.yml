@@ -2,17 +2,16 @@ name: Publish npm Package
 
 # Publishes dist/nodejs/ (the standalone @melchi45/wisenet-udp-discovery
 # package — see src/nodejs/README.md) to GitHub Packages so other projects
-# can add it as a dependency. Three ways to run this:
-#   - push to main -> publishes a prerelease build tagged
-#     "<package.json version>-beta.<short-sha>" under the npm dist-tag
-#     "beta" (`npm install @melchi45/wisenet-udp-discovery@beta`). Every
-#     push gets a unique version (the commit sha), so this never collides
-#     with a previously published version.
+# can add it as a dependency. Two ways to run this (no longer runs
+# automatically on every push to main — requested directly by the user, to
+# stop a beta version publishing on every single commit):
 #   - "Run workflow" button in the Actions tab (workflow_dispatch) -> a
-#     manual beta build, on whatever branch/ref you pick in that dialog.
+#     manual beta build, on whatever branch/ref you pick in that dialog,
+#     tagged "<package.json version>-beta.<short-sha>" under the npm
+#     dist-tag "beta" (`npm install @melchi45/wisenet-udp-discovery@beta`).
 #     `github.ref` for a manual dispatch is a branch ref, never a tag, so
-#     the version-determination step below takes the same beta path as a
-#     push-to-main automatically -- no separate handling needed. Matches
+#     the version-determination step below takes the beta path
+#     automatically -- no separate handling needed. Matches
 #     build-extension.yml's own manual/beta build (same version scheme),
 #     so a beta npm package and a beta extension zip built from the same
 #     commit carry matching version strings.
@@ -29,8 +28,6 @@ name: Publish npm Package
 # @melchi45/rtsp-over-websocket from GitHub Packages.)
 on:
   push:
-    branches:
-      - main
     tags:
       - 'v*'
   workflow_dispatch: {}
