@@ -80,6 +80,7 @@
 | 1.63 | 2026-09-04 | Youngho Kim | FR-2.6 extended, requested directly by the user right after v1.62's video was confirmed live: the video no longer stretches to fill `#left_panel` — it sizes to its own aspect ratio (`16/9` placeholder, or the real stream's reported resolution via `onResize()`'s new `style.aspectRatio` wiring) and is positioned within the panel's slack space (vertically centered in row mode, top-anchored in column mode). See "FR-2.6: Dynamic split layout"'s new closing paragraphs. |
 | 1.64 | 2026-09-04 | Youngho Kim | `src/shared-v2/`-only rename, requested directly by the user: `#left_panel`/`#right_panel` → `#video-panel`/`#control-panel` across `window.html`, `split-layout.css`, and `dynamicLayout.ts` (no behavior change). `src/shared/window.html` and `css/window.css` keep the original ids, untouched. See "FR-2.6: Dynamic split layout"'s closing paragraph. |
 | 1.65 | 2026-09-04 | Youngho Kim | FR-2.6 fixed, reported directly by the user with two screenshots: in column mode, `#video-panel` no longer uses a JS-set flex-basis percentage (mismatched the video's own aspect-ratio height, causing either a gap or a second internal scrollbar) — it's content-sized (`flex: 0 0 auto`) instead, so `#control-panel` always sits flush against it. `#drag` is now hidden in column mode (nothing left to resize); `state.columnSplitRatio` removed. `#container.split-portrait` gained `overflow-y: auto` as a fallback for the case where the video's own height genuinely exceeds the viewport. See "FR-2.6: Dynamic split layout"'s new closing paragraphs. |
+| 1.66 | 2026-09-07 | Youngho Kim | `src/shared-v2/`-only, requested directly by the user: `window.html` gained three `<link rel="icon">` favicon tags (16/128/512px), reusing `src/chrome-extension/icons/`'s existing manifest PNGs rather than adding a new asset. `scripts/build.js`'s `buildSharedV2()` copies that same source dir into `dist/shared-v2-preview/icons/` and, in its existing overwrite loop, into `DIST_EXT/icons/` (redundant with the extension's own unconditional manifest-icon copy, harmless) and `DIST_NODE/examples/public/icons/` (new — that target never had an `icons/` dir before, since `src/shared/window.html` never referenced one). See "Build wiring" below. |
 
 ## `src/shared-v2/` module structure
 
@@ -819,6 +820,15 @@ passes `--mode development` through to Vite (the config reads it via
 own sibling `.map` (when present) alongside the existing `rtsp-over-websocket.esm.js` copy into
 `external-lib/rtsp-over-websocket/`, guarded with an existence check since older installed
 versions of that package predate its own sourcemap support.
+
+**Update (favicon, v1.66):** `window.html`'s new `<link rel="icon">` tags point at `icons/icon-16.png`/
+`icon-128.png`/`icon-512.png`, reusing `src/chrome-extension/icons/` (the extension manifest's own
+icon set — see `manifest.json`'s `"icons"`/`"default_icon"`) instead of a separate favicon asset.
+`buildSharedV2()` copies that source dir into `dist/shared-v2-preview/icons/` unconditionally, and
+its overwrite loop additionally copies it into `DIST_EXT/icons/` (a harmless re-copy — the
+extension-only assemble step already put the same files there for the manifest) and
+`DIST_NODE/examples/public/icons/` (previously nonexistent, since `src/shared/window.html` has no
+favicon and never referenced `icons/`).
 
 ## Mock-SUNAPI server (`tools/mock-sunapi-server/`)
 

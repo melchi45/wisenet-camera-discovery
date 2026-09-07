@@ -11,6 +11,16 @@
     <meta name="viewport" content="width=device-width, minimum-scale=1.0, maximum-scale=4.0, initial-scale=1.0">
     <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0, initial-scale=1.0">
 
+    <!-- Reuses src/chrome-extension/icons/ (the extension's own manifest icons,
+         see manifest.json's "icons"/"default_icon") as this page's favicon
+         instead of a separate asset -- copied alongside window.html into every
+         dist/ target by scripts/build.js's buildSharedV2() (icons/ was
+         previously copied into dist/chrome-extension/ only, since window.html
+         didn't reference it before). See docs/window-ui/DESIGN.md's History. -->
+    <link rel="icon" type="image/png" sizes="16x16" href="icons/icon-16.png">
+    <link rel="icon" type="image/png" sizes="128x128" href="icons/icon-128.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png">
+
     <link rel="stylesheet" type="text/css" href="external-lib/vis/vis.css">
 
     <link rel="stylesheet" type="text/css" href="css/window.css" async>

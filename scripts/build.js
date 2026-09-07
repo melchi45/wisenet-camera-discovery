@@ -361,6 +361,11 @@ function buildSharedV2({ dev = false } = {}) {
       path.join(DIST_SHARED_V2, 'external-lib', 'rtsp-over-websocket', vendorFile)
     );
   }
+  // window.html's favicon <link>s (src/shared-v2/-only) reuse the extension's
+  // own manifest icons rather than a separate asset -- see window.html's own
+  // comment. src/shared/window.html has no favicon and never references
+  // icons/, so this copy is new here, not mirrored from copySharedWebAssets().
+  copyDir(path.join(ROOT, 'src', 'chrome-extension', 'icons'), path.join(DIST_SHARED_V2, 'icons'));
 
   console.log('Build complete:');
   console.log(`  ${path.relative(ROOT, DIST_SHARED_V2)}/`);
@@ -395,6 +400,11 @@ function buildSharedV2({ dev = false } = {}) {
     copyFile(path.join(DIST_SHARED_V2, 'css', 'calendar.css'), path.join(realTargetDir, 'css', 'calendar.css'));
     copyFile(path.join(DIST_SHARED_V2, 'css', 'event-timeline.css'), path.join(realTargetDir, 'css', 'event-timeline.css'));
     copyFile(path.join(DIST_SHARED_V2, 'css', 'split-layout.css'), path.join(realTargetDir, 'css', 'split-layout.css'));
+    // window.html's new favicon <link>s -- a no-op re-copy for DIST_EXT
+    // (already has icons/ from the extension-only copy below), but the only
+    // place dist/nodejs/examples/public/icons/ ever gets created, since that
+    // target never gets manifest.json/icons/ otherwise.
+    copyDir(path.join(DIST_SHARED_V2, 'icons'), path.join(realTargetDir, 'icons'));
   }
 }
 
@@ -485,7 +495,13 @@ for (const file of [
 // sunapi/ — compiled once above, copied in as a self-contained duplicate.
 copyDir(path.join(BUILD_NODE, 'sunapi'), path.join(DIST_EXT, 'sunapi'));
 
-// Manifest icons — extension-only (window.html doesn't reference these).
+// Manifest icons (manifest.json's "icons"/"default_icon" need these
+// regardless). src/shared/window.html doesn't reference icons/, but
+// src/shared-v2/window.html's favicon <link>s do -- buildSharedV2() below
+// re-copies this same source dir into dist/shared-v2-preview/icons/ and,
+// when overwriting the real dist/ outputs, into DIST_EXT/icons/ again
+// (harmless re-copy of identical files) and DIST_NODE/examples/public/icons/
+// (new — that target never got icons/ before). See window.html's own comment.
 copyDir(path.join(ROOT, 'src', 'chrome-extension', 'icons'), path.join(DIST_EXT, 'icons'));
 }
 
