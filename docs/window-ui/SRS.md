@@ -86,6 +86,7 @@
 | 2.43 | 2026-09-04 | Youngho Kim | FR-2.6 extended, requested directly by the user: `<rtsp-over-websocket>` no longer stretches to fill `#left_panel` — it now sizes to its own aspect ratio and is positioned within the panel (centered row / top-anchored column). See `docs/window-ui/DESIGN.md`'s "FR-2.6: Dynamic split layout" (v1.63). |
 | 2.44 | 2026-09-04 | Youngho Kim | FR-2.6/NFR-1 updated for the `src/shared-v2/`-only `#left_panel`/`#right_panel` → `#video-panel`/`#control-panel` rename, requested directly by the user. `src/shared/` keeps the original ids. See `docs/window-ui/DESIGN.md`'s "FR-2.6: Dynamic split layout" (v1.64). |
 | 2.45 | 2026-09-04 | Youngho Kim | FR-2.6 fixed and split into explicit row/column sub-bullets: column mode no longer has a user-adjustable ratio (`#drag` hidden) — `#video-panel` MUST be sized to exactly the video's own height so `#control-panel` sits flush against it, with `#container` itself as the scroll fallback if the video's height exceeds the viewport. Reported directly by the user with two screenshots (a gap, and a double-scrollbar case). See `docs/window-ui/DESIGN.md`'s "FR-2.6: Dynamic split layout" (v1.65). |
+| 2.46 | 2026-09-08 | Youngho Kim | Added FR-6.12: a new `#audio_encoder_mode` select next to `#renderer_type`, writing the player's new `.audioEncoderMode` property (`'auto'`/`'wasm'`/`'webcodecs'` — `@melchi45/rtsp-over-websocket`'s new G.711/G.726-to-AAC transcoder selection, see that package's `docs/player/05-video-player-rendering.md` and `01-elements-interface-exceptions.md`), defaulted to `'auto'` at setup to match the HTML's pre-selected option — same shape as FR-6.8. `src/shared-v2/` only (`src/shared/` has no equivalent control); requires `@melchi45/rtsp-over-websocket` built with this property (not yet published to the registry at the time this was added — see this repo's own `MEMORY.md`). Requested directly by the user, immediately after that player-side feature was added. See `docs/window-ui/DESIGN.md`'s "FR-6.12: Audio Transcode Type" and `MEMORY.md`. |
 
 ## Conventions
 
@@ -398,6 +399,14 @@
   rendered at all is direct, unambiguous proof a live player exists, so this is a safe
   self-correcting fallback layered on top of v2.33's event-driven mechanism, not a replacement for
   the prompt disabling `onPlayerStateChange()` still does.
+
+- **FR-6.12 (v2.46, `src/shared-v2/` only)**: `#audio_encoder_mode` writes player
+  `.audioEncoderMode` (`'auto'`/`'wasm'`/`'webcodecs'`), defaulted to `'auto'` at setup to match
+  the HTML's pre-selected option — same pattern as FR-6.8's `#renderer_type`. Unlike FR-6.8, the
+  underlying `@melchi45/rtsp-over-websocket` property forwards a change to an already-running
+  session immediately (that package's own live-refresh design, mirroring its `debug` property),
+  so no extra "only take effect on the next connect" handling is needed here. `src/shared/` has no
+  equivalent control.
 
 ## FR-7: Playback
 

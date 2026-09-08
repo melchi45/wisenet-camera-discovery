@@ -263,6 +263,20 @@ export function setrenderertype(): void {
   }
 }
 
+/** `<rtsp-over-websocket>`'s `audioEncoderMode` property (`'auto'`/`'wasm'`/`'webcodecs'` --
+ *  selects the G.711/G.726-to-AAC transcoding implementation, see that package's
+ *  `docs/player/05-video-player-rendering.md`) mirrors `setrenderertype()`'s own shape exactly,
+ *  including its live-update behavior: the underlying element's property setter forwards the
+ *  change to an already-running session immediately (not just the next connect), so this needs
+ *  no extra "is a session currently playing" branch here either. */
+export function setaudioencodermode(): void {
+  try {
+    state.getSelectedPlayer().audioEncoderMode = (document.getElementById('audio_encoder_mode') as HTMLSelectElement).value;
+  } catch (error) {
+    console.error(error);
+  }
+}
+
 /** FR-6.9: the master button-state machine.
  *
  *  Deviation from the original (documented, not reproduced -- see
@@ -548,4 +562,5 @@ export function setupVideoControl(): void {
   document.getElementById('iframe')!.addEventListener('change', onchangeframedrop);
   document.getElementById('bestshot')!.addEventListener('change', onchangebestshot);
   document.getElementById('renderer_type')!.addEventListener('change', setrenderertype);
+  document.getElementById('audio_encoder_mode')!.addEventListener('change', setaudioencodermode);
 }

@@ -149,6 +149,12 @@ export function setupPlayerEvents(): void {
     // select's own change event, so without this the element's own
     // default would apply until the user touched the dropdown.
     element.type = 'video';
+    // Same reasoning, for #audio_encoder_mode's default-selected <option>
+    // ("auto") -- this actually matches RTSPOverWebSocket.ts's own default
+    // already, so this line is a no-op today, but keeps this element's
+    // property and the select's displayed value from silently drifting
+    // apart if that default ever changes on either side.
+    element.audioEncoderMode = 'auto';
 
     (document.getElementById('port') as HTMLInputElement).value = element.port;
     (document.getElementById('framedrop') as HTMLInputElement).value = element.framedrop;

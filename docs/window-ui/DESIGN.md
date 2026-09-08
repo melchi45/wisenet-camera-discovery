@@ -81,6 +81,7 @@
 | 1.64 | 2026-09-04 | Youngho Kim | `src/shared-v2/`-only rename, requested directly by the user: `#left_panel`/`#right_panel` → `#video-panel`/`#control-panel` across `window.html`, `split-layout.css`, and `dynamicLayout.ts` (no behavior change). `src/shared/window.html` and `css/window.css` keep the original ids, untouched. See "FR-2.6: Dynamic split layout"'s closing paragraph. |
 | 1.65 | 2026-09-04 | Youngho Kim | FR-2.6 fixed, reported directly by the user with two screenshots: in column mode, `#video-panel` no longer uses a JS-set flex-basis percentage (mismatched the video's own aspect-ratio height, causing either a gap or a second internal scrollbar) — it's content-sized (`flex: 0 0 auto`) instead, so `#control-panel` always sits flush against it. `#drag` is now hidden in column mode (nothing left to resize); `state.columnSplitRatio` removed. `#container.split-portrait` gained `overflow-y: auto` as a fallback for the case where the video's own height genuinely exceeds the viewport. See "FR-2.6: Dynamic split layout"'s new closing paragraphs. |
 | 1.66 | 2026-09-07 | Youngho Kim | `src/shared-v2/`-only, requested directly by the user: `window.html` gained three `<link rel="icon">` favicon tags (16/128/512px), reusing `src/chrome-extension/icons/`'s existing manifest PNGs rather than adding a new asset. `scripts/build.js`'s `buildSharedV2()` copies that same source dir into `dist/shared-v2-preview/icons/` and, in its existing overwrite loop, into `DIST_EXT/icons/` (redundant with the extension's own unconditional manifest-icon copy, harmless) and `DIST_NODE/examples/public/icons/` (new — that target never had an `icons/` dir before, since `src/shared/window.html` never referenced one). See "Build wiring" below. |
+| 1.67 | 2026-09-08 | Youngho Kim | Added FR-6.12 (Audio Transcode Type), `src/shared-v2/`-only, requested directly by the user right after `@melchi45/rtsp-over-websocket` gained a WASM-vs-WebCodecs G.711/G.726 transcoder-selection property. New "Deviations from legacy behavior" bullet added below; see `docs/window-ui/SRS.md`'s matching FR-6.12 entry and this repo's own `MEMORY.md` for the local `file:../rtsp-over-websocket` dependency needed during development. |
 
 ## `src/shared-v2/` module structure
 
@@ -1128,6 +1129,22 @@ go through the native host's Digest logic at all; the mock server just returns `
   a rendered frame is unambiguous, first-hand proof a live player exists, so this self-corrects
   regardless of what the event-driven path did or didn't do. Purely additive — `onPlayerStateChange()`
   (v1.50) still does the prompt, immediate disabling; this only ever pulls the flag back to `true`.
+- **FR-6.12: Audio Transcode Type (`#audio_encoder_mode`, `videoControl.ts`'s `setaudioencodermode()`,
+  v2.46) — not present in `src/shared/`.** A new `<select>` in `window.html` right next to
+  `#renderer_type` (`#audio_encoder_mode_info`), same three-option shape (`auto`/`wasm`/`webcodecs`)
+  as the values `@melchi45/rtsp-over-websocket`'s new `audioencodermode` attribute/`.audioEncoderMode`
+  property accept. Wired exactly like FR-6.8's `#renderer_type` — a `'change'` listener writing the
+  player property, plus a default set on the element at creation time in `playerEvents.ts`
+  (`element.audioEncoderMode = 'auto'`, matching the HTML's pre-selected option). Requested directly
+  by the user immediately after that player-side feature (a WASM-vs-native-WebCodecs G.711/G.726
+  transcoder choice, added to investigate a reported `DEMUXER_UNDERFLOW`/stutter symptom — see that
+  package's own `MEMORY.md`) was added. One real difference from `#renderer_type`: the underlying
+  property setter forwards a change to an already-running session's live `VideoTagPlayer` instance
+  immediately (that package's own live-refresh design, mirroring its `debug` property/attribute) —
+  so, unlike `#renderer_type`, no "only takes effect on the next connect" caveat applies here.
+  Required a local `file:../rtsp-over-websocket` dependency during development (see this repo's own
+  `MEMORY.md`) since the property didn't exist in any published registry version at the time this
+  was added.
 - **`gettimezonestring()` (`helpers.ts`, v1.56) computes a correct `+HH:MM`/`-HH:MM` GMT offset
   string instead of reproducing the original's broken one.** `src/shared/window.ts`'s original
   (line ~2689) detects a "30 minutes" case via a regex (`/\d*.?(\w{2})?/`) whose every component is
