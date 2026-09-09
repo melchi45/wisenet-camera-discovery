@@ -251,14 +251,28 @@ export const LOG_PANEL_MAX_CHARS = 100_000;
  *  `changertsp()`/`changeonvif()` here, `onError()` in `videoControl.ts`):
  *  appends `data + "\r\n"`, then drops the oldest whole lines until the
  *  result fits `LOG_PANEL_MAX_CHARS`. A single line longer than the cap
- *  keeps only its own tail (never an empty panel). */
+ *  keeps only its own tail (never an empty panel).
+ *
+ *  Searches for the boundary by plain `"\n"`, not `"\r\n"` -- found live via
+ *  this file's own equivalence test (TC-54): `HTMLTextAreaElement.value`'s
+ *  spec'd value-sanitization algorithm normalizes every `\r\n`/`\r` to a bare
+ *  `\n` the moment it's assigned, so `el.value` read back after the *first*
+ *  trim only ever contains `\n`-terminated lines -- only the newest,
+ *  not-yet-assigned `data + "\r\n"` piece still has a real `\r\n`. Searching
+ *  for `"\r\n"` therefore stopped matching almost every older boundary after
+ *  the first trim, silently falling through to the unaligned-tail-slice
+ *  fallback on every subsequent call -- the cap still held (that fallback is
+ *  still bounded), but the "always trims at a whole line" guarantee this
+ *  function documents did not. `"\n"` matches both a freshly-appended
+ *  `\r\n` and an already-normalized older `\n` uniformly, so `boundary + 1`
+ *  (not `+ 2`) is the correct slice point in both cases. */
 export function appendLogPanelLine(el: HTMLTextAreaElement, data: string): void {
   let next = el.value + data + '\r\n';
   if (next.length > LOG_PANEL_MAX_CHARS) {
-    const boundary = next.indexOf('\r\n', next.length - LOG_PANEL_MAX_CHARS);
-    next = boundary === -1 || boundary + 2 >= next.length
+    const boundary = next.indexOf('\n', next.length - LOG_PANEL_MAX_CHARS);
+    next = boundary === -1 || boundary + 1 >= next.length
       ? next.slice(next.length - LOG_PANEL_MAX_CHARS)
-      : next.slice(boundary + 2);
+      : next.slice(boundary + 1);
   }
   el.value = next;
 }

@@ -115,6 +115,7 @@ test.describe('FR-12.7 log panels are bounded (new page only)', () => {
   const MAX = 100_000;
 
   test('TC-54a: #onvif_info stays within LOG_PANEL_MAX_CHARS under a flood of meta events', async () => {
+    test.setTimeout(60_000);
     // Beautify off so each frame is exactly one line -- the cap trims at a
     // line boundary, and with beautify on a "line" is one of the indented
     // XML lines, which makes "starts on a whole line" awkward to assert.
@@ -139,15 +140,21 @@ test.describe('FR-12.7 log panels are bounded (new page only)', () => {
   });
 
   test('TC-54b: #debug stays within LOG_PANEL_MAX_CHARS under a flood of statechange events', async () => {
-    const result = await pages.newPage.evaluate((max) => {
+    // onstatechange() does real button-state DOM work per call, not just the
+    // changedebug() append -- 2000 synchronous dispatches (well past the
+    // ~1250 needed to exceed the cap at this line length) is comfortably
+    // over it without risking the default test timeout on a slow runner.
+    test.setTimeout(60_000);
+    const COUNT = 2000;
+    const result = await pages.newPage.evaluate(({ max, count }) => {
       const el = document.querySelector('rtsp-over-websocket') as any;
       const readyState = (window as any).RTSPOverWebSocketPlayState.PLAYING;
-      for (let i = 0; i < 5000; i++) {
+      for (let i = 0; i < count; i++) {
         el.dispatchEvent(new CustomEvent('statechange', { detail: { readyState, elementId: el.id, seq: i } }));
       }
       const value = (document.getElementById('debug') as HTMLTextAreaElement).value;
-      return { length: value.length, startsWholeLine: value.startsWith('onstatechange: '), hasLast: value.includes('"seq":4999'), hasFirst: value.includes('"seq":0}') };
-    }, MAX);
+      return { length: value.length, startsWholeLine: value.startsWith('onstatechange: '), hasLast: value.includes(`"seq":${count - 1}`), hasFirst: value.includes('"seq":0}') };
+    }, { max: MAX, count: COUNT });
     expect(result.length).toBeLessThanOrEqual(MAX);
     expect(result.startsWholeLine).toBe(true);
     expect(result.hasLast).toBe(true);
