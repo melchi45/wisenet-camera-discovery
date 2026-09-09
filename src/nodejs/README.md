@@ -33,7 +33,7 @@ The discovery sends a fixed UDP broadcast packet, then parses binary responses f
 
 This package is published as **`@melchi45/wisenet-udp-discovery`** to
 **GitHub Packages** (not the public npm registry) — see
-[`.github/workflows/publish-npm.yml`](../../.github/workflows/publish-npm.yml)
+[`.github/workflows/release.yml`](../../.github/workflows/release.yml)
 for how/when it's published. To install it elsewhere:
 
 1. Create a [personal access token](https://github.com/settings/tokens) with

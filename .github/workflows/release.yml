@@ -1,0 +1,144 @@
+name: Release
+
+# Builds and publishes both distributables from one workflow — the npm
+# package (dist/nodejs/, @melchi45/wisenet-udp-discovery) and the Chrome
+# extension zip (dist/chrome-extension/) — replacing the old separate
+# publish-npm.yml/build-extension.yml (merged per direct user request).
+# They share the same version scheme, and a single `npm run build` already
+# assembles both dist/ trees together (see CLAUDE.md's build section), so
+# there's no need for two workflows/jobs to duplicate checkout+npm ci.
+#
+# Two ways to run this:
+#   - "Run workflow" button in the Actions tab (workflow_dispatch) -> a
+#     manual beta build of BOTH the npm package and the extension zip
+#     together, from whatever branch/ref you pick in that dialog, version
+#     "<package.json version>-beta.<short-sha>". The npm package is
+#     published under the "beta" dist-tag
+#     (`npm install @melchi45/wisenet-udp-discovery@beta`); the extension
+#     zip is uploaded as a downloadable workflow artifact only — no GitHub
+#     Release is created, so a beta run never collides with a real tagged
+#     release.
+#   - push a tag like "v1.2.0" -> a real release, on the default "latest"
+#     npm dist-tag plus a GitHub Release with the zip attached. Unlike the
+#     old workflows, you no longer hand-bump package.json before tagging:
+#     this workflow bumps package.json's version up one patch level itself
+#     (e.g. 1.2.4 -> 1.2.5), commits that bump to main, and builds/
+#     publishes/releases from the bumped version — requested directly by
+#     the user, to fold "bump, commit, tag" down to just "tag". The tag
+#     name itself still isn't parsed for the version number; the bumped
+#     package.json is what's authoritative. This assumes the tag points at
+#     (or near) main's current tip — pushing the bump commit as
+#     `HEAD:main` will be rejected by GitHub as a non-fast-forward if
+#     main has moved past the tagged commit in the meantime.
+#
+# Consumers of the npm package need a .npmrc with:
+#   @melchi45:registry=https://npm.pkg.github.com
+#   //npm.pkg.github.com/:_authToken=<a PAT with read:packages>
+# (same pattern this repo itself uses below to install
+# @melchi45/rtsp-over-websocket from GitHub Packages.)
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write # GitHub Release asset upload, and (tag path) pushing the version-bump commit
+  packages: write # npm publish to GitHub Packages
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history (not the default shallow depth-1 clone) so the
+          # tag-path version-bump push below can be evaluated as a proper
+          # fast-forward of main rather than an unrelated-history push.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # package.json depends on @melchi45/rtsp-over-websocket, published to
+      # GitHub Packages rather than the public npm registry — npm needs an
+      # authenticated .npmrc to resolve it, and the same @melchi45 scope
+      # covers the package this workflow publishes below. GH_PACKAGES_TOKEN
+      # needs both read:packages (installing rtsp-over-websocket) and
+      # write:packages (publishing this package).
+      - name: Configure npm auth for @melchi45 GitHub Packages
+        run: |
+          echo "@melchi45:registry=https://npm.pkg.github.com" >> .npmrc
+          echo "//npm.pkg.github.com/:_authToken=${{ secrets.GH_PACKAGES_TOKEN }}" >> .npmrc
+
+      - run: npm ci
+
+      # Tag push only: bump package.json (+ package-lock.json) one patch
+      # version up and push that commit to main before anything below reads
+      # the version — so the release this tag triggers, and every version
+      # string derived from it (manifest.json, src/nodejs/package.json, the
+      # zip filename, the npm publish), all reflect the bumped version.
+      - name: Bump package.json version for this release
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          npm version patch --no-git-tag-version
+          NEW_VERSION="$(node -p "require('./package.json').version")"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json
+          git commit -m "chore: bump version to $NEW_VERSION [skip ci]"
+          git push origin HEAD:main
+
+      - name: Determine release version
+        id: version
+        run: |
+          ROOT_VERSION="$(node -p "require('./package.json').version")"
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "version=$ROOT_VERSION" >> "$GITHUB_OUTPUT"
+            echo "npm_tag=latest" >> "$GITHUB_OUTPUT"
+            echo "version_name=" >> "$GITHUB_OUTPUT"
+          else
+            SHORT_SHA="$(git rev-parse --short "${{ github.sha }}")"
+            echo "version=$ROOT_VERSION-beta.$SHORT_SHA" >> "$GITHUB_OUTPUT"
+            echo "npm_tag=beta" >> "$GITHUB_OUTPUT"
+            echo "version_name=$ROOT_VERSION-beta.$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Sync manifest.json version from package.json
+        run: npm run version:sync-manifest -- "${{ steps.version.outputs.version_name }}"
+
+      - name: Stamp version onto src/nodejs/package.json
+        run: node scripts/set-nodejs-version.js "${{ steps.version.outputs.version }}"
+
+      # Builds BOTH dist/chrome-extension/ and dist/nodejs/, then overlays
+      # both with the src/shared-v2/ UI rewrite — see CLAUDE.md's
+      # "src/shared-v2/ ... build output is no longer isolated" note.
+      # Without the overlay, both distributables would ship the old
+      # src/shared/ UI.
+      - name: Build dist/chrome-extension/ + dist/nodejs/ (+ src/shared-v2/ UI overlay)
+        run: npm run build
+
+      - name: Zip dist/chrome-extension/
+        run: |
+          cd dist/chrome-extension
+          zip -r "../../wisenet-camera-ip-installer-extension-${{ steps.version.outputs.version }}.zip" .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wisenet-camera-ip-installer-extension-${{ steps.version.outputs.version }}
+          path: wisenet-camera-ip-installer-extension-${{ steps.version.outputs.version }}.zip
+
+      - name: Publish npm package to GitHub Packages
+        run: npm publish ./dist/nodejs --tag ${{ steps.version.outputs.npm_tag }}
+
+      - name: Attach zip to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            "wisenet-camera-ip-installer-extension-${{ steps.version.outputs.version }}.zip" \
+            --title "${{ github.ref_name }}" \
+            --generate-notes
