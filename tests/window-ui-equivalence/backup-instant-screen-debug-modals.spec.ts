@@ -100,3 +100,57 @@ test.describe('FR-13 Modals', () => {
     await expectSameState(pages, '#myCapture', ['style']);
   });
 });
+
+// TC-54 -- SRS FR-12.7 / DESIGN.md v1.68 (DEVIATION, new page only): every
+// log panel is bounded. The original grows `el.value` without limit (its
+// `maxlength="5000"` only ever limited *typed* input), which is the real
+// ~9GB-over-a-long-Live-session leak reported by the user; the new page caps
+// each panel at LOG_PANEL_MAX_CHARS (100,000 chars), trimming whole lines
+// from the front.
+test.describe('FR-12.7 log panels are bounded (new page only)', () => {
+  let pages: BothPages;
+  test.beforeEach(async ({ browser }) => { pages = await openBothPages(browser); });
+  test.afterEach(async () => { await pages.close(); });
+
+  const MAX = 100_000;
+
+  test('TC-54a: #onvif_info stays within LOG_PANEL_MAX_CHARS under a flood of meta events', async () => {
+    // Beautify off so each frame is exactly one line -- the cap trims at a
+    // line boundary, and with beautify on a "line" is one of the indented
+    // XML lines, which makes "starts on a whole line" awkward to assert.
+    await pages.newPage.locator('#onvif_beautify').evaluate((el: HTMLInputElement) => el.click());
+    const result = await pages.newPage.evaluate((max) => {
+      const el = document.querySelector('rtsp-over-websocket') as any;
+      // ~1KB of raw XML per frame; 400 frames is ~4x the cap, i.e. a few
+      // seconds of a per-video-frame metadata feed.
+      const xml = '<tt:MetadataStream>' + '<tt:Frame UtcTime="2026-09-09T00:00:00Z"><tt:Object ObjectId="1"><tt:Appearance><tt:Shape><tt:BoundingBox left="0" top="0" right="1" bottom="1"/></tt:Shape></tt:Appearance></tt:Object></tt:Frame>'.repeat(4) + '</tt:MetadataStream>';
+      for (let i = 0; i < 400; i++) {
+        el.dispatchEvent(new CustomEvent('meta', { detail: { xml: xml.replace('ObjectId="1"', `ObjectId="${i}"`) } }));
+      }
+      const value = (document.getElementById('onvif_info') as HTMLTextAreaElement).value;
+      return { length: value.length, startsWholeLine: value.startsWith('onmeta: '), endsWithLast: value.trimEnd().endsWith('</tt:MetadataStream>'), hasLastId: value.includes('ObjectId="399"'), hasFirstId: value.includes('ObjectId="0"') };
+    }, MAX);
+    expect(result.length).toBeLessThanOrEqual(MAX);
+    expect(result.length).toBeGreaterThan(MAX / 2);
+    expect(result.startsWholeLine).toBe(true);
+    expect(result.endsWithLast).toBe(true);
+    expect(result.hasLastId).toBe(true);
+    expect(result.hasFirstId).toBe(false);
+  });
+
+  test('TC-54b: #debug stays within LOG_PANEL_MAX_CHARS under a flood of statechange events', async () => {
+    const result = await pages.newPage.evaluate((max) => {
+      const el = document.querySelector('rtsp-over-websocket') as any;
+      const readyState = (window as any).RTSPOverWebSocketPlayState.PLAYING;
+      for (let i = 0; i < 5000; i++) {
+        el.dispatchEvent(new CustomEvent('statechange', { detail: { readyState, elementId: el.id, seq: i } }));
+      }
+      const value = (document.getElementById('debug') as HTMLTextAreaElement).value;
+      return { length: value.length, startsWholeLine: value.startsWith('onstatechange: '), hasLast: value.includes('"seq":4999'), hasFirst: value.includes('"seq":0}') };
+    }, MAX);
+    expect(result.length).toBeLessThanOrEqual(MAX);
+    expect(result.startsWholeLine).toBe(true);
+    expect(result.hasLast).toBe(true);
+    expect(result.hasFirst).toBe(false);
+  });
+});

@@ -82,6 +82,7 @@
 | 1.65 | 2026-09-04 | Youngho Kim | FR-2.6 fixed, reported directly by the user with two screenshots: in column mode, `#video-panel` no longer uses a JS-set flex-basis percentage (mismatched the video's own aspect-ratio height, causing either a gap or a second internal scrollbar) — it's content-sized (`flex: 0 0 auto`) instead, so `#control-panel` always sits flush against it. `#drag` is now hidden in column mode (nothing left to resize); `state.columnSplitRatio` removed. `#container.split-portrait` gained `overflow-y: auto` as a fallback for the case where the video's own height genuinely exceeds the viewport. See "FR-2.6: Dynamic split layout"'s new closing paragraphs. |
 | 1.66 | 2026-09-07 | Youngho Kim | `src/shared-v2/`-only, requested directly by the user: `window.html` gained three `<link rel="icon">` favicon tags (16/128/512px), reusing `src/chrome-extension/icons/`'s existing manifest PNGs rather than adding a new asset. `scripts/build.js`'s `buildSharedV2()` copies that same source dir into `dist/shared-v2-preview/icons/` and, in its existing overwrite loop, into `DIST_EXT/icons/` (redundant with the extension's own unconditional manifest-icon copy, harmless) and `DIST_NODE/examples/public/icons/` (new — that target never had an `icons/` dir before, since `src/shared/window.html` never referenced one). See "Build wiring" below. |
 | 1.67 | 2026-09-08 | Youngho Kim | Added FR-6.12 (Audio Transcode Type), `src/shared-v2/`-only, requested directly by the user right after `@melchi45/rtsp-over-websocket` gained a WASM-vs-WebCodecs G.711/G.726 transcoder-selection property. New "Deviations from legacy behavior" bullet added below; see `docs/window-ui/SRS.md`'s matching FR-6.12 entry and this repo's own `MEMORY.md` for the local `file:../rtsp-over-websocket` dependency needed during development. |
+| 1.68 | 2026-09-09 | Youngho Kim | New deviation, from a real leak reported directly by the user (browser task-manager footprint climbing to ~9GB over a long Live session, attributed to `VideoTagPlayer` but actually page-side): every log panel (`#debug`/`#rtsp`/`#onvif_info`) appended by unbounded `el.value = el.value + data` for the life of the page, and the player's `meta` event feeds `#onvif_info` one `beautifyXml()`-expanded ONVIF frame per video frame. All four append paths now go through a single `appendLogPanelLine()` capped at `LOG_PANEL_MAX_CHARS` (100,000 chars, trimmed from the front at a line boundary). See "Deviations from legacy behavior" (new last entry), SRS.md FR-12.7 (v2.47), TC.md TC-54 (v2.21), and `MEMORY.md`. |
 
 ## `src/shared-v2/` module structure
 
@@ -1310,3 +1311,24 @@ go through the native host's Digest logic at all; the mock server just returns `
   asymmetry needed asserting: that suite only ever drives the `nodejs` runtime target's default
   (1280×720, landscape) viewport, where both trees' row-mode splits already produce comparable panel
   proportions despite the different ids/mechanism underneath.
+- **Every log panel is bounded (`LOG_PANEL_MAX_CHARS`, 100,000 chars) — the original's are not.**
+  Real leak, reported directly by the user as the browser task manager's footprint climbing to
+  ~9GB during a long Live session (attributed to `VideoTagPlayer` at first, since that's the
+  renderer in use — but it's page-side). Every log panel append in both trees was plain
+  `el.value = el.value + data + '\r\n'` with nothing ever trimming it: the markup's
+  `maxlength="5000"` only limits *typed* input (never programmatic `.value` assignment), and the
+  `input` listener that enforced it client-side fires only on user edits for the same reason. So
+  the panels grew for the life of the page, and each append re-copied the whole string (O(n²)).
+  The dominant feed is `#onvif_info`: the player dispatches `meta` once per ONVIF metadata frame —
+  typically one per *video* frame on a Wisenet camera with analytics on — and `onmeta()` appends
+  the whole XML, `beautifyXml()`-expanded (FR-12.6), with `#use_onvif` checked by default. That feed
+  only started flowing on 2026-09-04, when `@melchi45/rtsp-over-websocket`'s
+  `onRTSPOverWebSocketMeta()` stopped dropping every frame whose `.json` was `undefined`
+  (its `&&`→`||` fix) — the same day this page's ONVIF Information panel was added (v1.60/v1.61),
+  which is why the growth surfaced only then despite the append pattern predating it. Fix
+  (`src/shared-v2/`-only): one helper, `helpers.ts`'s `appendLogPanelLine(el, data)`, used by
+  `changedebug()`/`changertsp()`/`changeonvif()` and by `videoControl.ts`'s `onError()` (the one
+  raw append outside those three) — appends, then drops the oldest whole lines from the front until
+  the value fits the cap; a single over-long line keeps only its own tail. `maxlength` and the
+  `input` listeners are left as they were (typed-input behavior stays legacy-identical). See SRS.md
+  FR-12.7 and TC.md TC-54; `src/shared/window.ts` is untouched and still unbounded.

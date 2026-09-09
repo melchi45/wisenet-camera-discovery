@@ -2787,3 +2787,76 @@ merely *seems* to solve the reported symptom (content-sizing seemed obviously su
 live verification against the same numbers/cases that exposed the bug in the first place — the
 gap disappeared immediately, but the double-scrollbar half of the same report was still there until
 that verification pass actually caught it.
+
+## Added FR-6.12 (`#audio_encoder_mode`) pointed at an unpublished `@melchi45/rtsp-over-websocket` feature — `package.json` temporarily pinned to a local `file:` dependency
+
+Direct follow-up to a same-day session in the `rtsp-over-websocket` sibling repo (its own `MEMORY.md`
+has the full player-side story): that repo added a `RTSPOverWebSocket.ts` `audioEncoderMode`
+property/`audioencodermode` attribute (`'auto'`/`'wasm'`/`'webcodecs'`, selects the G.711/G.726-to-AAC
+transcoding implementation) to let the user A/B test whether its existing WASM transcoder is a real
+contributor to a reported `DEMUXER_UNDERFLOW`/playback-stutter symptom. This repo's `window.html`
+consumes that package via `@melchi45/rtsp-over-websocket` from GitHub Packages (`^1.1.14` at the
+time), which predates the new property — the feature genuinely didn't exist in anything installable
+from the registry yet.
+
+**Fix applied**: the user manually changed `package.json`'s dependency to
+`"@melchi45/rtsp-over-websocket": "file:../rtsp-over-websocket"` (the two repos are sibling
+directories under the same parent), then `npm install` was re-run, which replaced
+`node_modules/@melchi45/rtsp-over-websocket` with a symlink to the sibling checkout (`file:` deps to
+a local relative path get symlinked, not copied, under a normal `npm install`). This only actually
+works once that sibling repo's own `npm run build:player` has been run — a `file:` link exposes
+whatever `dist/` that repo currently has on disk, not source; `package-lock.json` still shows the old
+registry-resolved `1.1.14` entry (not yet regenerated), which is expected and harmless for local dev
+but **must not ship this way** — `package-lock.json` needs regenerating (and the real published
+version restored) once `@melchi45/rtsp-over-websocket` actually publishes a release containing
+`audioEncoderMode`.
+
+**How to apply**: when a request depends on a sibling/vendored package's very-recently-added,
+not-yet-published feature, check the installed version's actual capability (`grep` the built
+`node_modules/.../dist/` output, don't assume the source repo and the installed copy are in sync)
+before writing consumer code against it — here confirmed via `grep -c audioEncoderMode
+node_modules/@melchi45/rtsp-over-websocket/dist/player/rtsp-over-websocket.esm.js` returning `0`
+before the `file:` switch. A `file:` relative-path dependency plus a rebuild of the sibling repo is
+the fastest way to develop against an unpublished sibling-repo feature without a real publish/version
+bump — but it's a temporary development state, not something to leave in place across a commit meant
+to ship.
+
+---
+
+## The ~9GB "VideoTagPlayer leak" was the page's own log panels: `el.value = el.value + data` with no cap, fed one ONVIF XML frame per video frame
+
+Reported directly by the user as "VideoTagPlayer.ts 를 사용한 장기 재생 동작중에 브라우저 작업관리자에서
+… 9GB", i.e. attributed to the player library — reasonable, since the `rtsp-over-websocket` sibling repo
+had just spent a full day fixing real leaks there (its `MEMORY.md` has that story). But by then every
+queue in that player was already capped and MSE bounds its own `SourceBuffer`, and a V8 heap leak
+would have OOM-crashed the tab long before 9GB. Nine gigabytes of *renderer* memory that grows with
+elapsed time, on a page whose player side is bounded, points at native/DOM-side text, not JS objects.
+
+**The mechanism.** `helpers.ts`'s `changedebug()`/`changertsp()`/`changeonvif()` and
+`videoControl.ts`'s `onError()` all appended by `el.value = el.value + data + '\r\n'`. Nothing ever
+trimmed: `<textarea maxlength="5000">` limits *typed* input only, and the `input` listener that
+truncated to `maxLength` fires only on user edits — programmatic `.value` assignment bypasses both.
+Every append also re-copies the entire string, so the main thread degrades as the value grows
+(consistent with the earlier "playback stutters once memory passes ~1GB" reports). The dominant feed
+is `#onvif_info`: the player's `meta` event fires once per ONVIF metadata frame — one per *video*
+frame on a Wisenet camera with analytics on — and `onmeta()` appends the whole XML, `beautifyXml()`-
+expanded, with `#use_onvif` checked by default. Kilobytes per frame × frames per second × hours.
+
+**Why it surfaced when it did.** The append pattern is as old as the page (`src/shared/` has it too),
+but `meta` events only started flowing on 2026-09-04: `@melchi45/rtsp-over-websocket`'s
+`onRTSPOverWebSocketMeta()` used to require *both* `.json` and `.xml` before dispatching, and this page
+never populates `.json`, so every frame was silently dropped until that `&&` became `||` (b546545) —
+the same day the ONVIF Information panel (v1.60/v1.61) was added. The user's leak reports started right
+after. A dormant unbounded append became live the moment its feed was switched on.
+
+**The fix** (`src/shared-v2/` only): one `appendLogPanelLine(el, data)` in `helpers.ts`, used by all
+four append sites, capped at `LOG_PANEL_MAX_CHARS` (100,000 chars) and trimmed from the front at a
+line boundary so the oldest visible line is whole. `maxlength`/`input` listeners left alone (typed-
+input behavior stays legacy-identical). SRS FR-12.7, DESIGN v1.68 deviation, TC-54 (new page only).
+
+**How to apply**: when a leak is reported "in component X", first ask whether X can even *hold* that
+much — a bounded component can't produce an unbounded curve, and a JS-heap leak can't reach 9GB
+without an OOM. Then look at what X *emits* and who accumulates it: per-frame events (`timestamp`,
+`meta`, `statistics`) are the highest-rate feeds on the page, and any textarea/DOM/array they land in
+without a cap is the leak, regardless of which component's name is on the bug. Also: `maxlength` is
+not a cap on `.value`.

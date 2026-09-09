@@ -2,7 +2,7 @@
 
 import { mountSwitch } from '../../component/switch/switch';
 import { state } from './state';
-import { beautifyXml, changedebug, changeonvif, fastJsonStringfy, scrollbottom } from './helpers';
+import { appendLogPanelLine, beautifyXml, changedebug, changeonvif, fastJsonStringfy, scrollbottom } from './helpers';
 import { updatePlaybackSunapiUIVisibility } from './playbackCalendar';
 
 declare var AuthError: any;
@@ -438,12 +438,10 @@ export function onstatechange(evt: any): void {
 /** FR-6.10. */
 export function onError(error: any): void {
   if (state.useDebug) {
+    // Same capped append path as changedebug() (FR-12.7) -- this used to be
+    // the one raw `el.value = el.value + ...` left outside it.
     const el = document.getElementById('debug') as HTMLTextAreaElement;
-    if (typeof error === 'object') {
-      el.value = el.value + 'onerror: ' + fastJsonStringfy(error.detail) + '\r\n';
-    } else {
-      el.value = el.value + 'onerror: ' + error + '\r\n';
-    }
+    appendLogPanelLine(el, 'onerror: ' + (typeof error === 'object' ? fastJsonStringfy(error.detail) : error));
     scrollbottom();
   }
 

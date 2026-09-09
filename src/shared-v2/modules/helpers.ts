@@ -230,10 +230,42 @@ export function scrollbottomonvif(): void {
 /** FR-12.3: the single choke point most player/SUNAPI handlers funnel
  *  through -- appends to #debug and scrolls, both gated on state.useDebug
  *  (scrollbottom() does NOT run when useDebug is off -- preserved exactly). */
+/** Upper bound on any one log panel's (`#debug`/`#rtsp`/`#onvif_info`) text,
+ *  in characters -- SRS FR-12.7. Real, severe leak, reported directly by the
+ *  user as the browser's own task-manager footprint climbing to ~9GB over a
+ *  long Live session: every panel used to grow by plain `el.value = el.value +
+ *  data` with nothing ever trimming it (the markup's `maxlength="5000"` only
+ *  limits *typed* input, never programmatic `.value` assignment, and the
+ *  `input` listener that enforced it fires only on user edits for the same
+ *  reason), so a per-frame feed -- above all the player's `meta` event, one
+ *  ONVIF metadata XML frame per video frame, `beautifyXml()`-expanded, into
+ *  `#onvif_info` -- accumulated for the life of the page, plus the O(n^2)
+ *  full-string copy every append made once the value was megabytes long.
+ *  100k characters keeps the last few dozen beautified metadata frames (or
+ *  hundreds of debug/RTSP lines) readable while bounding both memory and the
+ *  per-append copy cost. Trimmed from the *front* at a line boundary so the
+ *  oldest visible line is always a whole one. */
+export const LOG_PANEL_MAX_CHARS = 100_000;
+
+/** The single append path every log panel goes through (`changedebug()`/
+ *  `changertsp()`/`changeonvif()` here, `onError()` in `videoControl.ts`):
+ *  appends `data + "\r\n"`, then drops the oldest whole lines until the
+ *  result fits `LOG_PANEL_MAX_CHARS`. A single line longer than the cap
+ *  keeps only its own tail (never an empty panel). */
+export function appendLogPanelLine(el: HTMLTextAreaElement, data: string): void {
+  let next = el.value + data + '\r\n';
+  if (next.length > LOG_PANEL_MAX_CHARS) {
+    const boundary = next.indexOf('\r\n', next.length - LOG_PANEL_MAX_CHARS);
+    next = boundary === -1 || boundary + 2 >= next.length
+      ? next.slice(next.length - LOG_PANEL_MAX_CHARS)
+      : next.slice(boundary + 2);
+  }
+  el.value = next;
+}
+
 export function changedebug(data: string): void {
   if (state.useDebug) {
-    const el = document.getElementById('debug') as HTMLTextAreaElement;
-    el.value = el.value + data + '\r\n';
+    appendLogPanelLine(document.getElementById('debug') as HTMLTextAreaElement, data);
     scrollbottom();
   }
 }
@@ -242,8 +274,7 @@ export function changedebug(data: string): void {
  *  formatted string (the caller, onrtsp in playerEvents.ts, prepends
  *  "RTSP: " itself -- matching the original's own onrtsp/changertsp split). */
 export function changertsp(data: string): void {
-  const el = document.getElementById('rtsp') as HTMLTextAreaElement;
-  el.value = el.value + data + '\r\n';
+  appendLogPanelLine(document.getElementById('rtsp') as HTMLTextAreaElement, data);
   scrollbottomrtsp();
 }
 
@@ -290,8 +321,7 @@ export function beautifyXml(xml: string): string {
  *  textarea, gated on state.useOnvif. */
 export function changeonvif(data: string): void {
   if (state.useOnvif) {
-    const el = document.getElementById('onvif_info') as HTMLTextAreaElement;
-    el.value = el.value + data + '\r\n';
+    appendLogPanelLine(document.getElementById('onvif_info') as HTMLTextAreaElement, data);
     scrollbottomonvif();
   }
 }
