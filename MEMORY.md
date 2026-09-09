@@ -2860,3 +2860,34 @@ without an OOM. Then look at what X *emits* and who accumulates it: per-frame ev
 `meta`, `statistics`) are the highest-rate feeds on the page, and any textarea/DOM/array they land in
 without a cap is the leak, regardless of which component's name is on the bug. Also: `maxlength` is
 not a cap on `.value`.
+
+---
+
+## `.field` only wrapped its own children below the 768px viewport breakpoint, not when `#right_panel` was narrowed via `#drag`
+
+Reported directly by the user with a screenshot: `#live_control`'s buttons plus the dynamically-
+created `#timestamp_date`/`#timestamp_time` pair (playback.ts's `updateTimestampReadout()`) stayed
+in a fixed layout and overlapped neighboring controls when `#right_panel` was resized narrower via
+the `#drag` handle — even though the browser window itself was well above 768px wide.
+
+**Root cause.** `css/window.css`'s `.field-row` (line ~430) always had `flex-wrap: wrap`, but
+`.field` itself (line ~437) only got `flex-wrap: wrap` inside the `@media (max-width: 768px)` block
+— added earlier specifically so a wide `.field` (like `#live_control`'s button group) wouldn't
+overflow a phone-width *viewport* (see that block's own removed comment). That fix implicitly
+assumed a `.field` could only run out of room when the *viewport* narrowed. It can't: `#right_panel`
+is absolutely positioned with a `width` the user drags directly (`#drag`, see architecture.md), so
+its available width is independent of the viewport — dragging it narrower overflowed `.field`
+exactly the same way a phone-width viewport used to, just without a media query to catch it.
+
+**The fix**: moved `flex-wrap: wrap` onto the base `.field` rule (unconditional — harmless when
+there's room, since it only visibly wraps once content doesn't fit) and removed the now-redundant
+mobile-only override. One CSS file, so it applies to both `dist/` outputs and to `src/shared-v2/`
+too (`css/window.css` lives under `src/shared/` and isn't one of the files `build:shared-v2`
+overwrites). See docs/architecture.md's "Responsive layout" section.
+
+**How to apply**: when a "doesn't reflow"/"overlaps" layout bug is scoped to "narrow viewport" in
+existing CSS, check whether the *container* the affected element sits in can also be resized by
+something other than the viewport (a drag handle, a split pane, a sidebar toggle) before assuming a
+`@media` viewport query is the right tool — a container-relative overflow needs a container-
+relative fix (unconditional flex-wrap here; a CSS container query would be the more targeted tool
+if the wrap needed to differ by breakpoint rather than just "wrap once it doesn't fit").

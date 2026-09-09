@@ -18,6 +18,7 @@
 | 1.2 | 2026-08-26 | Youngho Kim | Fixed unhandled promise rejections in `socket.ts` + verbose discovery logging toggle. |
 | 1.3 | 2026-08-27 | Youngho Kim | Discovery result Star Topology view with Group by + search filtering. |
 | 1.4 | 2026-08-28 | Youngho Kim | Documented the switch/disclosure components and control panel data binding; added Title/Abstract/Author/Milestone/History metadata. |
+| 1.5 | 2026-09-09 | Youngho Kim | Fixed `.field` (e.g. `#live_control`) not wrapping its own children when `#right_panel` is narrowed via `#drag`, only below the 768px viewport breakpoint. |
 
 ## Why this exists
 
@@ -325,6 +326,29 @@ shape via a targeted regex on the string case, rather than resurrecting a full p
 this one field. `MaxChannel`/`IsAndroid` have the same object-vs-string exposure and silently
 read as `undefined` on an XML-firmware device today — a known, not-yet-fixed gap, not something
 `getCapabilityValue()` was extended to cover since nothing currently depends on it doing so.
+
+## Responsive layout: `.field` wraps its own children, not just the `<=768px` breakpoint
+
+`css/window.css`'s `.field`/`.field-row` pair (a `.field-row` holds several `.field`s side by
+side; a `.field` holds one labeled control or a whole button group, e.g. `#live_control`'s
+Play/Stop/Pause/Resume/Download Img./Capture buttons plus playback.ts's dynamically-appended
+`#timestamp_date`/`#timestamp_time` pair) both need `flex-wrap: wrap` — `.field-row` always had
+it, but `.field` itself used to only get it inside the `@media (max-width: 768px)` block, on the
+assumption that a `.field`'s own contents could only overflow on a phone-width *viewport*.
+
+That assumption doesn't hold: `#right_panel` isn't only sized by the viewport — `#drag` (see
+`#right_panel`/`#drag` above) lets the user resize it directly, independent of the browser
+window's width, so a `.field` with many children can overflow a narrowed `#right_panel` at any
+viewport width, well above 768px. With `.field` only wrapping below that breakpoint, dragging
+`#right_panel` narrower left a wide `.field` like `#live_control` (especially once the
+`#timestamp_date`/`#timestamp_time` pair exist) overlapping/clipped against neighboring controls
+instead of wrapping onto a new line the way `.field-row` already does for its `.field` children.
+Reported directly by the user with a screenshot. Fix: `flex-wrap: wrap` moved onto the base
+`.field` rule unconditionally (harmless when there's room — it only visibly wraps once content
+doesn't fit), so the mobile-only override was removed as redundant. Applies to both `dist/`
+outputs and to `src/shared-v2/` too, since `css/window.css` is `src/shared/`'s and is not one of
+the files `build:shared-v2` overwrites (only `window.html`/`window.js`/`scripts/socket.js` and
+`css/calendar.css`/`css/event-timeline.css` are).
 
 ## Reusable UI: the switch component (`src/component/switch/`)
 

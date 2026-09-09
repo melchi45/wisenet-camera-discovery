@@ -281,18 +281,6 @@ body {
     min-width: 0;
     width: 100%;
   }
-
-  /* .field-row already wraps its .field children (desktop rule above), but
-     a single .field can itself hold a whole button group (e.g. #live_control's
-     Play/Stop/Pause/Resume/Download Img./Capture) with no flex-wrap of its
-     own -- on a phone-width viewport that group alone is wider than the
-     entire panel and just overflowed it uncontained (#left_panel/
-     #right_panel's own `overflow: visible` above no longer clips or scrolls
-     it either). Letting each .field wrap its own contents fixes every such
-     group at once instead of special-casing #live_control individually. */
-  .field {
-    flex-wrap: wrap;
-  }
 }
 
 /* ---------------------------------------------------------------------- */
@@ -434,11 +422,23 @@ body {
   gap: 8px 16px;
 }
 
+/* flex-wrap: wrap here (not just the <=768px media query below) matters
+   because #right_panel's width isn't only the viewport width -- #drag lets
+   the user resize it directly (see #right_panel/#drag above), and a .field
+   with many children (e.g. #live_control's Play/Stop/Pause/Resume/Download
+   Img./Capture buttons plus the dynamically-added #timestamp_date/
+   #timestamp_time pair, playback.ts's updateTimestampReadout()) can overflow
+   a narrowed #right_panel even on an otherwise-desktop-width viewport.
+   Previously only set inside the mobile media query below, so dragging
+   #right_panel narrower left #live_control's contents overlapping/clipped
+   instead of wrapping onto a new line like the rest of the row already did.
+   Reported directly by the user with a screenshot. */
 .field {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   white-space: nowrap;
+  flex-wrap: wrap;
 }
 
 .field label,
