@@ -18,18 +18,19 @@ name: Release
 #     zip is uploaded as a downloadable workflow artifact only — no GitHub
 #     Release is created, so a beta run never collides with a real tagged
 #     release.
-#   - push a tag like "v1.2.0" -> a real release, on the default "latest"
-#     npm dist-tag plus a GitHub Release with the zip attached. Unlike the
-#     old workflows, you no longer hand-bump package.json before tagging:
-#     this workflow bumps package.json's version up one patch level itself
-#     (e.g. 1.2.4 -> 1.2.5), commits that bump to main, and builds/
-#     publishes/releases from the bumped version — requested directly by
-#     the user, to fold "bump, commit, tag" down to just "tag". The tag
-#     name itself still isn't parsed for the version number; the bumped
-#     package.json is what's authoritative. This assumes the tag points at
-#     (or near) main's current tip — pushing the bump commit as
-#     `HEAD:main` will be rejected by GitHub as a non-fast-forward if
-#     main has moved past the tagged commit in the meantime.
+#   - push a tag like "v1.2.5" -> a real release, on the default "latest"
+#     npm dist-tag plus a GitHub Release with the zip attached. The tag
+#     name IS the version here (the "v" prefix stripped, e.g. "v1.2.5" ->
+#     "1.2.5"): this workflow sets package.json's version to that value,
+#     commits the change to main (skipped if package.json already matches,
+#     e.g. it was hand-bumped to the same value before tagging), and
+#     builds/publishes/releases from it — so the zip and the npm package
+#     always carry the exact tag version, never a separately-computed one.
+#     This assumes the tag points at (or near) main's current tip — pushing
+#     the version commit as `HEAD:main` is rejected by GitHub as a
+#     non-fast-forward if main has moved past the tagged commit in the
+#     meantime; the job fails rather than silently building a mismatched
+#     version in that case.
 #
 # Consumers of the npm package need a .npmrc with:
 #   @melchi45:registry=https://npm.pkg.github.com
@@ -43,7 +44,7 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  contents: write # GitHub Release asset upload, and (tag path) pushing the version-bump commit
+  contents: write # GitHub Release asset upload, and (tag path) pushing the version-set commit
   packages: write # npm publish to GitHub Packages
 
 jobs:
@@ -53,7 +54,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           # Full history (not the default shallow depth-1 clone) so the
-          # tag-path version-bump push below can be evaluated as a proper
+          # tag-path version-set push below can be evaluated as a proper
           # fast-forward of main rather than an unrelated-history push.
           fetch-depth: 0
 
@@ -75,31 +76,41 @@ jobs:
 
       - run: npm ci
 
-      # Tag push only: bump package.json (+ package-lock.json) one patch
-      # version up and push that commit to main before anything below reads
-      # the version — so the release this tag triggers, and every version
-      # string derived from it (manifest.json, src/nodejs/package.json, the
-      # zip filename, the npm publish), all reflect the bumped version.
-      - name: Bump package.json version for this release
+      # Tag push only: set package.json (+ package-lock.json) to the tag's
+      # own version (its "v" prefix stripped) and push that commit to main
+      # before anything below reads the version — so the release this tag
+      # triggers, and every version string derived from it (manifest.json,
+      # src/nodejs/package.json, the zip filename, the npm publish), all
+      # reflect the exact tag version, never a separately-computed one.
+      # No-ops (no commit, no push) if package.json already matches — e.g.
+      # it was hand-bumped to the same version before tagging.
+      - name: Set package.json version from tag
         if: startsWith(github.ref, 'refs/tags/')
         run: |
-          npm version patch --no-git-tag-version
-          NEW_VERSION="$(node -p "require('./package.json').version")"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add package.json package-lock.json
-          git commit -m "chore: bump version to $NEW_VERSION [skip ci]"
-          git push origin HEAD:main
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if ! [[ "$TAG_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Tag '$GITHUB_REF_NAME' isn't in the expected 'vX.Y.Z' form (got version '$TAG_VERSION')" >&2
+            exit 1
+          fi
+          npm version "$TAG_VERSION" --no-git-tag-version --allow-same-version
+          if ! git diff --quiet -- package.json package-lock.json; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add package.json package-lock.json
+            git commit -m "chore: set version to $TAG_VERSION [skip ci]"
+            git push origin HEAD:main
+          fi
 
       - name: Determine release version
         id: version
         run: |
-          ROOT_VERSION="$(node -p "require('./package.json').version")"
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            echo "version=$ROOT_VERSION" >> "$GITHUB_OUTPUT"
+            VERSION="${GITHUB_REF_NAME#v}"
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
             echo "npm_tag=latest" >> "$GITHUB_OUTPUT"
             echo "version_name=" >> "$GITHUB_OUTPUT"
           else
+            ROOT_VERSION="$(node -p "require('./package.json').version")"
             SHORT_SHA="$(git rev-parse --short "${{ github.sha }}")"
             echo "version=$ROOT_VERSION-beta.$SHORT_SHA" >> "$GITHUB_OUTPUT"
             echo "npm_tag=beta" >> "$GITHUB_OUTPUT"
