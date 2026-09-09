@@ -2891,3 +2891,38 @@ something other than the viewport (a drag handle, a split pane, a sidebar toggle
 `@media` viewport query is the right tool — a container-relative overflow needs a container-
 relative fix (unconditional flex-wrap here; a CSS container query would be the more targeted tool
 if the wrap needed to differ by breakpoint rather than just "wrap once it doesn't fit").
+
+## Column-mode scroll confined below the video — `#control-panel`'s own shrink/scroll silently absorbed all the overflow
+
+Reported directly by the user with two screenshots: on a narrow, tall window (column/portrait split
+mode), a tall `#control-panel` only showed a scrollbar for the strip below the video — the video
+itself stayed pinned at the top, unreachable-by-scroll along with the rest of the page.
+
+**Root cause.** `#container.split-portrait` has had `overflow-y: auto` since v1.65 specifically as a
+"scroll the whole stack" fallback (see `docs/window-ui/DESIGN.md`'s FR-2.6 section) — but it never
+actually engaged. `#control-panel`'s base rule (`flex: 1 1 auto; min-height: 0`, plus its own
+`overflow-y: auto`) is unconditional, including in column mode. Since `#video-panel` is already
+non-shrinking (`flex: 0 0 auto`, v1.65, for its own aspect-ratio reasons), `#control-panel` was the
+*only* flex child left that could shrink — so the flex algorithm satisfied the column's total height
+against `#container`'s box entirely by compressing `#control-panel` down to whatever room was left
+below the video and scrolling *inside* it. `#container`'s own overflow only ever sees a box whose
+children already fit perfectly (that's what shrinking accomplishes), so it never has anything to
+scroll. The v1.65 design doc explicitly (and wrongly) called this "two independent scrollable
+regions at different levels, not a conflict" — it hadn't accounted for one region always absorbing
+100% of the overflow before the other ever saw any.
+
+**The fix**: `#container.split-portrait #control-panel` now also gets `flex: 0 0 auto; overflow:
+visible` — matching `#video-panel`'s own column-mode treatment. Neither child can shrink anymore, so
+the column's real total height shows up at `#container`'s level (or, at narrow viewports where a
+pre-existing unrelated `<=768px` media query hands `html`/`body` an `auto` height instead, at the
+page level) exactly when it doesn't fit, and one scrollbar covers video + controls together. Row
+mode's `#control-panel` (`flex: 1 1 auto`, its own internal scroll) is untouched — correct there, a
+short video next to a tall control column should let the column scroll on its own.
+
+**How to apply**: when a flex column has one non-shrinking sibling (sized by an aspect ratio, an
+image, anything with `flex-shrink: 0`) and you want the *container's* overflow to be the thing that
+engages when content doesn't fit, every *other* sibling needs `flex-shrink: 0` too (or equivalently
+`overflow: visible` instead of its own `auto`) — a single shrinkable+scrollable sibling will always
+volunteer to absorb 100% of the overflow itself before a container-level `overflow: auto` ever gets
+a chance to see any of it. "The container has `overflow: auto`" is not sufficient evidence that it
+will ever actually scroll; check whether anything inside it can shrink first.

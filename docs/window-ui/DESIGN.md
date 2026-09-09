@@ -83,6 +83,7 @@
 | 1.66 | 2026-09-07 | Youngho Kim | `src/shared-v2/`-only, requested directly by the user: `window.html` gained three `<link rel="icon">` favicon tags (16/128/512px), reusing `src/chrome-extension/icons/`'s existing manifest PNGs rather than adding a new asset. `scripts/build.js`'s `buildSharedV2()` copies that same source dir into `dist/shared-v2-preview/icons/` and, in its existing overwrite loop, into `DIST_EXT/icons/` (redundant with the extension's own unconditional manifest-icon copy, harmless) and `DIST_NODE/examples/public/icons/` (new — that target never had an `icons/` dir before, since `src/shared/window.html` never referenced one). See "Build wiring" below. |
 | 1.67 | 2026-09-08 | Youngho Kim | Added FR-6.12 (Audio Transcode Type), `src/shared-v2/`-only, requested directly by the user right after `@melchi45/rtsp-over-websocket` gained a WASM-vs-WebCodecs G.711/G.726 transcoder-selection property. New "Deviations from legacy behavior" bullet added below; see `docs/window-ui/SRS.md`'s matching FR-6.12 entry and this repo's own `MEMORY.md` for the local `file:../rtsp-over-websocket` dependency needed during development. |
 | 1.68 | 2026-09-09 | Youngho Kim | New deviation, from a real leak reported directly by the user (browser task-manager footprint climbing to ~9GB over a long Live session, attributed to `VideoTagPlayer` but actually page-side): every log panel (`#debug`/`#rtsp`/`#onvif_info`) appended by unbounded `el.value = el.value + data` for the life of the page, and the player's `meta` event feeds `#onvif_info` one `beautifyXml()`-expanded ONVIF frame per video frame. All four append paths now go through a single `appendLogPanelLine()` capped at `LOG_PANEL_MAX_CHARS` (100,000 chars, trimmed from the front at a line boundary). See "Deviations from legacy behavior" (new last entry), SRS.md FR-12.7 (v2.47), TC.md TC-54 (v2.21), and `MEMORY.md`. |
+| 1.69 | 2026-09-09 | Youngho Kim | FR-2.6 corrected, reported directly by the user with two screenshots: in column (portrait) mode, `#control-panel`'s row-mode `flex: 1 1 auto` + `overflow-y: auto` let it silently absorb all of the excess height by shrinking and scrolling internally, so `#container.split-portrait`'s own `overflow-y: auto` fallback (v1.65) never actually engaged — only the strip below the (non-shrinking) video ever showed a scrollbar. `#container.split-portrait #control-panel` now also gets `flex: 0 0 auto; overflow: visible`, matching `#video-panel`'s existing column-mode treatment, so the whole column's height can genuinely exceed `#container`'s box and its (or the page's) scrollbar covers video + controls together as one region. See "FR-2.6: Dynamic split layout"'s new "Correction (v1.69)" paragraph. |
 
 ## `src/shared-v2/` module structure
 
@@ -378,12 +379,32 @@ itself (not `html`/`body`) becomes the scrolling region for this specific overfl
 a deliberately extreme aspect ratio (9:32) at 800×900 — `#container`'s own box stayed correctly clamped
 to the viewport's 900px (not stretched to fit content, confirmed via `getComputedStyle`), while its
 `scrollHeight` (2798px) exceeded `clientHeight`, and the video stayed reachable (`getBoundingClientRect
-().height > 0` throughout a scroll) rather than being cut off. `#control-panel`'s own pre-existing
-`overflow-y: auto` is unaffected and still handles its own long content independently, nested inside
-`#container`'s new fallback scroll for this specific edge case — not a conflict, just two independent
-scrollable regions at different levels, the same relationship `#video-panel`'s own (now largely
-unused, but harmless) `overflow: auto` already had with `#container.split-portrait`'s row-mode
-absolute-position ancestor before this rewrite.
+().height > 0` throughout a scroll) rather than being cut off.
+
+**Correction (v1.69):** the paragraph above, as originally written, called `#control-panel`'s own
+pre-existing `overflow-y: auto` (its row-mode `flex: 1 1 auto; min-height: 0` shrink-to-scroll
+behavior) harmless in column mode too — "two independent scrollable regions at different levels, not
+a conflict." Live use proved otherwise, reported directly by the user with two screenshots: on a
+narrow, tall window, `#container`'s `overflow-y: auto` fallback above never actually engaged, because
+the flex algorithm never needed it — `#control-panel`, still allowed to shrink and still carrying its
+own `overflow-y: auto`, absorbed *all* of the excess height by compressing itself to whatever room
+was left below the (non-shrinking) video and scrolling internally. The video stayed pinned at the
+top; only the strip below it ever showed a scrollbar, instead of the whole stack scrolling together.
+`#container.split-portrait #control-panel` now also gets `flex: 0 0 auto; overflow: visible` (was:
+inherited the unqualified `#control-panel` rule's `flex: 1 1 auto` + `overflow-y: auto` unchanged) —
+content-sized and non-scrolling, exactly matching `#video-panel`'s own column-mode treatment above.
+With neither child able to absorb the excess by shrinking, the column's total height now genuinely
+exceeds `#container`'s box whenever it doesn't fit, and `#container`'s `overflow-y: auto` (or, once a
+descendant `html/body{height:auto;overflow:auto}` media-query rule takes over the box's own height at
+narrow viewports — `css/window.css`'s pre-existing `<=768px` block, unrelated to this rewrite and
+still keyed on viewport width rather than `#container`'s own aspect ratio — the page's own scrollbar)
+finally does what its comment always claimed: scrolls video and controls together as one unified
+region, verified live at a narrow/tall (380×900) viewport with `document.body.scrollHeight` reaching
+the very bottom of `#control-panel`'s content in one continuous scroll. `#control-panel`'s row-mode
+behavior (`flex: 1 1 auto; min-height: 0`, its own internal `overflow-y: auto`) is unchanged — still
+correct there, and still the intended shrink/scroll target when a wide, short video sits next to a
+tall control column. See `src/component/split-layout/split-layout.css`'s own updated comment on
+`#container.split-portrait #control-panel` for the full before/after mechanics.
 
 ## FR-7.8: SUNAPI-driven Calendar search (`src/shared-v2/` only)
 

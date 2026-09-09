@@ -100,6 +100,26 @@
 
 #container.split-portrait #control-panel {
   padding: 0 10px 10px 10px;
+  /* Row mode's flex: 1 1 auto + min-height: 0 + its own overflow-y: auto
+     (above) is what makes #control-panel the shrink/scroll target when the
+     panel is taller than #container -- correct there (a wide, short video
+     next to a tall control column). In column mode #video-panel is already
+     flex: 0 0 auto (never shrinks, see its own comment above), so with
+     #control-panel still allowed to shrink+scroll internally, the flex
+     algorithm satisfies itself entirely by compressing #control-panel down
+     to whatever room is left below the video and scrolling *inside* it --
+     #container's own `overflow-y: auto` (above) never gets a chance to
+     engage, so only the area under the video ever shows a scrollbar,
+     the video itself stays pinned at the top forever. Matching #video-panel
+     with flex: 0 0 auto + overflow: visible here instead makes
+     #control-panel content-sized too, so the column's total height can
+     exceed #container's box -- #container's own overflow-y: auto then
+     scrolls video + control panel together as one unified region. Requested
+     directly by the user, reported live with a screenshot showing the
+     scrollbar confined under the video instead of spanning the whole
+     stack. */
+  flex: 0 0 auto;
+  overflow: visible;
 }
 
 /* No longer straddles the panel boundary via a negative margin -- it's now
