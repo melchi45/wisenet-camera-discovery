@@ -15,6 +15,7 @@
 |---|---|---|---|
 | 1.0 | 2026-08-28 | Youngho Kim | Split out of the original single-file `docs/switch-component.md`; added Title/Abstract/Author/Milestone/History metadata. |
 | 1.1 | 2026-08-31 | Youngho Kim | Added FR-12: a disabled-radio visual style for the segmented radio-group target — needed by `device.ts` locking the HTTP/HTTPS toggle to the page's own protocol outside the extension (`docs/window-ui/SRS.md`). No `MountSwitchOptions` API change; the caller disables the native input(s) directly. |
+| 1.2 | 2026-09-10 | Youngho Kim | FR-12 extended to the checkbox and button-group targets, requested directly by the user alongside `src/shared/`'s two new switches: `#talk_toggle` (checkbox, `#talk` disabled while not actively playing — previously entirely unwired, checking/unchecking it had no effect at all; `changetalk()` now calls the player's real `talk(flag)` method, an 'audioOut' control command, gated on `isplay` the same way `mute()`/`unmute()` already are) and `#mute_toggle` (button-group, `#unmute`/`#mute` restyled from plain buttons, existing click listeners/`onchangemute()` disabled-toggling untouched). Both needed real disabled styling — the checkbox target had none at all (`:disabled` on a `display:none` input has no visual path without CSS naming it explicitly), and the button-group target's own custom `background`/`color` isn't reset by a browser's native disabled rendering on its own. See `docs/architecture.md`'s switch component section and `MEMORY.md` for the caller-side detail. `src/shared-v2/`'s `audio.ts` has the identical `#talk`/`#unmute`/`#mute` markup and the same un-wired `#talk` (disabled-toggled, `.talk()` never called) — left unfixed here, out of scope (the user's request was specifically against `src/shared/window.html`). |
 
 ## Interface
 
@@ -81,15 +82,24 @@ export function mountSwitch(config: MountSwitchOptions): SwitchController;
 - **FR-11 (`setValue()` is silent)**: `SwitchController.setValue()` writes the underlying DOM state
   directly and does not fire `onChange` — matches assigning `.checked`/`.value` on a native input
   directly, never a synthetic user interaction.
-- **FR-12 (disabled radio options, v1.1)**: for a radio-group target (FR-6), setting `.disabled =
-  true` on the underlying `<input type="radio">`s natively prevents toggling (the radio is
-  `display: none`, so this has no visual effect on its own without the option below) and is styled
-  the same as this codebase's existing disabled-button look (`--button-disable-color`/
-  `--button-disable-font-color`, not a new palette) via
-  `.ws-switch--segmented input:disabled + .ws-switch-option`. There is no `MountSwitchOptions` flag
-  for this — the caller disables the native input(s) directly, the same way it would on any other
-  native form control; `mountSwitch()` doesn't need to know about it. Not implemented for the
-  checkbox or button-group enhancement targets (no current caller needs it there).
+- **FR-12 (disabled radio options, v1.1; extended to checkbox/button-group targets, v1.2)**: for a
+  radio-group target (FR-6), setting `.disabled = true` on the underlying `<input type="radio">`s
+  natively prevents toggling (the radio is `display: none`, so this has no visual effect on its own
+  without the option below) and is styled the same as this codebase's existing disabled-button look
+  (`--button-disable-color`/`--button-disable-font-color`, not a new palette) via
+  `.ws-switch--segmented input:disabled + .ws-switch-option`. **As of v1.2**, the same treatment
+  applies to the checkbox target (FR-5) — `.ws-switch--segmented input[type="checkbox"]:disabled ~
+  .ws-switch-option` — and the button-group target (FR-7) — `.ws-switch--segmented
+  button.ws-switch-option:disabled`, needed directly (unlike the hidden-input cases, a disabled
+  `<button>` is itself the visible element, so its custom `background`/`color` need spelling out
+  explicitly rather than relying on any native disabled rendering). In every case, the option
+  reflecting the *current* state stays fully accented even while disabled (so the switch still shows
+  which value is in effect); only the non-current option grays out. There is no `MountSwitchOptions`
+  flag for any of this — the caller disables the native input(s)/button(s) directly, the same way it
+  would on any other native form control; `mountSwitch()` doesn't need to know about it. First real
+  callers: `src/shared/`'s `#talk_toggle` (checkbox, disabled while not actively playing) and
+  `#mute_toggle` (button-group, `#unmute`/`#mute` disabled depending on current mute state) —
+  requested directly by the user alongside those two new switches.
 
 ## Non-functional requirements
 

@@ -112,6 +112,12 @@ var visTimeline;
 // check — see docs/switch-component/.
 var timelineRangeSwitch: SwitchController | null = null;
 
+// Unmute|Mute button-group switch -- onchangemute() (the player's own
+// 'changemute' event handler) syncs this via setValue() so an externally
+// (device-)driven mute change is reflected visually too, not just a click
+// on either button.
+var muteSwitch: SwitchController | null = null;
+
 // Single shared SunapiManager instance for whichever player is
 // selected_player_id at the time — mirrors the old SunapiManagerService
 // singleton's behavior (this file only ever drives one player at once).
@@ -494,8 +500,20 @@ document.addEventListener("DOMContentLoaded", function(){
 
     document.getElementById("unmute").addEventListener("click", unmute);
     document.getElementById("mute").addEventListener("click", mute);
+    muteSwitch = mountSwitch({
+      containerId: "mute_toggle",
+      variant: "segmented",
+      options: [{ value: "unmuted", label: "Unmute" }, { value: "muted", label: "Mute" }],
+    });
     document.getElementById("volume").addEventListener("change", setvolume);
     document.getElementById("audio_shift").addEventListener("change", setaudioshift);
+
+    document.getElementById("talk").addEventListener("change", changetalk);
+    mountSwitch({
+      containerId: "talk_toggle",
+      variant: "segmented",
+      options: [{ value: "off", label: "Off" }, { value: "on", label: "On" }],
+    });
 
     // click the clear deubug button
     document.getElementById("clear_debug").addEventListener("click", oncleardebug);
@@ -3550,12 +3568,18 @@ var onchangemute = function(mute) {
       document.getElementById("volume").disabled = false;
       document.getElementById("getaudiovolume").disabled = false;
       document.getElementById("talk").disabled = false;
+      if (muteSwitch !== null) {
+        muteSwitch.setValue("unmuted");
+      }
     } else {
       document.getElementById("unmute").disabled = false;
       document.getElementById("mute").disabled = true;
       document.getElementById("volume").disabled = true;
       document.getElementById("getaudiovolume").disabled = true;
       document.getElementById("talk").disabled = true;
+      if (muteSwitch !== null) {
+        muteSwitch.setValue("muted");
+      }
     }
 
     if (typeof(getSelectedPlayer().volume) !== 'undefined' ||
@@ -3585,6 +3609,21 @@ var mute = function () {
     if (getSelectedPlayer().ismute === false &&
         getSelectedPlayer().isplay) {
       getSelectedPlayer().mute();
+    }
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+// #talk was previously unwired -- checking/unchecking it had no effect at
+// all. `talk(flag)` is a real player method (RTSPOverWebSocket.ts), not a
+// gettable/settable property like GMT/startTime -- it sends an 'audioOut'
+// control command (on/off) and throws (0x1000) if the player isn't
+// connected, same as mute()/unmute() above, hence the same `isplay` guard.
+var changetalk = function () {
+  try {
+    if (getSelectedPlayer().isplay) {
+      getSelectedPlayer().talk(document.getElementById("talk").checked);
     }
   } catch (error) {
     console.error(error);

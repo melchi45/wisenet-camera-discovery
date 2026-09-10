@@ -727,6 +727,23 @@ export function updateTimeline(
           player.startTime = startDate + 'T' + startTime;
           player.endTime = endDate !== null && endTime !== null ? endDate + 'T' + endTime : null;
           lastSelectedTime = { startDate, startTime, endDate, endTime };
+          // Real bug fix, reported directly by the user: startTime/endTime's
+          // own setters (rtsp-over-websocket's RTSPOverWebSocket.ts) only
+          // update internal fields -- generateRTSPURL() is exclusively
+          // triggered from the seekingTime setter (via seeking()), same as
+          // onDoubleClick/onCustomTimeSeek above already rely on. Without
+          // this, editing Selected Time (including toggling "Has End Time")
+          // while PLAYING silently no-opped: the new range reached the
+          // player object but never reached the device. Re-seeking to
+          // currentTimestamp (not startTime) keeps playback exactly where it
+          // already was -- only startTime/endTime actually changed, and
+          // generateRTSPURL()'s strEnd/end= is read from this.endTime
+          // directly regardless of seekingTime, so the new end time lands in
+          // the regenerated URL even though the seek target itself is the
+          // unchanged current position.
+          if (player.readyState === RTSPOverWebSocketPlayState.PLAYING && player.currentTimestamp !== null && player.currentTimestamp !== undefined) {
+            player.seekingTime = player.currentTimestamp;
+          }
         } catch (error) {
           console.error('selected time change error:', error);
         }

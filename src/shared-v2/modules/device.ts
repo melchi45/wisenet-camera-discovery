@@ -136,7 +136,14 @@ export function changeusegmt(): void {
   try {
     if ((document.getElementById('use_gmt') as HTMLInputElement).checked) {
       (document.getElementById('timezone') as HTMLInputElement).disabled = false;
-      state.getSelectedPlayer().GMT = (document.getElementById('timezone') as HTMLInputElement).value;
+      // Real bug fix (reported directly by the user, with an exact repro and
+      // console trace): a <select>'s `.value` is always a string --
+      // `@melchi45/rtsp-over-websocket`'s `set GMT()` used to silently accept
+      // one (its range check's `<`/`>` coerced it), but now rejects any
+      // non-number up front (see that repo's own comment on the setter).
+      // `parseFloat()` matches this codebase's existing GMT-string-parsing
+      // convention (e.g. the SUNAPI dateInfo auto-detect branch below).
+      state.getSelectedPlayer().GMT = parseFloat((document.getElementById('timezone') as HTMLInputElement).value);
     } else {
       (document.getElementById('timezone') as HTMLInputElement).disabled = true;
       state.getSelectedPlayer().GMT = null;
@@ -148,7 +155,8 @@ export function changeusegmt(): void {
 
 export function changetimezone(): void {
   try {
-    state.getSelectedPlayer().GMT = (document.getElementById('timezone') as HTMLInputElement).value;
+    // Same string-vs-number fix as changeusegmt() above.
+    state.getSelectedPlayer().GMT = parseFloat((document.getElementById('timezone') as HTMLInputElement).value);
   } catch (error) {
     console.error(error);
   }
@@ -158,7 +166,7 @@ export function onchangetimezone(timezone: any): void {
   try {
     (document.getElementById('timezone') as HTMLInputElement).value = timezone.detail.timezone;
     (document.getElementById('timezone') as HTMLInputElement).disabled = false;
-    (document.getElementById('use_gmt') as HTMLInputElement).checked = false;
+    (document.getElementById('use_gmt') as HTMLInputElement).checked = true;
   } catch (error) {
     console.error(error);
   }
@@ -399,8 +407,12 @@ export function on_change_use_sunapi_client(): void {
 
 export function setupDevice(): void {
   // FR-15's original startup block (window.ts ~L380-414) disables this
-  // until a SUNAPI session actually supplies a timezone list.
+  // until a SUNAPI session actually supplies a timezone list. #use_gmt
+  // itself starts unchecked from window.html's own markup (no `checked`
+  // attribute); the select's default value is forced to GMT (`0`) here
+  // rather than relying on option order (the first <option> is GMT-12:00).
   (document.getElementById('timezone') as HTMLSelectElement).disabled = true;
+  (document.getElementById('timezone') as HTMLSelectElement).value = '0';
 
   document.getElementById('device_type')!.addEventListener('change', setdevicetype);
   document.getElementById('hostname')!.addEventListener('change', changehostname);
@@ -421,6 +433,11 @@ export function setupDevice(): void {
 
   document.getElementById('use_gmt')!.addEventListener('change', changeusegmt);
   document.getElementById('timezone')!.addEventListener('change', changetimezone);
+  mountSwitch({
+    containerId: 'use_gmt_toggle',
+    variant: 'segmented',
+    options: [{ value: 'off', label: 'Off' }, { value: 'on', label: 'On' }],
+  });
 
   document.getElementById('use_sunapi_client_checkbox')!.addEventListener('click', on_change_use_sunapi_client);
   mountSwitch({

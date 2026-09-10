@@ -183,9 +183,11 @@
                         <input id="use_sunapi_client_checkbox" type="checkbox">
                       </div>
                     </div>
-                    <div class="field">
-                      <input id="use_gmt" type="checkbox">
-                      <label for="use_gmt">Use timezone</label>
+                    <div id="gmt_info" class="field">
+                      <label class="switch">GMT:</label>
+                      <div id="use_gmt_toggle">
+                        <input id="use_gmt" type="checkbox">
+                      </div>
                     </div>
                     <div class="field">
                       <label for="timezone">Timezone:</label>
@@ -470,8 +472,10 @@
                     <label class="switch">Audio Control:</label>
                   </div>
                   <div class="field">
-                    <button id="unmute">Unmute</button>
-                    <button id="mute">Mute</button>
+                    <div id="mute_toggle">
+                      <button id="unmute" data-value="unmuted">Unmute</button>
+                      <button id="mute" data-value="muted">Mute</button>
+                    </div>
                   </div>
                   <div class="field">
                     <label class="switch" for="volume">Volume Level:</label>
@@ -489,8 +493,10 @@
                     <input type="text" id="getaudiovolume" value="Current Volume">
                   </div>
                   <div class="field">
-                    <input type="checkbox" id="talk" value="Talk">
-                    <label for="talk" class="switch">Talk</label>
+                    <label class="switch">Talk:</label>
+                    <div id="talk_toggle">
+                      <input type="checkbox" id="talk">
+                    </div>
                   </div>
                   <div class="field">
                     <label for="audio_shift">Audio shift</label>

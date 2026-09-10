@@ -358,14 +358,25 @@ section is a brief pointer, the same relationship this file has with `docs/star-
 enhances existing checkbox/radio-group/button-group markup into a themed pill or iOS-style slider,
 replacing what used to be three separate ad hoc mechanisms (a hand-rolled `.theme-switch` slider,
 static `.segmented-toggle` radio/button markup, and `segmentedToggle.ts`'s one checkbox-only helper
-— now deleted). All five of this UI's switch-shaped controls are mounted through it: dark mode
+— now deleted). Seven of this UI's switch-shaped controls are mounted through it: dark mode
 (`#theme_switch`), HTTP/HTTPS protocol (`#http_type_toggle`), Live/Playback (`#play_type_toggle`),
-the Playback 1 Day/3 Month range (`#search_timeline_range_toggle`), and SUNAPI On/Off
-(`#sunapi_toggle`) — every one of their
-pre-existing `document.getElementById(...).checked`/`querySelector('input[name="..."]:checked')`
-call sites in `window.ts` kept working unchanged through the migration, since `mountSwitch()` never
-replaces the original input(s)/ids/names, only adds sibling label/knob elements and CSS classes
-around them.
+the Playback 1 Day/3 Month range (`#search_timeline_range_toggle`), SUNAPI On/Off
+(`#sunapi_toggle`), Audio Control Unmute/Mute (`#mute_toggle`, a button-group target — `#unmute`/
+`#mute` themselves, restyled from plain buttons but otherwise unchanged), and Talk Off/On
+(`#talk_toggle`, added together with `#mute_toggle` at the same time, both requested directly by the
+user) — every one of their pre-existing `document.getElementById(...).checked`/
+`querySelector('input[name="..."]:checked')` call sites in `window.ts` kept working unchanged through
+the migration, since `mountSwitch()` never replaces the original input(s)/ids/names, only adds
+sibling label/knob elements and CSS classes around them. `#use_gmt` ("Use timezone") is a plain,
+unrestyled checkbox still — only `src/shared-v2/`'s equivalent (`#use_gmt_toggle`) was migrated (see
+`docs/window-ui/`), this file's own tree was out of scope for that change.
+`#talk` itself was previously entirely unwired (checking/unchecking it had no effect) — `changetalk()`
+now calls the player's real `talk(flag: boolean)` method (an `'audioOut'` control command,
+`@melchi45/rtsp-over-websocket`'s `RTSPOverWebSocket.ts`), gated on `isplay` the same way the
+pre-existing `mute()`/`unmute()` already are. See `docs/switch-component/DESIGN.md`'s v1.1 entry for
+the disabled-styling CSS this needed (checkbox and button-group targets previously had none, only the
+radio-group target did) and `MEMORY.md` for the `isplay`-is-getter-only gotcha found while verifying
+this with Playwright.
 
 ## Reusable UI: the disclosure component (`src/component/disclosure/`)
 

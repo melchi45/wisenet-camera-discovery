@@ -312,6 +312,16 @@ export function onstatechange(evt: any): void {
       }
 
       const playTypePlaying = (document.getElementById(evt.detail.elementId) as any).playType;
+      // Talk (audioOut) is Live-only, independent of mute state -- requested
+      // directly by the user: Off at page load, Enabled only once Live mode
+      // is actually Playing, Disabled again for Playback (turning it On
+      // there would call talk()'s audioOut path, a full RTSP reconnect --
+      // see RTSPOverWebSocket.ts's open(null, audioOutStatus), meant for
+      // Live 2-way audio). Previously this was tied to onchangemute()'s
+      // mute/unmute status instead, which is unrelated -- Mute/Unmute
+      // itself never reconnects (audioIn is local-only, see MediaRouter.ts's
+      // controlAudioPlayer()).
+      (document.getElementById('talk') as HTMLInputElement).disabled = playTypePlaying !== RTSPOverWebSocketPlayType.LIVE;
       updateStepButtonsEnabled(playTypePlaying);
       if (playTypePlaying === RTSPOverWebSocketPlayType.PLAYBACK) {
         (document.getElementById('speed') as HTMLSelectElement).disabled = false;

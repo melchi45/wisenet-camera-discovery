@@ -88,6 +88,12 @@
 | 2.45 | 2026-09-04 | Youngho Kim | FR-2.6 fixed and split into explicit row/column sub-bullets: column mode no longer has a user-adjustable ratio (`#drag` hidden) — `#video-panel` MUST be sized to exactly the video's own height so `#control-panel` sits flush against it, with `#container` itself as the scroll fallback if the video's height exceeds the viewport. Reported directly by the user with two screenshots (a gap, and a double-scrollbar case). See `docs/window-ui/DESIGN.md`'s "FR-2.6: Dynamic split layout" (v1.65). |
 | 2.46 | 2026-09-08 | Youngho Kim | Added FR-6.12: a new `#audio_encoder_mode` select next to `#renderer_type`, writing the player's new `.audioEncoderMode` property (`'auto'`/`'wasm'`/`'webcodecs'` — `@melchi45/rtsp-over-websocket`'s new G.711/G.726-to-AAC transcoder selection, see that package's `docs/player/05-video-player-rendering.md` and `01-elements-interface-exceptions.md`), defaulted to `'auto'` at setup to match the HTML's pre-selected option — same shape as FR-6.8. `src/shared-v2/` only (`src/shared/` has no equivalent control); requires `@melchi45/rtsp-over-websocket` built with this property (not yet published to the registry at the time this was added — see this repo's own `MEMORY.md`). Requested directly by the user, immediately after that player-side feature was added. See `docs/window-ui/DESIGN.md`'s "FR-6.12: Audio Transcode Type" and `MEMORY.md`. |
 | 2.47 | 2026-09-09 | Youngho Kim | Added FR-12.7: every log panel append (`changedebug()`/`changertsp()`/`changeonvif()`/`onError()`) is bounded by `appendLogPanelLine()` at `LOG_PANEL_MAX_CHARS` (100,000 chars), trimmed from the front at a line boundary. FR-12.2/12.3/12.4 wording corrected: the `maxlength`/`input`-listener truncation only ever applied to typed input, never to appended lines. Real leak, reported directly by the user (~9GB browser footprint over a long Live session); `#onvif_info`'s per-frame `meta` feed was the dominant source. See DESIGN.md v1.68. |
+| 2.48 | 2026-09-10 | Youngho Kim | FR-7.6 (`onSelectedTimeChange`) fixed: reported directly by the user — editing Selected Time while PLAYING (typing a new Start/End Date/Time, or toggling `#selected_has_end_time`) updated `player.startTime`/`endTime` but never reached the device, because those setters (`@melchi45/rtsp-over-websocket`'s `RTSPOverWebSocket.ts`) only write internal fields; `generateRTSPURL()` is exclusively triggered from the `seekingTime` setter (via `seeking()`), the same mechanism `onDoubleClick`/`onCustomTimeSeek` already rely on. `onSelectedTimeChange` now also sets `player.seekingTime = player.currentTimestamp` whenever `readyState === PLAYING`, for all five Selected Time fields alike (not just the End Time checkbox) — re-seeking to the *current* position rather than the (possibly just-edited) Start Time, so playback doesn't jump back to the start merely because End Time changed. `generateRTSPURL()`'s `strEnd`/`end=` reads `this.endTime` directly regardless of `seekingTime` (both camera and NVR branches), so the newly-set end time reaches the regenerated URL even though the seek target itself is the unchanged current position. See `docs/window-ui/DESIGN.md`'s corresponding entry. |
+| 2.49 | 2026-09-10 | Youngho Kim | FR-4.6, requested directly by the user in 5 numbered steps: (1) `#use_gmt` is relabeled "GMT:" and restyled as a `mountSwitch()` segmented Off\|On switch (`#use_gmt_toggle`), matching `#sunapi_toggle`'s existing style exactly — `docs/switch-component/`'s progressive-enhancement design means every existing `document.getElementById('use_gmt').checked`/`.disabled` call site (`changeusegmt()`, `onchangetimezone()`, the SUNAPI dateInfo branch) keeps working unchanged. (2) On page load, `#use_gmt` now explicitly documented as starting unchecked (already true from the markup) and `#timezone` starts disabled with its value forced to `'0'` (`setupDevice()`) instead of implicitly defaulting to the first `<option>` (GMT-12:00). (3)/(4)/(5) The SUNAPI-connected `TimeZoneIndex`-driven auto-detect path (`initSunapiManager()`'s `getDateInfo()` handling, which already sets `#use_gmt` to ON and populates `player.GMT`/`#timezone`) is unchanged, confirmed still correct. See `docs/window-ui/DESIGN.md`'s corresponding entry for the `onchangetimezone()` force-check correction found while touching this same area. |
+| 2.50 | 2026-09-10 | Youngho Kim | FR-4.6 real bug fix, reported directly by the user with an exact repro and console trace: toggling GMT On -> Off -> On (SUNAPI already On) threw `RTSPOverWebSocketError` ("invalid input parameter type ... range of value -12 ~ 13") from `set GMT()` at `changeusegmt()`'s own line. `changeusegmt()`/`changetimezone()` passed `#timezone`'s raw `<select>` `.value` (always a `string`) straight to `player.GMT` — `@melchi45/rtsp-over-websocket`'s `set GMT()` used to silently accept a string (its `<`/`>` range check coerced it), but a recent tightening of that setter (rejecting any non-`number` up front, see that repo's own comment on the setter) turned this latent type mismatch into a hard throw on every manual GMT-On toggle (caught internally by `changeusegmt()`'s own `try`/`catch` and only `console.error`-logged, so it appeared intermittently rather than as a visible page error — the auto-detect path at FR-4.6's dateInfo branch was never affected, since it already assigns a real `number` there). Both call sites now wrap the `.value` read in `parseFloat()`, matching this file's own existing GMT-string-parsing convention. The identical latent bug exists byte-for-byte in `src/shared/window.ts`'s `changeusegmt()`/`changetimezone()` (untouched — out of scope of this `src/shared-v2/`-only fix). |
+| 2.51 | 2026-09-10 | Youngho Kim | FR-7.1/FR-7.8 real bug fix, reported directly by the user: turning SUNAPI Off while Play Type was already Playback silently re-connected SUNAPI and re-checked the switch. Root cause: `updatePlaybackSunapiUIVisibility()`'s `showManual` was `isPlayback && !showCalendar` — with SUNAPI just turned Off, `showCalendar` (`isPlayback && isSunapiOn`) went `false`, making `showManual` `true`, which fired `updateManualPlaybackPanelVisibility(true)`'s default "1 day ending now" search; `runManualTimelineSearch()`'s own FR-7.1 "self-initializing a SUNAPI session if needed" convenience then re-called `initSunapiManager()` (since `on_change_use_sunapi_client()`'s Off branch had just nulled `player.sunapiClient`), whose success handler re-checks `#use_sunapi_client_checkbox`. Asked the user which behavior they wanted (preserve the auto-reconnect-on-fresh-entry convenience but suppress it specifically for an explicit Off, vs. simply require SUNAPI On for any Playback search UI) — chose the latter for simplicity. `showManual` now also requires `isSunapiOn`; combined with `showCalendar`'s own identical requirement, Playback search (`#playback_control`/`#playback_control_calendar`) and `#timeline`'s wrapper (`#playback-calendar-timeline`) are now ALL hidden whenever SUNAPI is Off, regardless of Play Type — retiring FR-7.1's self-init convenience in practice (the panel it was attached to is never shown without SUNAPI already On any more). Verified with a Playwright script simulating SUNAPI On -> Playback -> SUNAPI Off (no real device needed, `player.sunapiClient` set to a dummy object directly): before the fix this reproduced the re-check; after, `#use_sunapi_client_checkbox` stays unchecked, both search panels and `#timeline`'s wrapper hide, and no SUNAPI-ish request fires. See `docs/window-ui/DESIGN.md`'s corresponding entry. |
+| 2.52 | 2026-09-10 | Youngho Kim | Added FR-8.6, requested directly by the user against `src/shared-v2/` right after the identical fix landed in `src/shared/window.ts` (that file's own `MEMORY.md`/`docs/architecture.md` entries) — same day, same shape: `#talk`/`#unmute`/`#mute` restyled to match `#sunapi_toggle`'s segmented-pill look (`#talk_toggle` checkbox target, `#mute_toggle` button-group target), and `#talk` — previously a "Known dead control", removed from that table below — wired to the player's real `talk(flag)` method via new `changetalk()` in `audio.ts`. Not a `src/shared/`-vs-`src/shared-v2/` deviation — both trees now wire `#talk` identically. Verified with a Playwright script (`player.talk` stubbed, `isplay` overridden via `Object.defineProperty` since it's getter-only) confirming `changetalk()` calls `talk(true)`/`talk(false)` on toggle, and a screenshot matching `src/shared/`'s own rendering pixel-for-pixel in layout. See `docs/window-ui/DESIGN.md`'s corresponding entry. |
+| 2.53 | 2026-09-10 | Youngho Kim | FR-8.1/FR-8.4/FR-8.5/FR-8.6 real bug fix, reported directly by the user: clicking Mute/Unmute appeared to trigger a full RTSP reconnect (a real device RTSP log was pasted: TEARDOWN of the old `Session`, then a fresh `OPTIONS`(`CSeq: 1`)/`DESCRIBE`/`SETUP`×3/`PLAY` with a brand-new `Session` id). Traced through `@melchi45/rtsp-over-websocket`'s full call chain for both commands: `mute()`/`unmute()` (`cmd: 'audioIn'`) route to `MediaRouter.ts`'s `controlAudioPlayer()` — purely local (a `mute` flag plus, for canvas-type players, creating/destroying the local `AudioPlayerAAC`/`AudioPlayerGxx` decoder) — no `RtspClient`/network involvement at all. `talk()` (`cmd: 'audioOut'`) instead routes to `StreamPlayer.ts`'s `controlAudioOut()` → `open(null, audioOutStatus)`, whose `info === null` branch unconditionally does `close()` then `startStreaming()` once Teardown/Options is reached — exactly the pasted log's shape. Root cause of the user's confusion: `onchangemute()` was tying `#talk`'s `disabled` state to mute/unmute status, an unrelated coupling — the user provided the correct full lifecycle instead: page load — `#unmute`/`#mute` disabled, default Muted; connect+Play — enabled, still Muted (Unmute plays incoming RTP audio locally, no reconnect); Talk — disabled at page load, enabled only once Live mode is `PLAYING`, disabled for Playback (where turning it on would be the real, expected RTSP reconnect for 2-way audio). Implemented: `onstatechange()`'s `PLAYING` case (`videoControl.ts`) now sets `#talk.disabled = playType !== LIVE` directly; `onchangemute()` (`audio.ts`) no longer touches `#talk` at all; `setupAudio()` now calls `muteSwitch.setValue('muted')` right after mounting, matching `MediaRouter.ts`'s own `_mute = true` default (previously showed "Unmute" active by default, a real mismatch — `mountSwitch()`'s button-group default is simply "first option," unaware of this field). Verified with Playwright (`waitUntil: 'networkidle'`, since an earlier attempt with `waitUntil: 'load'` read state before `setupAudio()` had actually run and looked like the fix hadn't taken effect) — default state now correctly shows "Mute" active. `src/shared/window.ts` intentionally left unchanged, per the user's explicit instruction earlier this session not to touch that tree. |
 
 ## Conventions
 
@@ -182,12 +188,24 @@
   `initSunapiManager()` request chain (attributes → capability gating → video source/profile/policy
   → channel populate → timezone/date info → final player-state sync) — full existing spec:
   [`docs/control-panel-data-binding.md`](../control-panel-data-binding.md) §3. Not re-specified here.
-- **FR-4.6**: Timezone: `#use_gmt` enables/disables `#timezone` and sets/clears player `.GMT`;
-  `#timezone` writes player `.GMT` directly; the player's own `changetimezone` event syncs `#timezone`
-  and force-unchecks `#use_gmt`. `#universaltime_checkbox` ("Coordinate UTC Time") and player
-  `.coordinatedUniversalTime` are **removed** (v2.30) — `startTime`/`endTime`/`seekingTime` now
-  normalize unconditionally to true UTC at the player's own setter (see
-  `@melchi45/rtsp-over-websocket`'s `MEMORY.md`), making the checkbox's manual toggle obsolete.
+- **FR-4.6**: Timezone: `#use_gmt` (labeled "GMT:", a `mountSwitch()` segmented Off|On switch as of
+  v2.49 — see `docs/switch-component/`, same style as the neighboring `#sunapi_toggle`) enables/
+  disables `#timezone` and sets/clears player `.GMT`; `#timezone` writes player `.GMT` directly. On
+  page load (`setupDevice()`), `#use_gmt` starts unchecked (Off) and `#timezone` starts disabled
+  with its value forced to `'0'` (GMT) rather than relying on option order (the first `<option>` is
+  GMT-12:00). The player's own `changetimezone` event (fired by *any* write to player `.GMT`,
+  including `changeusegmt()`'s/`changetimezone()`'s own) syncs `#timezone` and, as of an uncommitted
+  local fix predating v2.49 (`onchangetimezone()`), force-**checks** `#use_gmt` — previously this
+  force-*un*checked it, which combined with `changeusegmt()` writing `player.GMT` on every check
+  meant checking `#use_gmt` synchronously triggered `changetimezone` -> `onchangetimezone()` ->
+  immediately unchecked itself again, appearing to the user as if the checkbox could never be turned
+  on. Once SUNAPI connects successfully and `system.cgi?msubmenu=date&action=view` (via
+  `getDateInfo()`) returns a `TimeZoneIndex`, `initSunapiManager()`'s existing handling (unchanged by
+  v2.49) sets `#use_gmt` to ON and populates `player.GMT`/`#timezone` from the device's own reported
+  offset. `#universaltime_checkbox` ("Coordinate UTC Time") and player `.coordinatedUniversalTime`
+  are **removed** (v2.30) — `startTime`/`endTime`/`seekingTime` now normalize unconditionally to
+  true UTC at the player's own setter (see `@melchi45/rtsp-over-websocket`'s `MEMORY.md`), making the
+  checkbox's manual toggle obsolete.
 - **FR-4.7**: The HTTP/HTTPS switch (`#http_type_toggle`) has **two independent** `change` handlers
   on the same radios: one defaults `#port` to 80/443 and re-runs SUNAPI init if on, the other writes
   player `.https`. The player's own `changeprotocol` event syncs the radio `.checked` directly
@@ -419,7 +437,12 @@
   own visibility is decided, fires a default "1 day ending now" search (`runManualTimelineSearch()`)
   the first time this panel becomes visible each time Playback mode is (re-)entered (mirroring
   FR-7.8.3's Calendar auto-firing its first month search) — self-initializing a SUNAPI session if
-  needed, exactly as the retired `search_overlapped_id()` used to. **As of FR-15
+  needed, exactly as the retired `search_overlapped_id()` used to. **As of v2.51 (FR-7.8)**, this
+  panel — like `#playback_control_calendar` — is never shown at all unless SUNAPI is already On, so
+  in practice this self-init path is now unreachable via `#playback_control`'s own visibility
+  trigger (it would only still matter if some other future caller made this panel visible without
+  SUNAPI already On); see FR-7.8's v2.51 entry for why (a real bug: SUNAPI Off silently
+  reconnecting). **As of FR-15
   (`docs/event-timeline-component/SRS.md` v2.11)**, the resulting Overlapped Id select renders
   inside the shared Event Timeline widget's own toolbar (`#overlapped_id`, immediately left of the
   1H/6H/1D/1W/1M/1Y buttons), not a standalone `#overlapped_id_area` any more. A preset click
@@ -511,7 +534,12 @@
   `#selected_end_time`, via `setSelectedTime()`), not the previous `#start_date`/`#end_date`
   (FR-7.4, retired) — the single "what will play" state shared by both this manual flow and FR-7.8's
   Calendar panel; a user directly editing those inputs raises `onSelectedTimeChange`, applying the
-  same GMT-aware `player.startTime`/`endTime` update. As of v1.18 (preserved through the v2.0 move)
+  same GMT-aware `player.startTime`/`endTime` update. As of v2.48, if the player is `PLAYING` at the
+  time, this additionally sets `player.seekingTime = player.currentTimestamp` — `startTime`/
+  `endTime`'s own setters never reach the device on their own (only `seekingTime` triggers
+  `generateRTSPURL()`), so without this, editing Selected Time during active playback silently had
+  no effect; re-seeking to the current position (not `startTime`) picks up the new range without
+  jumping playback back to the start. As of v1.18 (preserved through the v2.0 move)
   this sets and enables **both** Start and End Time for every item, `"Normal"`-classed items
   included — a DEVIATION from `src/shared/`'s legacy behavior, which nulled `endTime` and disabled
   End Time specifically for `"Normal"`-classed items, with no documented rationale, even though
@@ -618,20 +646,24 @@
   behavior" and `MEMORY.md` for the full rationale.
 - **FR-7.8 (new, `src/shared-v2/` only — no equivalent in `src/shared/`): SUNAPI-driven Calendar
   search.** When both `#playback_radio` is selected **and** SUNAPI is On, `#playback_control_calendar`
-  replaces `#playback_control` entirely (FR-7.1–FR-7.4's manual buttons/fields); every other state
-  (Live mode, or Playback with SUNAPI Off) shows `#playback_control` exactly as FR-7.1–FR-7.7
-  describe, unchanged. `updatePlaybackSunapiUIVisibility()` (`playbackCalendar.ts`) does this
-  toggle, called from both `on_change_use_sunapi_client()`'s success path (`device.ts`) and
-  `onchangeplaytype()` (`videoControl.ts`) — the two places that can flip either half of the
-  "Playback AND SUNAPI-On" condition. As of v1.20, this function also hides `#timeline` (FR-7.6)
-  whenever Play Type is switched to Live — `#timeline` is a deliberate sibling of both
-  `#playback_control`/`#playback_control_calendar` (see its own HTML comment) so switching *between*
-  the manual/calendar sub-panels while still in Playback mode never touches it, but nothing
-  previously hid it when leaving Playback mode entirely, so a Playback search's results stayed
-  visible under the Live controls. Reported directly by the user, who noticed the Date fields hide
-  correctly on switching to Live but the timeline didn't. Gated specifically on `!isPlayback`, not
-  the general "else" branches above, so the manual/calendar sub-panel toggle keeps its existing
-  documented behavior.
+  replaces `#playback_control` entirely (FR-7.1–FR-7.4's manual buttons/fields). **As of v2.51**,
+  Playback search now always requires SUNAPI On — `#playback_control`/`#playback_control_calendar`/
+  `#timeline`'s own wrapper (`#playback-calendar-timeline`) are ALL hidden whenever `isPlayback &&
+  !isSunapiOn` (Playback mode with SUNAPI Off no longer falls back to `#playback_control`'s manual
+  flow; that flow's own FR-7.1 "self-initializing a SUNAPI session if needed" convenience is retired
+  — see that FR's own note and v2.51's history entry for the real bug this fixes). Live mode
+  (`!isPlayback`) is unaffected either way — same as before. `updatePlaybackSunapiUIVisibility()`
+  (`playbackCalendar.ts`) does this toggle, called from both `on_change_use_sunapi_client()`
+  (`device.ts`, both its On *and* Off branches now) and `onchangeplaytype()` (`videoControl.ts`) —
+  the three places that can flip any part of the "Playback AND SUNAPI-On" condition. As of v1.20,
+  this function also hides `#timeline` (FR-7.6) whenever Play Type is switched to Live, and as of
+  v2.51 whenever SUNAPI is Off — `#timeline` is a deliberate sibling of both `#playback_control`/
+  `#playback_control_calendar` (see its own HTML comment) so switching *between* the manual/calendar
+  sub-panels while still in Playback-with-SUNAPI-On mode never touches it, but nothing previously hid
+  it when leaving Playback mode entirely (v1.20) or, until v2.51, when SUNAPI turned Off mid-Playback,
+  so a Playback search's results stayed visible under now-hidden, empty search panels either way.
+  v1.20 reported directly by the user, who noticed the Date fields hide correctly on switching to
+  Live but the timeline didn't.
   - **FR-7.8.1 — Language**: `#event_rules_language` itself lives in the Device panel (next to
     `#is_android`), not inside `#playback_control_calendar` — `getDeviceInfo()` is called and its
     selection set to the response's `Language` field as soon as SUNAPI turns On
@@ -799,14 +831,49 @@
 ## FR-8: Audio
 
 - **FR-8.1**: `#unmute`/`#mute` call the player's `.unmute()`/`.mute()`, only when currently in the
-  opposite state and playing.
+  opposite state and playing. **As of v2.52**, `#unmute`/`#mute` are also mounted as a `mountSwitch()`
+  button-group (`#mute_toggle`, `data-value="unmuted"`/`"muted"`) — same segmented-pill look as
+  `#sunapi_toggle`/`#play_type_toggle` — a purely visual/CSS change, the two buttons' own existing
+  click listeners are unchanged. `onchangemute()` (FR-8.4) additionally syncs this switch's active
+  state via `SwitchController.setValue()`, so a device-driven mute change (not just a click) is
+  reflected visually too. **v2.53**: `setupAudio()` explicitly sets this switch's initial active
+  state to `'muted'` right after mounting — `mountSwitch()`'s own button-group default (the *first*
+  option, "Unmute", when neither button starts with an `active` class) didn't match
+  `@melchi45/rtsp-over-websocket`'s `MediaRouter.ts` `_mute` field, which itself defaults to `true`
+  (muted). Requested directly by the user as part of a fuller Mute/Unmute/Talk lifecycle spec — see
+  FR-8.6's v2.53 rewrite.
 - **FR-8.2**: `#volume` writes player `.volume`, only while unmuted and playing.
 - **FR-8.3**: `#audio_shift` writes player `.audioshift`.
-- **FR-8.4**: The player's `changemute` event toggles Unmute/Mute/Volume/GetAudioVolume/Talk disabled
+- **FR-8.4**: The player's `changemute` event toggles Unmute/Mute/Volume/GetAudioVolume disabled
   state per `event.detail.status` and re-syncs `#volume`/`#getaudiovolume`; `changevolume` syncs
-  `#getaudiovolume`/`#volume` from `event.detail.volume`.
+  `#getaudiovolume`/`#volume` from `event.detail.volume`. **v2.53**: no longer also toggles `#talk`'s
+  disabled state — see FR-8.6.
 - **FR-8.5**: All audio controls start disabled and are only enabled by the `PLAYING` branch of
-  FR-6.9 / by FR-8.4.
+  FR-6.9 / by FR-8.4 (`#talk` excepted as of v2.53 — see FR-8.6, which owns its enablement
+  independently).
+- **FR-8.6 (v2.52; enablement rewritten v2.53)**: `#talk`, previously a "Known dead control" (no
+  listener, `.checked` never read — see that section below), is wired: relabeled "Talk:" and mounted
+  as a `mountSwitch()` segmented Off|On switch (`#talk_toggle`), same style as `#sunapi_toggle`.
+  `changetalk()` calls the player's `talk(flag: boolean)` method — an `'audioOut'` control command
+  (`@melchi45/rtsp-over-websocket`'s `RTSPOverWebSocket.ts`), not a gettable/settable property the
+  way `GMT`/`startTime` are — gated on `isplay`. **v2.53, real bug fix**: `#talk`'s `disabled` state
+  is no longer tied to mute status (FR-8.4) at all — it's now set directly in `onstatechange()`'s
+  `PLAYING` case (FR-6.9, `videoControl.ts`), `disabled = playType !== LIVE`, and stays `disabled =
+  true` from page load (FR-8.5) and through every non-`PLAYING` state (`STOPPED` already explicitly
+  disabled it; `PAUSED`/`STEP` don't touch it, so it keeps whatever `PLAYING` last set). Requested
+  directly by the user with the following full spec, reported after finding that clicking Mute/Unmute
+  triggered an unexpected full RTSP TEARDOWN+reconnect (root-caused as `talk()`'s own `'audioOut'`
+  path, `open(null, audioOutStatus)` → `close()`+`startStreaming()` in
+  `@melchi45/rtsp-over-websocket`'s `StreamPlayer.ts` — real, but unrelated to Mute/Unmute, whose own
+  `'audioIn'` path never touches `RtspClient`/reconnects at all): page load — `#unmute`/`#mute`
+  disabled, default state Muted (FR-8.1 v2.53); connect + Play — `#unmute`/`#mute` enabled, still
+  Muted (unchanged from FR-6.9's existing `el.ismute`-gated enable, only `#unmute` becomes clickable);
+  Unmute — purely local (`'audioIn'`, no reconnect), plays the camera's incoming RTP audio; Talk —
+  disabled at page load, enabled only once Live mode is actually `PLAYING`, disabled again for
+  Playback; turning Talk On during Live playback starts the real RTSP-level 2-way-audio connection
+  (the TEARDOWN+reconnect is expected *there*, not from Mute/Unmute). `src/shared/window.ts` is
+  **not** updated to match (out of scope — the user's explicit prior instruction this session was not
+  to touch that tree).
 
 ## FR-9: Backup
 
@@ -957,7 +1024,6 @@ must keep every one of these inert (no listener), not wire them up and not liter
 | `#search_aitimeline`, `#search_three_month_aitimeline` | No click handler at all. |
 | `#use_bestshotfilter`, `#bestshotfileter` | No listeners; the select stays disabled forever. |
 | `#timestamp_date`, `#timestamp_time` | Written to (FR-7.7, both `live` and `playback` modes as of v2.2), never read back — no action exists to use them. (Formerly two separate pairs — `live` mode's own `#timestamp_date`/`#timestamp_time` plus a `playback`-only `#seeking_date`/`#seeking_time` — unified into this one pair.) |
-| `#talk` | No listener; `.checked` never read. |
 | `#getaudiovolume` | Display-only; written to (FR-8.4), never read despite being editable. |
 | `#backup_time` | Completely unreferenced. |
 | `#media_record_start` | No handler of any kind. |

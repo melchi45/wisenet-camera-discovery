@@ -111,6 +111,23 @@
   font-weight: 600;
 }
 
+/* Button-driven (2+ <button data-value="...">, e.g. Unmute|Mute) -- a
+   disabled button is a real native form control (unlike the radio/checkbox
+   targets' hidden <input>s), but its custom `background`/`color` above
+   would otherwise still show through a plain browser `disabled` state, so
+   this needs the same explicit disabled-button look (FR-12) spelled out
+   directly rather than relying on any native default. `.active` (current
+   state) stays fully accented even when disabled, same as the radio/
+   checkbox cases. */
+.ws-switch--segmented button.ws-switch-option:disabled {
+  cursor: not-allowed;
+}
+
+.ws-switch--segmented button.ws-switch-option:disabled:not(.active) {
+  background: var(--button-disable-color);
+  color: var(--button-disable-font-color);
+}
+
 /* Radio-driven (2+ <input type="radio"> sharing a name, e.g. HTTP/HTTPS) --
    radios stay in the DOM (existing :checked-based reads keep working),
    only their native appearance is hidden. */
@@ -163,6 +180,24 @@
 .ws-switch--segmented .ws-switch-input[type="checkbox"]:checked ~ .ws-switch-option-off:hover,
 .ws-switch--segmented .ws-switch-input[type="checkbox"]:not(:checked) ~ .ws-switch-option-on:hover {
   background: var(--accent-soft);
+}
+
+/* A locked/disabled checkbox target (e.g. #talk while not actively
+   playing) -- same disabled-button look as the radio-group case above
+   (FR-12), extended to checkbox targets: the option NOT reflecting the
+   current state gets grayed + not-allowed, the current one stays fully
+   accented (so the switch still shows which state is in effect, it just
+   can't be changed). */
+.ws-switch--segmented .ws-switch-input[type="checkbox"]:disabled ~ .ws-switch-option {
+  cursor: not-allowed;
+}
+
+.ws-switch--segmented .ws-switch-input[type="checkbox"]:disabled:checked ~ .ws-switch-option-off,
+.ws-switch--segmented .ws-switch-input[type="checkbox"]:disabled:checked ~ .ws-switch-option-off:hover,
+.ws-switch--segmented .ws-switch-input[type="checkbox"]:disabled:not(:checked) ~ .ws-switch-option-on,
+.ws-switch--segmented .ws-switch-input[type="checkbox"]:disabled:not(:checked) ~ .ws-switch-option-on:hover {
+  background: var(--button-disable-color);
+  color: var(--button-disable-font-color);
 }
 
 /* ------------------------------------------------------------------------ */

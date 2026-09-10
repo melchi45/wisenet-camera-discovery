@@ -55,7 +55,22 @@ export function updatePlaybackSunapiUIVisibility(): void {
     // Playback mode since nothing gated it on Play Type before.
     (document.getElementById('video_source_group') as HTMLElement).style.display = isPlayback ? 'none' : 'block';
 
-    const showManual = isPlayback && !showCalendar;
+    // Real bug fix, reported directly by the user with an exact repro:
+    // turning SUNAPI Off while Play Type was already Playback used to fall
+    // into this "manual" branch (it was previously just `isPlayback &&
+    // !showCalendar`, true whenever SUNAPI was off) -- `updateManualPlaybackPanelVisibility(true)`
+    // below then fired its own default "1 day ending now" search, whose
+    // `runManualTimelineSearch()` self-initializes a SUNAPI session if
+    // `player.sunapiClient` is unset (FR-7.1's own documented "self-
+    // initializing a SUNAPI session if needed" convenience) -- exactly the
+    // state `on_change_use_sunapi_client()`'s Off branch had just produced.
+    // That re-init's success handler re-checks `#use_sunapi_client_checkbox`,
+    // so explicitly turning SUNAPI Off visibly flipped itself back On.
+    // Requiring `isSunapiOn` here too (the user's explicit choice: SUNAPI Off
+    // now hides Playback search entirely rather than silently reconnecting)
+    // retires FR-7.1's "no need to touch the switch" convenience -- Playback
+    // search, manual or Calendar alike, now always requires SUNAPI On first.
+    const showManual = isPlayback && isSunapiOn && !showCalendar;
     (document.getElementById('playback_control') as HTMLElement).style.display = showManual ? 'block' : 'none';
     (document.getElementById('playback_control_calendar') as HTMLElement).style.display = showCalendar ? 'block' : 'none';
     // Video-playback controls (Forward/Backward/Speed, Seeking Date/Time,
@@ -80,8 +95,10 @@ export function updatePlaybackSunapiUIVisibility(): void {
     // visible after switching to Live) -- that left the group wrapper's own
     // visibility implicit (empty but not actually `display:none`) rather
     // than explicit like every other Playback-only section here. Requested
-    // directly by the user.
-    (document.getElementById('playback-calendar-timeline') as HTMLElement).style.display = isPlayback ? 'flex' : 'none';
+    // directly by the user. Also requires `isSunapiOn` now (see `showManual`
+    // above) -- a stale timeline from before SUNAPI was turned Off would
+    // otherwise keep showing under two now-hidden, empty search panels.
+    (document.getElementById('playback-calendar-timeline') as HTMLElement).style.display = (isPlayback && isSunapiOn) ? 'flex' : 'none';
 
     if (showCalendar) {
       if (!panelInitialized) {

@@ -434,8 +434,10 @@
                             <label class="switch">Audio Control:</label>
                             </div>
                             <div class="field">
-                            <button id="unmute" min="2018-11-09" max="2018-11-12">Unmute</button>
-                            <button id="mute">Mute</button>
+                            <div id="mute_toggle">
+                                <button id="unmute" min="2018-11-09" max="2018-11-12" data-value="unmuted">Unmute</button>
+                                <button id="mute" data-value="muted">Mute</button>
+                            </div>
                             </div>
                             <div class="field">
                             <label class="switch" for="volume">Volume Level:</label>
@@ -452,9 +454,11 @@
                             <label class="switch" for="getaudiovolume">Volume Input(0-5):</label>
                             <input type="text" id="getaudiovolume" value="Current Volume">
                             </div>
-                            <div class="field">
-                            <input type="checkbox" id="talk" value="Talk">
-                            <label for="talk" class="switch">Talk</label>
+                            <div id="talk_info" class="field">
+                            <label class="switch">Talk:</label>
+                            <div id="talk_toggle">
+                                <input type="checkbox" id="talk">
+                            </div>
                             </div>
                             <div class="field">
                             <label for="audio_shift">Audio shift</label>

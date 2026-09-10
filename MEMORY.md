@@ -2926,3 +2926,93 @@ engages when content doesn't fit, every *other* sibling needs `flex-shrink: 0` t
 volunteer to absorb 100% of the overflow itself before a container-level `overflow: auto` ever gets
 a chance to see any of it. "The container has `overflow: auto`" is not sufficient evidence that it
 will ever actually scroll; check whether anything inside it can shrink first.
+
+## `#talk` restyled + finally wired to `talk()` — `isplay` is a getter-only accessor, and disabled-button color needs explicit CSS unlike hidden radio/checkbox inputs
+
+Landed in `src/shared/window.ts` first, then `src/shared-v2/audio.ts` right after (same session, both
+now wire `#talk`/`#unmute`/`#mute` identically — see `docs/window-ui/SRS.md` FR-8.6 v2.52/DESIGN.md
+v1.74 for the `src/shared-v2/` side's own detail). Requested directly by the user: restyle `#talk`
+("Talk") and `#unmute`/`#mute` ("Audio Control") to
+match the existing `#sunapi_toggle` (Off\|On) / `#play_type_toggle` (Live\|Playback) segmented-pill
+look, via `mountSwitch()` — `#talk` as a checkbox target (`#talk_toggle`), `#unmute`/`#mute` as a
+button-group target (`#mute_toggle`, `data-value="unmuted"`/`"muted"` added to the existing buttons).
+Both are non-destructive per `mountSwitch()`'s own design — the real `<input id="talk">`/
+`<button id="unmute">`/`<button id="mute">` stay exactly where they were, same ids, same existing
+click/change listeners untouched.
+
+**Real bug found while wiring this**: `#talk` had never actually been connected to anything in
+`window.ts` — only its `.disabled` state was ever toggled (four call sites, tied to play/mute state),
+never its value. Checking or unchecking it visibly changed nothing. Root cause was simply that no
+`change` listener was ever added for it (unlike `use_gmt`/`timezone`/every other real input in this
+file). `@melchi45/rtsp-over-websocket`'s player object has a `talk(flag: boolean): void` **method**
+(not a gettable/settable property the way `GMT`/`startTime` are) that sends an `'audioOut'` control
+command — new `changetalk()` calls it, gated on `isplay` the same way the pre-existing `mute()`/
+`unmute()` already are.
+
+**Verifying this without a real device — `isplay` has no public setter.** A first attempt at a
+Playwright smoke test tried `player.isplay = true` to simulate an active stream (so `changetalk()`'s
+guard wouldn't block the call) — this silently no-op'd with zero error, and `changetalk()`'s own
+`talk()` call never fired. `isplay` turned out to be a getter-only accessor on the player class;
+assigning to a getter-only property is a silent no-op in non-strict code (Playwright's `page.evaluate`
+callback isn't a module, so it isn't automatically strict-mode) rather than a thrown `TypeError` —
+easy to miss since nothing errors and the assignment *looks* like it should have worked. Fixed the
+test with `Object.defineProperty(player, 'isplay', { value: true, configurable: true })`, which
+overrides the accessor outright; confirmed `changetalk()` then correctly calls `talk(true)`/
+`talk(false)` on toggle. Worth remembering for any future test/debug script against this player
+class: prefer `Object.defineProperty` over a plain assignment for any of its several getter-only
+properties, and don't trust a silently-succeeding assignment as proof a property is actually
+writable.
+
+**CSS gap found while adding the two new switches**: `docs/switch-component/`'s FR-12 (disabled
+styling) only ever covered the radio-group target (`#sunapi_toggle`'s own On/Off is a checkbox, but
+the *disabled* HTTP/HTTPS toggle that FR-12 was originally written for is a radio-group) — the
+checkbox and button-group targets had no disabled CSS at all. For a checkbox target this is a real
+visual gap (the checkbox itself is `display: none` in segmented mode, so a native `:disabled` state
+has no visual path without CSS naming it explicitly — `#talk_toggle` would otherwise look identically
+clickable whether actually disabled or not). For the button-group target it's more subtle: a
+`<button>` *is* the visible element (no hidden-input-plus-label indirection), so it does get some
+native browser dimming when `disabled` — but not enough to visibly counteract this component's own
+custom `background`/`color`, which still showed through mostly unchanged without an explicit
+`:disabled` rule. Added both (`docs/switch-component/DESIGN.md` v1.1) — same `--button-disable-color`/
+`--button-disable-font-color` look as the existing radio rule, graying only the option that does
+*not* reflect the current state.
+
+## Mute/Unmute (`audioIn`) never touches RTSP; Talk (`audioOut`) fully reconnects — `open(null, audioOutStatus)` does close()+startStreaming()
+
+Reported directly by the user with a real device RTSP log (TEARDOWN of the old `Session`, then a
+brand-new `OPTIONS`(`CSeq: 1`)/`DESCRIBE`/`SETUP`×3/`PLAY` with a new `Session` id) after clicking
+Mute/Unmute — asked to confirm against `@melchi45/rtsp-over-websocket` source whether that library
+reconnects RTSP for a plain mute/unmute.
+
+**It doesn't.** `RTSPOverWebSocket.ts`'s `mute()`/`unmute()` set `cmd: 'audioIn'` and call
+`player.control(info)` → `StreamPlayer.ts`'s `controlAudioIn()` → `MediaRouter.ts`'s
+`sendCommandData('audioIn', ...)` → `controlAudioPlayer()`, which only flips a local `mute` flag and,
+for `type === 'canvas'` players, creates/destroys the local `AudioPlayerAAC`/`AudioPlayerGxx` decoder
+instance (`createAudioPlayer()`/`deleteAudioPlayer()`) — no `RtspClient`/network call anywhere in this
+chain. The incoming audio RTP track (`trackID=a`, `a=recvonly`) is already part of the very first
+`SETUP` regardless of mute state, so muting is purely a local playback toggle.
+
+**`talk()` (`cmd: 'audioOut'`) is the one that reconnects.** `controlAudioOut()` calls
+`this.open(null, audioOutStatus)`; `open()`'s `info === null` branch (`StreamPlayer.ts` ~L433-440)
+unconditionally does `this.close(null, callback)`, and once the RTSP state reaches
+`'Teardown'`/`'Options'`, the callback fires `this.startStreaming()` — a full new session from
+scratch. This exactly matches the pasted log's shape (new `Session` id, `CSeq` reset to 1). The
+likely reason: the initial `SETUP`/SDP only ever negotiates the audio track as `recvonly` — turning on
+2-way Talk needs the session renegotiated with a send-capable track, so the library just tears down
+and reopens rather than trying to add a track mid-session.
+
+**Practical upshot for this codebase**: `src/shared-v2/`'s `#talk`'s `disabled` state must never be
+coupled to mute/unmute status (a real bug found and fixed here, `docs/window-ui/SRS.md` FR-8.6
+v2.53) — they're unrelated operations with very different network cost. Talk's own reconnect when
+turned on during Live playback is expected/correct; a reconnect from Mute/Unmute would not be.
+
+**Playwright gotcha found while verifying the v2.53 fix**: a first check (`page.goto(...,
+{waitUntil: 'load'})` then an immediate `page.evaluate()`) showed the Mute/Unmute switch still
+defaulting to "Unmute" active even after adding `muteSwitch.setValue('muted')` right after mounting
+in `setupAudio()`. Not a bug in the fix — `'load'` only waits for the initial HTML/resources; the
+module script that actually calls `setupAudio()` hadn't run yet by the time `evaluate()` read the
+DOM. Switching to `waitUntil: 'networkidle'` (plus a short extra wait) showed the correct "Mute"
+active state. Worth remembering generally for this app: don't trust a `page.evaluate()` read
+immediately after `waitUntil: 'load'` as proof that page-init JS (as opposed to just HTML) hasn't
+run yet — `waitForSelector` on a static element doesn't prove it either, since the element exists in
+markup before any script executes.
