@@ -29,6 +29,7 @@
 | 2.12 | 2026-09-02 | Youngho Kim | Fixed a point-marker (zero-duration event, e.g. `StartTime == EndTime`) positioning bug in FR-3's diamond marker: `event-timeline.ts`'s `buildItemEl()` sets `left` to the item's exact time, and `.event-timeline-item-point` (event-timeline.css) already centers the 10px×10px box vertically (`top: 50%; margin-top: -5px;`) but was missing the equivalent `margin-left: -5px;` — so `left` landed on the box's left edge instead of its center, drawing every point marker's true position 5px right of the actual event time. Reported directly by the user, visible as ticks not lining up with their underlying data once zoomed in far enough for 5px to represent a noticeable time offset. Bar items (real `start`/`end` spans) were unaffected — their `left`/`width` are both computed from real edges, not a fixed centered box. |
 | 2.13 | 2026-09-02 | Youngho Kim | FR-14: requested directly by the user — hovering (or dragging) `#event_timeline_custom_time_hit` reveals a small pill above the marker with a left-right arrow icon, since `cursor: ew-resize` alone wasn't an obvious enough cue that the thin 2px current-time line is draggable. Implemented as a `::before` pseudo-element on the existing hit-target element (`event-timeline.css` only, no `event-timeline.ts` change) so it inherits the hit-target's own `:hover`/`:active` states and its `left` positioning for free, rather than tracking the marker's position from a separate DOM node. The icon itself is an inline `data:image/svg+xml` background image rather than a Unicode arrow character (e.g. `\2194`) — verified visually via Playwright that the glyph renders as an illegible dash at the pill's 12px icon size in the page's default UI font, while the SVG renders crisp at any size. |
 | 2.14 | 2026-09-03 | Youngho Kim | Part of the mobile-layout pass across `src/shared-v2/` (`docs/window-ui/DESIGN.md`'s "Mobile layout" section, v1.53) — CSS-only, `event-timeline.ts` unchanged. Added a `@media (max-width: 768px)` block narrowing `.event-timeline-row`/`.event-timeline-axis-row`'s `grid-template-columns` label column from `150px` to `84px`: `window.css`'s own new mobile breakpoint stacks `.event-timeline-slot` to full viewport width below 768px (previously side-by-side with the Calendar panel, `min-width: 380px`), and at phone width the unchanged 150px label column would otherwise eat close to half of that, leaving too little room for the track itself. Also shrinks `.event-timeline-rule-type select` (`max-width: 140px` → `96px`) and `.event-timeline-overlapped-id select` (`width: 56px` → `44px`) in the same block, for the same reason. Rule# label text still needs to stay legibly distinguishable, so the column is narrowed rather than removed. |
+| 2.15 | 2026-09-10 | Youngho Kim | Reported directly by the user: during playback the current-time marker stayed visually pinned at the visible zoom window's right edge once the actual current time ran past it, since `renderCustomTime()`'s `visible` flag was derived from the already-`clamp()`-ed ratio (always `true`). Rather than restoring this doc's originally-specified hide-at-edge behavior, the user asked for the window itself to auto-follow: `setCustomTime()` now pages the window (same width, `setWindow()`-clamped) toward `date` whenever it falls outside `windowStart`/`windowEnd`, symmetrically for both directions and regardless of any manual pan/zoom in progress. See new "Auto-follow paging" section above and SRS.md FR-9 v2.18. |
 
 ## Why a full custom widget, not a `vis.Timeline` reskin
 
@@ -60,7 +61,39 @@ buttons, presets, detail-row drag, overview-row drag, overview edge-handle drag)
 and every render (`render()`) re-draws both scales from that one pair of numbers plus the fixed
 `dataStart`/`dataEnd`. `setWindow()` itself owns all the clamping (never wider than the full extent,
 never narrower than `MIN_WINDOW_MS`, never outside `[dataStart, dataEnd]`), so every caller of it can
-pass an out-of-range value without its own clamping logic.
+pass an out-of-range value without its own clamping logic. As of v2.15, `setCustomTime()` is also
+one of these callers — when its `date` argument lands outside the current window, it computes a
+paged `(start, end)` (same width, shifted by whole multiples of it) and hands that to `setWindow()`
+rather than reimplementing extent-clamping itself. See "Auto-follow paging" below.
+
+## Auto-follow paging (FR-9 v2.18)
+
+`setCustomTime(date)` used to just position the marker at `date`'s ratio within the current window,
+clamped to `[0, 1]` for the CSS `left` — which, combined with a `visible` flag computed from that
+*same already-clamped* ratio (so it was always `true`), meant a `date` past the window's right edge
+during playback rendered as a marker frozen at the edge rather than genuinely following. This was a
+bug against this doc's own original spec (hide, don't clamp-and-pin), but simply fixing the bug
+would only make the marker disappear once playback ran past the visible window — worse UX during
+playback than a wrong-but-visible position. The user asked for the window to follow instead:
+
+```
+pageWidth = windowEnd - windowStart
+if date > windowEnd:  pages = ceil((date - windowEnd) / pageWidth)
+if date < windowStart: pages = -ceil((windowStart - date) / pageWidth)
+setWindow(windowStart + pages*pageWidth, windowEnd + pages*pageWidth)
+```
+
+`pages` is usually ±1 for continuous playback (each frame's `date` only just crosses one edge), but
+a large manual seek can jump several page-widths in one call — the `ceil` handles both the same way,
+landing the new window on whichever page-aligned boundary (relative to the *previous* window, not an
+absolute grid from `dataStart`) contains `date`. This applies unconditionally — even if the user had
+manually panned/zoomed to a different part of the timeline while playback continued — per the user's
+explicit choice (no "follow" toggle, no exemption for a manually-scrolled view) and symmetrically for
+both directions (rewind/seek past the left edge pages backward the same way). The `visible`-before-
+clamp bug is fixed independently of this (`rawRatio` computed before `clamp()`, matching the overview
+row's own `overviewVisible` at line ~1176), so a `date` outside the *data* extent altogether (not
+reachable by paging, since `setWindow()` clamps to `[dataStart, dataEnd]`) still hides the marker
+rather than pinning it.
 
 ## Click vs. drag, without relying on native `click`
 

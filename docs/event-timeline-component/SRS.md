@@ -32,6 +32,7 @@
 | 2.15 | 2026-09-01 | Youngho Kim | Two changes requested directly by the user: (1) FR-10 (per-row Hide) is removed outright — no row (overview or detail) has its own Hide/Show button any more. (2) FR-3's overview-row collapse button is retargeted: clicking it no longer folds the overview ("ALL EVENTS") row's own track (that stays visible either way) — it now collapses/expands the detail-rows list (`.event-timeline-rows`, every per-Rule row) instead. `.event-timeline-overview-collapsed`/`.event-timeline-hide-btn`/`.event-timeline-row-hidden` are all removed from event-timeline.css; `.event-timeline-rows-collapsed` (applied to `.event-timeline-rows` itself) replaces the former. |
 | 2.16 | 2026-09-02 | Youngho Kim | FR-3: fixed the diamond point-marker's horizontal centering. `.event-timeline-item-point` already centered the 10px box vertically (`top: 50%; margin-top: -5px;`) but had no `margin-left: -5px;` counterpart, so `left` (set to the item's exact time) landed on the box's left edge rather than its center — every point marker (zero-duration event, `end` absent or `<= start`) rendered 5px right of its true time. Bar items were unaffected. Reported directly by the user. |
 | 2.17 | 2026-09-02 | Youngho Kim | FR-14: hovering (or actively dragging) `#event_timeline_custom_time_hit` now shows a small red pill above the marker with a left-right arrow icon, requested directly by the user as a clearer hover cue that the current-time marker can be dragged left/right — `cursor: ew-resize` on its own wasn't an obvious enough affordance for a thin 2px line. Pure CSS (`::before` pseudo-element on the existing hit-target, opacity toggled by `:hover`/`:active`), no DOM/JS change. An inline-SVG icon is used instead of a Unicode arrow glyph (e.g. U+2194) — the glyph rendered as an illegible dash at the pill's small size in the page's default UI font. |
+| 2.18 | 2026-09-10 | Youngho Kim | FR-9 rewritten: reported directly by the user — during playback, once the current-time marker reached the right edge of the visible zoom window it stayed visually pinned there instead of the window following it, because `renderCustomTime()`'s `visible` flag was computed from the *already-clamped* ratio (always `true`), never actually implementing this doc's own previously-specified hide-at-edge behavior. Rather than restoring hide-at-edge, the user asked for auto-follow instead: `setCustomTime(date)` now, when `date` lands outside `windowStart`/`windowEnd`, pages the window (same width, shifted by whole multiples of that width via `setWindow()`, so it still gets `setWindow()`'s own clamping to the full data extent for free) so the marker stays in view — applied symmetrically for forward playback (right edge) and rewind/seek (left edge), and unconditionally even if the user had manually panned/zoomed elsewhere (no "follow" toggle). The `visible`-before-clamp computation bug is fixed regardless, matching the overview row's own already-correct `overviewVisible` pattern, so a marker actually outside the *data* extent (not just the current window) still hides rather than pinning. See `DESIGN.md` v2.15. |
 
 ## Interface
 
@@ -166,8 +167,14 @@ export function mountEventTimeline(config: MountEventTimelineOptions): EventTime
   the current zoom window by roughly (header width ÷ total width). Reported directly by the user:
   double-clicking well inside a 4-minute item's own bar seeked ~3 minutes past that item's end.
 - **FR-9 (playhead)**: `setCustomTime(date)` positions a vertical marker line at `date`'s position
-  in the current zoom window; the marker is hidden (not clamped/redrawn at an edge) whenever `date`
-  falls outside the window. `setCustomTime(null)` (v2.1) hides it outright. As of v2.2, the marker
+  in the current zoom window. `setCustomTime(null)` (v2.1) hides it outright. As of v2.18, when
+  `date` is non-null and falls outside `windowStart`/`windowEnd`, the window auto-pages (shifts by
+  whole multiples of its own current width via `setWindow()`) so the marker stays in view — applied
+  the same way for both directions (forward playback past the right edge, or a rewind/seek past the
+  left edge), and regardless of any manual pan/zoom the user had done, so the marker never idles
+  pinned at an edge. If `date` still falls outside the window after that (only possible if it's
+  outside the full data extent altogether, since paging always brings an in-extent `date` into
+  view), the marker is hidden rather than clamped/redrawn at an edge. As of v2.2, the marker
   spans the overview row ("ALL EVENTS") as well as the detail rows, not the detail rows alone — but
   (v2.13) as two separately-positioned elements, not one: the detail-rows line uses the current zoom
   window (`windowStart`/`windowEnd`) as above, while the overview row's own copy uses the overview's

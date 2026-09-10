@@ -217,7 +217,13 @@ export interface EventTimelineController {
    *  FR-14, this component does not duplicate that display itself).
    *  `null` hides the marker -- the caller passes this whenever playback
    *  isn't actually in the PLAYING state (paused/stopped), since a frozen
-   *  or stale line otherwise keeps showing the last position forever. */
+   *  or stale line otherwise keeps showing the last position forever.
+   *  As of FR-9 v2.18, a non-null `date` landing outside the current zoom
+   *  window auto-pages the window (same width, shifted by whole multiples
+   *  of that width) so the marker stays in view instead of pinning at the
+   *  edge -- see FR-9's own body for why (this replaced clamped/pinned
+   *  rendering, a real bug, not the originally-specified hide-at-edge
+   *  behavior either). */
   setCustomTime(date: Date | null): void;
   /** Programmatically sets the Selected Time inputs (e.g. from
    *  `onSelect` after the caller resolves an item's GMT-adjusted start/
@@ -1181,8 +1187,9 @@ export function mountEventTimeline(config: MountEventTimelineOptions): EventTime
       return;
     }
     const trackWidthPx = Math.max(rowsContainer.clientWidth - ROW_HEADER_WIDTH_PX, 0);
-    const ratio = clamp(timeToRatio(customTime.getTime(), windowStart, windowEnd), 0, 1);
-    const visible = ratio >= 0 && ratio <= 1;
+    const rawRatio = timeToRatio(customTime.getTime(), windowStart, windowEnd);
+    const visible = rawRatio >= 0 && rawRatio <= 1;
+    const ratio = clamp(rawRatio, 0, 1);
     const left = `${ROW_HEADER_WIDTH_PX + ratio * trackWidthPx}px`;
     customTimeEl.style.left = left;
     customTimeEl.style.display = visible ? '' : 'none';
@@ -1220,6 +1227,22 @@ export function mountEventTimeline(config: MountEventTimelineOptions): EventTime
   return {
     setCustomTime(date: Date | null): void {
       customTime = date;
+      if (date !== null) {
+        const t = date.getTime();
+        const pageWidth = windowEnd - windowStart;
+        if (pageWidth > 0) {
+          let pages = 0;
+          if (t > windowEnd) {
+            pages = Math.ceil((t - windowEnd) / pageWidth);
+          } else if (t < windowStart) {
+            pages = -Math.ceil((windowStart - t) / pageWidth);
+          }
+          if (pages !== 0) {
+            setWindow(windowStart + pages * pageWidth, windowEnd + pages * pageWidth);
+            return;
+          }
+        }
+      }
       renderCustomTime();
     },
     setSelectedTime(startDate: string, startTime: string, endDate: string | null, endTime: string | null): void {
